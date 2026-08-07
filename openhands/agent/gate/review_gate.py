@@ -21,11 +21,15 @@ class ReviewGateResult(Enum):
 
 @dataclass
 class GateEvaluation:
-    """Gate değerlendirme sonucu."""
+    """Gate değerlendirme sonucu.
+
+    ``scores`` değerleri ``None`` olabilir: raporda ilgili satır yoksa skor
+    *bilinmiyor* demektir, sıfır değil (bkz. F-10).
+    """
     result: ReviewGateResult
     exit_code: int
     reasons: List[str]
-    scores: Dict[str, int]
+    scores: Dict[str, Optional[int]]
     blocking_issues: List[str]
 
 
@@ -75,11 +79,20 @@ class ReviewGate:
             blocking_issues.append("Critical Risk Assessment")
         
         # 2. Quality Score Parsing
+        #
+        # A missing score is unknown, not zero. Defaulting to 0 meant that any
+        # drift in the model's report formatting scored below every threshold
+        # and blocked the merge request for a reason nobody could act on (F-10).
         quality_match = re.search(r"SOLID Compliance\*\*:\s*\[?(\d+)/100\]?", review_markdown)
-        quality_score = int(quality_match.group(1)) if quality_match else 0
+        quality_score = int(quality_match.group(1)) if quality_match else None
         scores['quality'] = quality_score
-        
-        if quality_score < self.policy.gate.quality_score_threshold:
+
+        if quality_score is None:
+            reasons.append(
+                "Quality score not reported by the review — the report is missing a "
+                "'SOLID Compliance: n/100' line, so the quality gate was not applied"
+            )
+        elif quality_score < self.policy.gate.quality_score_threshold:
             msg = f"Quality Score ({quality_score}) below threshold ({self.policy.gate.quality_score_threshold})"
             if self.policy.gate.fail_pipeline_on_quality_below > quality_score:
                 blocking_issues.append(msg)

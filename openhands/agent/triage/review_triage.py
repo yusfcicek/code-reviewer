@@ -166,7 +166,13 @@ class ReviewTriage:
         total_changes = len(added_lines) + len(removed_lines)
         
         # 2. Security-critical pattern var mı?
-        critical_match = self._check_critical_patterns(diff)
+        #
+        # Yalnızca eklenen satırlara bakılır. Tüm diff taranınca, değişmemiş
+        # context satırlarındaki bir `password` bile dosyayı CRITICAL'a
+        # yükseltiyordu; triage'ın var oluş amacı olan maliyet tasarrufu tam
+        # tersine dönüyordu (F-09). Tehlikeli bir çağrının *silinmesi* de
+        # dosyayı riskli yapmaz.
+        critical_match = self._check_critical_patterns('\n'.join(added_lines))
         if critical_match:
             return TriageResult(
                 decision=ReviewDecision.CRITICAL,

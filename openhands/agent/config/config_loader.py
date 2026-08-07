@@ -7,6 +7,7 @@ YAML dosyasından veya environment variable'lardan policy yükler.
 import os
 import yaml
 from dataclasses import dataclass, field
+from importlib import resources
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
@@ -103,66 +104,117 @@ class ReviewPolicy:
 class ReviewPolicyLoader:
     """
     Enterprise review policy'lerini yükler.
-    
+
     Yükleme sırası (öncelik):
     1. Environment variables (REVIEW_POLICY_*)
-    2. YAML dosyası (review_policy.yaml)
-    3. Default değerler
+    2. ``--policy`` ile verilen dosya
+    3. Çalışma dizinindeki bilinen dosya adları
+    4. Pakete gömülü ``review_policy.yaml``
+    5. Dataclass default değerleri
+
+    Paket içindeki dosya eskiden hiç denenmiyordu: tüm adaylar çalışma
+    dizinine göreliydi, dolayısıyla ``--policy`` verilmediğinde ajan sessizce
+    dar dataclass varsayılanlarıyla çalışıyordu (bkz. F-04).
     """
-    
+
+    #: Working-directory candidates, in order.
     DEFAULT_POLICY_PATHS = [
         "review_policy.yaml",
         ".review_policy.yaml",
         ".agent/review_policy.yaml",
         "config/review_policy.yaml",
     ]
-    
+
+    #: Package and file name of the policy shipped with the distribution.
+    PACKAGED_POLICY_ANCHOR = "openhands.agent.config"
+    PACKAGED_POLICY_NAME = "review_policy.yaml"
+
     ENV_PREFIX = "REVIEW_POLICY_"
-    
+
     def __init__(self):
         self._cached_policy: Optional[ReviewPolicy] = None
-    
+        #: Where the loaded policy came from, for diagnostics.
+        self.source: Optional[str] = None
+
     def load(self, policy_path: str = None) -> ReviewPolicy:
         """
         Policy'yi yükler. Önce dosya, sonra env var'lar kontrol edilir.
-        
+
         Args:
             policy_path: Opsiyonel YAML dosya yolu
-            
+
         Returns:
             ReviewPolicy: Yüklenen policy
         """
         # 1. Start with defaults
         policy = ReviewPolicy()
-        
+
         # 2. Try to load from file
         file_policy = self._load_from_file(policy_path)
         if file_policy:
             policy = self._merge_policies(policy, file_policy)
-        
+
         # 3. Override with environment variables
         env_overrides = self._load_from_env()
         if env_overrides:
             policy = self._merge_policies(policy, env_overrides)
-        
+
         self._cached_policy = policy
         return policy
-    
+
+    def packaged_policy_path(self) -> Optional[Path]:
+        """Absolute path of the policy file shipped inside the package."""
+        try:
+            candidate = resources.files(self.PACKAGED_POLICY_ANCHOR) / self.PACKAGED_POLICY_NAME
+            path = Path(str(candidate))
+            return path if path.is_file() else None
+        except (ModuleNotFoundError, FileNotFoundError, TypeError):
+            return None
+
+    def _candidate_paths(self, policy_path: str = None) -> List[str]:
+        """Ordered candidates: explicit, working directory, then packaged.
+
+        An explicit path that does not exist falls through rather than
+        aborting, so a stale ``--policy`` in a pipeline definition degrades to
+        the shipped rules instead of to no rules at all. The chosen source is
+        recorded in :attr:`source` and printed, because "which policy actually
+        applied" is the first question when a review surprises someone.
+        """
+        candidates = []
+        if policy_path:
+            candidates.append(policy_path)
+        candidates.extend(self.DEFAULT_POLICY_PATHS)
+
+        packaged = self.packaged_policy_path()
+        if packaged is not None:
+            candidates.append(str(packaged))
+
+        return candidates
+
     def _load_from_file(self, policy_path: str = None) -> Optional[Dict]:
         """YAML dosyasından policy yükler."""
-        # Verilen path veya default path'leri dene
-        paths_to_try = [policy_path] if policy_path else self.DEFAULT_POLICY_PATHS
-        
-        for path in paths_to_try:
-            if path and os.path.exists(path):
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        data = yaml.safe_load(f)
-                        print(f"[CONFIG] Loaded policy from: {path}")
-                        return data
-                except Exception as e:
-                    print(f"[CONFIG] Error loading {path}: {e}")
-        
+        if policy_path and not os.path.exists(policy_path):
+            print(f"[CONFIG] Policy file not found: {policy_path}; falling back.")
+
+        for path in self._candidate_paths(policy_path):
+            if not path or not os.path.exists(path):
+                continue
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f)
+            except Exception as e:
+                print(f"[CONFIG] Error loading {path}: {e}")
+                continue
+
+            if not isinstance(data, dict):
+                print(f"[CONFIG] Ignoring {path}: expected a YAML mapping.")
+                continue
+
+            self.source = path
+            print(f"[CONFIG] Loaded policy from: {path}")
+            return data
+
+        print("[CONFIG] No policy file found; using built-in defaults.")
         return None
     
     def _load_from_env(self) -> Dict:
@@ -202,41 +254,34 @@ class ReviewPolicyLoader:
         """Override'ları base policy'ye uygular."""
         if not overrides:
             return base
-        
-        # Triage overrides
-        if 'triage' in overrides:
-            for key, value in overrides['triage'].items():
-                if hasattr(base.triage, key):
-                    setattr(base.triage, key, value)
-        
-        # Security overrides
-        if 'security' in overrides:
-            for key, value in overrides['security'].items():
-                if hasattr(base.security, key):
-                    setattr(base.security, key, value)
-        
-        # Quality overrides
-        if 'quality' in overrides:
-            for key, value in overrides['quality'].items():
-                if hasattr(base.quality, key):
-                    setattr(base.quality, key, value)
-        
-        # Performance overrides
-        if 'performance' in overrides:
-            for key, value in overrides['performance'].items():
-                if hasattr(base.performance, key):
-                    setattr(base.performance, key, value)
-        
-        # Gate overrides
-        if 'gate' in overrides:
-            for key, value in overrides['gate'].items():
-                if hasattr(base.gate, key):
-                    setattr(base.gate, key, value)
-        
-        # Custom rules
-        if 'custom_rules' in overrides:
-            base.custom_rules.update(overrides['custom_rules'])
-        
+
+        # Version: a policy file that declares its own version was previously
+        # merged without it, so every report claimed the default "1.0".
+        if 'version' in overrides:
+            base.version = str(overrides['version'])
+
+        # A YAML section that is present but empty parses as None, not as an
+        # empty mapping. The shipped policy ends with a `custom_rules:` heading
+        # followed only by comments, which used to make merging raise
+        # TypeError the moment the file was actually loaded.
+        for section in ('triage', 'security', 'quality', 'performance', 'gate'):
+            values = overrides.get(section)
+            if not isinstance(values, dict):
+                if values is not None:
+                    print(f"[CONFIG] Ignoring '{section}': expected a mapping, got {type(values).__name__}.")
+                continue
+
+            target = getattr(base, section)
+            for key, value in values.items():
+                if hasattr(target, key):
+                    setattr(target, key, value)
+                else:
+                    print(f"[CONFIG] Ignoring unknown key '{section}.{key}'.")
+
+        custom_rules = overrides.get('custom_rules')
+        if isinstance(custom_rules, dict):
+            base.custom_rules.update(custom_rules)
+
         return base
     
     def get_cached(self) -> Optional[ReviewPolicy]:

@@ -7,8 +7,7 @@ for an architectural review, and turns the result into a pipeline decision.
 
 > **Status: alpha, under active repair.** This repository was imported as a
 > working prototype and is being brought up to production quality in staged
-> levels. Several advertised capabilities are implemented but not correctly
-> wired together — they are listed explicitly under
+> levels. Capabilities that are still incomplete are listed explicitly under
 > [Current status](#-current-status) rather than hidden. See
 > [`docs/roadmap/`](docs/roadmap/README.md) for the full inventory and plan.
 
@@ -58,17 +57,19 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 
 | Capability | State | Detail |
 |---|---|---|
-| Smart triage | ✅ Works | Over-escalates: security patterns are matched against the whole diff including unchanged context (F-09) |
-| Semantic / SAST / quality / performance analyzers | ✅ Work when called directly | Exposed as agent tools; a handful of individual rules misfire (F-05, F-06, F-07) |
+| Smart triage | ✅ Works | Security patterns are matched against added lines only, so unchanged context no longer escalates a file |
+| Semantic / SAST / quality / performance analyzers | ✅ Work | Exposed as agent tools and covered by tests at 83–93 % |
 | Dependency impact tracking | ✅ Works | Run automatically for every reviewed file |
-| Policy file | ⚠️ Partial | The bundled `review_policy.yaml` is **not** loaded unless you pass `--policy` (F-04); quality and performance thresholds in it are ignored by the analyzers (F-31) |
-| Review gate | ❌ Broken | The blocking path compares an enum against a string and is never taken, so the pipeline is never failed (F-01) |
+| Review gate | ✅ Works | A failing gate blocks the run and exits non-zero when the policy asks for it |
+| Agent tool loop | ✅ Works | Tool catalogue and scratchpad both use the Hermes dialect the parser reads; exercised end to end against a scripted model |
+| Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
+| Policy file | ⚠️ Partial | The bundled `review_policy.yaml` is now the default, but its quality and performance thresholds are still ignored by the analyzers, which use their own constants (F-31) |
 | Metrics | ⚠️ Partial | Only the last analysed file is exported; security, performance and issue-count fields are always `0` (F-16, F-17) |
-| Token-aware memory | ⚠️ Partial | Insights are collected and prioritised, but the context is not present in the prompt template, so the model never sees it (F-02) |
-| Agent tool loop | ❌ Broken | Tools are not bound to the model, and the scratchpad format does not match the output parser (F-03) |
-| TLS | ❌ Unsafe | The GitLab client is constructed with `ssl_verify=False` (F-20) |
+| Tool sandboxing | ⚠️ Open | Agent file tools accept any path the model asks for, with no root confinement (F-21) |
+| TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 
-Fixes are scheduled in [Level 1](docs/roadmap/README.md) of the roadmap.
+Remaining items are scheduled in [Levels 3 and 4](docs/roadmap/README.md) of
+the roadmap.
 
 ---
 
@@ -110,6 +111,8 @@ uv sync
 | `VLLM_MODEL` | yes | Model name to request |
 | `CI_PROJECT_ID` | no | Fallback for `--project-id` |
 | `CI_MERGE_REQUEST_IID` | no | Fallback for `--mr-iid` |
+| `GITLAB_CA_BUNDLE` | no | CA certificate bundle for an internal GitLab |
+| `GITLAB_SSL_VERIFY` | no | Set to `false` to disable certificate verification (not recommended) |
 
 ```bash
 export GITLAB_URL="https://gitlab.example.com"
@@ -126,9 +129,16 @@ export VLLM_MODEL="mistralai/Mistral-7B-Instruct-v0.2"
 Behaviour is driven by a policy file. A reference policy ships at
 `openhands/agent/config/review_policy.yaml`.
 
-> **It is not loaded automatically.** Pass it explicitly with `--policy`, or the
-> agent falls back to the narrower defaults defined in
-> `openhands/agent/config/config_loader.py` (finding F-04).
+It is loaded automatically. Resolution order, highest priority first:
+
+1. the path given to `--policy`
+2. `review_policy.yaml`, `.review_policy.yaml`, `.agent/review_policy.yaml` or
+   `config/review_policy.yaml` in the working directory
+3. the file bundled with the package
+4. the dataclass defaults in `openhands/agent/config/config_loader.py`
+
+The chosen source is printed at startup, because "which policy actually
+applied" is the first question when a review surprises someone.
 
 ```yaml
 triage:
@@ -165,7 +175,7 @@ uv run ai-code-review --project-id <PROJECT_ID> --mr-iid <MR_IID>
 |---|---|---|
 | `--project-id` | `$CI_PROJECT_ID` | GitLab project ID |
 | `--mr-iid` | `$CI_MERGE_REQUEST_IID` | Merge request IID |
-| `--policy` | none | Path to a policy YAML file |
+| `--policy` | bundled `review_policy.yaml` | Path to a policy YAML file |
 
 ### GitLab CI
 
@@ -195,9 +205,10 @@ uv run pytest
 uv run pytest --cov          # with coverage
 ```
 
-Current coverage is thin — 10 tests over 2 of 13 modules (finding F-35).
-Expanding it is part of the roadmap, and every behaviour change from Level 1
-onwards is written test-first.
+190 tests, 83–100 % coverage over every module except the orchestrator, which
+is scheduled for extraction in Level 2. Every behaviour change from Level 1
+onwards is written test-first: the test that pins a fix is observed failing
+before the fix lands.
 
 ---
 
@@ -209,15 +220,19 @@ onwards is written test-first.
 │   └── agent/
 │       ├── analyzers/       # semantic, dependency, SAST, quality, performance
 │       ├── config/          # policy dataclasses, YAML loader, review_policy.yaml
-│       ├── core/            # ReviewAgent and its abstract ports
-│       ├── gate/            # PASS / WARN / FAIL decision
+│       ├── core/            # ReviewAgent, its ports, token counting
+│       ├── gate/            # per-file gate and merge-request outcome
 │       ├── memory/          # SmartMemoryStrategy
 │       ├── metrics/         # Prometheus / GitLab metrics collector
-│       ├── provider/        # vLLM (OpenAI-compatible) LLM factory
+│       ├── provider/        # vLLM factory and GitLab client
 │       ├── tools/           # LangChain tool definitions
 │       ├── triage/          # review triage rules
-│       └── main.py          # CLI entry point and orchestration
-├── tests/unit/              # unit tests
+│       ├── cli.py           # argument parsing
+│       ├── report.py        # merge-request comment rendering
+│       └── main.py          # orchestration entry point
+├── tests/
+│   ├── unit/                # one component each
+│   └── integration/         # components wired together, still offline
 ├── docs/roadmap/            # findings inventory, per-level specs and plans
 └── assets/
 ```
