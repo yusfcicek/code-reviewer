@@ -10,10 +10,18 @@ Everything here runs against in-memory fakes.
 
 import unittest
 
-from code_reviewer.application.ports import CodeForge, FileChange, MergeRequestRef, Reviewer
+from code_reviewer.application.ports import (
+    CodeForge,
+    FileChange,
+    MergeRequestRef,
+    Reviewer,
+    StaticAnalysis,
+)
 from code_reviewer.application.review_service import ReviewService
+from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.gate import ReviewGateResult
 from code_reviewer.domain.policy import ReviewPolicy
+from code_reviewer.domain.severity import Severity
 from code_reviewer.domain.triage import ReviewTriage
 
 CLEAN_REVIEW = """
@@ -76,13 +84,39 @@ class ScriptedReviewer(Reviewer):
         return self.per_file.get(filename, self.report)
 
 
-def _service(forge, reviewer, policy=None):
+class RecordingAnalysis(StaticAnalysis):
+    """Returns canned findings and records which files it was asked about."""
+
+    def __init__(self, findings=None):
+        self._findings = findings or []
+        self.analysed = []
+
+    def analyze(self, file_path, content, diff=""):
+        self.analysed.append(file_path)
+        return list(self._findings)
+
+
+def _finding(severity=Severity.CRITICAL, path="src/app.py"):
+    return Finding(
+        category=FindingCategory.SECURITY,
+        severity=severity,
+        file_path=path,
+        line_number=4,
+        title="Command Injection",
+        description="eval() executes arbitrary code",
+        remediation="Use ast.literal_eval()",
+        cwe_id="CWE-95",
+    )
+
+
+def _service(forge, reviewer, policy=None, analysis=None):
     policy = policy or ReviewPolicy()
     return ReviewService(
         forge=forge,
         reviewer=reviewer,
         triage=ReviewTriage(policy),
         policy=policy,
+        analysis=analysis,
     )
 
 
@@ -262,6 +296,91 @@ class TestMetrics(unittest.TestCase):
         result = _service(forge, ScriptedReviewer(BLOCKING_REVIEW)).review(1, 2)
 
         self.assertEqual(result.metrics[0].gate_result, "fail")
+
+
+class TestStaticAnalysisIntegration(unittest.TestCase):
+    """Regression for F-32.
+
+    The analyzers were reachable only as agent tools, so whether a file got a
+    security scan depended on the model deciding to ask for one.
+    """
+
+    def test_every_reviewed_file_is_analysed(self):
+        forge = FakeForge([
+            FileChange("src/a.py", _significant_diff("a")),
+            FileChange("src/b.py", _significant_diff("b")),
+        ])
+        analysis = RecordingAnalysis()
+
+        _service(forge, ScriptedReviewer(), analysis=analysis).review(1, 2)
+
+        self.assertEqual(analysis.analysed, ["src/a.py", "src/b.py"])
+
+    def test_skipped_files_are_not_analysed(self):
+        forge = FakeForge([FileChange("docs/guide.md", "+ text")])
+        analysis = RecordingAnalysis()
+
+        _service(forge, ScriptedReviewer(), analysis=analysis).review(1, 2)
+
+        self.assertEqual(analysis.analysed, [])
+
+    def test_auto_approved_files_are_not_analysed(self):
+        forge = FakeForge([FileChange("src/app.py", "+# a comment\n")])
+        analysis = RecordingAnalysis()
+
+        _service(forge, ScriptedReviewer(), analysis=analysis).review(1, 2)
+
+        self.assertEqual(analysis.analysed, [])
+
+    def test_a_critical_finding_blocks_despite_a_clean_review(self):
+        forge = FakeForge([FileChange("src/app.py", _significant_diff())])
+        analysis = RecordingAnalysis([_finding(Severity.CRITICAL)])
+
+        result = _service(forge, ScriptedReviewer(CLEAN_REVIEW), analysis=analysis).review(1, 2)
+
+        self.assertTrue(result.outcome.is_blocking)
+        self.assertEqual(result.exit_code, 1)
+
+    def test_the_blocking_finding_appears_in_the_comment(self):
+        forge = FakeForge([FileChange("src/app.py", _significant_diff())])
+        analysis = RecordingAnalysis([_finding(Severity.CRITICAL)])
+
+        _service(forge, ScriptedReviewer(CLEAN_REVIEW), analysis=analysis).review(1, 2)
+
+        self.assertIn("src/app.py:4", forge.published[0])
+        self.assertIn("Command Injection", forge.published[0])
+
+    def test_findings_are_summarised_in_the_comment(self):
+        forge = FakeForge([FileChange("src/app.py", _significant_diff())])
+        analysis = RecordingAnalysis([_finding(Severity.MEDIUM)])
+
+        _service(forge, ScriptedReviewer(), analysis=analysis).review(1, 2)
+
+        self.assertIn("Static analysis", forge.published[0])
+
+    def test_findings_reach_the_result(self):
+        forge = FakeForge([FileChange("src/app.py", _significant_diff())])
+        analysis = RecordingAnalysis([_finding(Severity.MEDIUM)])
+
+        result = _service(forge, ScriptedReviewer(), analysis=analysis).review(1, 2)
+
+        self.assertEqual(len(result.findings), 1)
+
+    def test_metrics_break_findings_down_by_severity(self):
+        forge = FakeForge([FileChange("src/app.py", _significant_diff())])
+        analysis = RecordingAnalysis([_finding(Severity.MEDIUM), _finding(Severity.LOW)])
+
+        result = _service(forge, ScriptedReviewer(), analysis=analysis).review(1, 2)
+
+        self.assertEqual(result.metrics[0].findings_by_severity, {"medium": 1, "low": 1})
+
+    def test_without_an_analyser_the_prose_still_decides(self):
+        """A caller with no analysis configured is no worse off than before."""
+        forge = FakeForge([FileChange("src/app.py", _significant_diff())])
+
+        result = _service(forge, ScriptedReviewer(BLOCKING_REVIEW)).review(1, 2)
+
+        self.assertTrue(result.outcome.is_blocking)
 
 
 if __name__ == "__main__":

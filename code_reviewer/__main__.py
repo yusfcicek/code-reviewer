@@ -18,11 +18,13 @@ from code_reviewer.cli import parse_args
 from code_reviewer.domain.triage import ReviewTriage
 from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.forge.client import MissingCredentialsError
+from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 from code_reviewer.infrastructure.metrics.collector import MetricsCollector, ReviewMetrics
+from code_reviewer.infrastructure.tools import Workspace, set_workspace
 
 #: Where GitLab CI picks up the metrics report artifact.
 METRICS_PATH = "metrics.txt"
@@ -61,6 +63,12 @@ def run(args) -> int:
     policy = load_policy(args.policy)
     print(f"[INFO] Review policy loaded (v{policy.version})")
 
+    # Every file the agent can read is confined to the checkout it is
+    # reviewing; the paths it asks for come from the diff (finding F-21).
+    workspace = Workspace()
+    set_workspace(workspace)
+    print(f"[INFO] Tools confined to {workspace.root}")
+
     provider = LLMFactory.create_provider("vllm")
     memory = SmartMemoryStrategy(provider)
 
@@ -69,6 +77,7 @@ def run(args) -> int:
         reviewer=ReviewAgent(provider, memory),
         triage=ReviewTriage(policy),
         policy=policy,
+        analysis=StaticAnalysisSuite(policy),
     )
 
     result = service.review(args.project_id, args.mr_iid)

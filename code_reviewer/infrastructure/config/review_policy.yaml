@@ -96,6 +96,10 @@ performance:
   max_nested_loops: 3
 
 gate:
+  # Severity at or above which an analyzer finding fails the pipeline.
+  # One of: critical, high, medium, low, info.
+  blocking_severity: "critical"
+
   # Score thresholds (0-100)
   quality_score_threshold: 60
   security_score_threshold: 70

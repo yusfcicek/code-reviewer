@@ -108,6 +108,11 @@ class PerformancePolicy:
 @dataclass
 class GatePolicy:
     """Review gate politikası."""
+    #: Severity at or above which an analyzer finding fails the pipeline.
+    #: Defaults to CRITICAL only, so switching the gate onto findings does not
+    #: silently start failing pipelines that used to pass.
+    blocking_severity: str = "critical"
+
     quality_score_threshold: int = 60
     security_score_threshold: int = 70
     performance_score_threshold: int = 50
