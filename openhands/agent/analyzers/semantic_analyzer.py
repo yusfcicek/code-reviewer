@@ -88,6 +88,18 @@ class SemanticChangeAnalyzer:
     - Bütünlük kontrolü: Eksik değişiklikler varsa uyarı
     """
     
+    # Bir değişikliğin hata düzeltmesi olduğunu gösteren kelimeler. Kelime
+    # sınırlarıyla yazılır: `prefix` bir `fix` değildir (F-13).
+    BUGFIX_MARKERS = [
+        r'\bfix(es|ed|ing)?\b',
+        r'\bhotfix\b',
+        r'\bbug\b',
+        r'\bregression\b',
+        r'\bworkaround\b',
+        r'\bhata\b',
+        r'\bdüzelt(me|ildi)?\b',
+    ]
+
     # Public API işaretleyicileri
     PYTHON_PUBLIC_INDICATORS = {'def ', 'class ', 'async def '}
     CPP_PUBLIC_INDICATORS = {'public:', 'struct ', 'class ', 'extern '}
@@ -295,18 +307,25 @@ class SemanticChangeAnalyzer:
         """Değişiklik tipini sınıflandırır."""
         added_text = '\n'.join(added_lines).lower()
         removed_text = '\n'.join(removed_lines).lower()
-        
+
+        # Hiç eklenen veya çıkarılan satır yoksa sınıflandıracak bir şey yok.
+        # Bu kontrol olmadan `_is_only_style` iki boş listeyi karşılaştırıp
+        # eşit buluyor ve değişiklik STYLE olarak etiketleniyordu (F-12).
+        if not added_lines and not removed_lines:
+            return ChangeType.UNKNOWN
+
         # Sadece yorum/docstring değişikliği
         if self._is_only_documentation(added_lines, removed_lines):
             return ChangeType.DOCUMENTATION
-        
+
         # Sadece whitespace/formatting
         if self._is_only_style(added_lines, removed_lines):
             return ChangeType.STYLE
-        
-        # Bugfix işaretleri
-        bugfix_indicators = ['fix', 'bug', 'error', 'issue', 'patch', 'hata', 'düzelt']
-        if any(ind in added_text or ind in removed_text for ind in bugfix_indicators):
+
+        # Bugfix işaretleri. Kelime sınırı olmadan `prefix`, `debug` ve
+        # `error_handler` gibi sıradan tanımlayıcılar da eşleşiyordu (F-13).
+        if any(re.search(pattern, added_text) or re.search(pattern, removed_text)
+               for pattern in self.BUGFIX_MARKERS):
             return ChangeType.BUGFIX
         
         # Breaking change: public API değişti
@@ -394,13 +413,24 @@ class SemanticChangeAnalyzer:
             # Kullanım sayısını bul
             usage_count = len(re.findall(rf'\b{symbol.name}\b', full_content))
             
-            # Eğer sembol tanımlandı ama hiç kullanılmıyorsa
+            # Sembol tanımlanmış ama bu dosyada bir daha geçmiyorsa.
+            #
+            # Analiz yalnızca tek bir dosyayı görüyor, dolayısıyla başka bir
+            # modülden çağrılıp çağrılmadığını bilemez. Eski metin bunu
+            # "never called" diye kesin bir iddiaya çeviriyordu (F-14);
+            # ripple analizi için `find_references` aracı kullanılmalıdır.
             if usage_count == 1 and symbol.symbol_type == SymbolType.FUNCTION:
                 issues.append(IntegrityIssue(
-                    issue_type="orphaned_code",
-                    description=f"Function '{symbol.name}' is defined but never called",
+                    issue_type="unreferenced_in_file",
+                    description=(
+                        f"Function '{symbol.name}' is not referenced anywhere else in "
+                        f"this file — callers, if any, live in other modules"
+                    ),
                     affected_symbols=[symbol.name],
-                    suggestion="Consider if this function is needed or if callers need to be updated"
+                    suggestion=(
+                        "Run find_references to confirm whether callers exist elsewhere "
+                        "before treating this as dead code"
+                    )
                 ))
         
         return issues

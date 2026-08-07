@@ -25,6 +25,25 @@ class Severity(Enum):
     LOW = "low"
     INFO = "info"
 
+    @property
+    def rank(self) -> int:
+        """Sıralama önceliği: 0 en şiddetli.
+
+        Bulgular eskiden ``severity.value`` ile sıralanıyordu; bu alfabetik bir
+        sıra üretir (critical < high < info < low < medium) ve ilk 15 bulguya
+        yapılan kısaltma ciddi bulguları önemsizlerin lehine atıyordu (F-07).
+        """
+        return _SEVERITY_RANK[self]
+
+
+_SEVERITY_RANK = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+    Severity.INFO: 4,
+}
+
 
 class VulnerabilityType(Enum):
     """Güvenlik açığı tipleri."""
@@ -201,7 +220,11 @@ class SASTAnalyzer:
              "pickle can deserialize malicious data",
              "Avoid pickle for untrusted data. Use JSON or validate source",
              "CWE-502"),
-            (r'yaml\.load\s*\([^)]*(?!Loader\s*=)', Severity.HIGH,
+            # The lookahead has to sit immediately after the opening bracket and
+            # scan the whole argument list. Placing it after a greedy `[^)]*`
+            # let the regex engine find some position where "no Loader follows"
+            # held, so every yaml.load call matched, safe ones included (F-06).
+            (r'yaml\.load\s*\((?![^)]*Loader\s*=)', Severity.HIGH,
              "yaml.load without safe Loader is dangerous",
              "Use yaml.safe_load() or specify Loader=yaml.SafeLoader",
              "CWE-502"),
@@ -527,7 +550,7 @@ def run_sast_scan(content: str, file_path: str = "") -> str:
         output.append("\n### Security Findings:\n")
         
         # Önce critical ve high'ları göster
-        sorted_findings = sorted(report.findings, key=lambda x: x.severity.value)
+        sorted_findings = sorted(report.findings, key=lambda x: x.severity.rank)
         
         for finding in sorted_findings[:15]:  # Max 15 bulgu
             severity_icon = {

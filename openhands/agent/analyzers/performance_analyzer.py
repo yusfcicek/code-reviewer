@@ -36,6 +36,19 @@ class Severity(Enum):
     MEDIUM = "medium"
     LOW = "low"
 
+    @property
+    def rank(self) -> int:
+        """Sıralama önceliği: 0 en şiddetli (bkz. F-07)."""
+        return _SEVERITY_RANK[self]
+
+
+_SEVERITY_RANK = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+}
+
 
 @dataclass
 class PerformanceIssue:
@@ -168,7 +181,10 @@ class PerformanceAnalyzer:
                 
                 # N+1 pattern
                 report.n_plus_one_patterns = self._detect_n_plus_one(tree, content)
-                
+
+                # Quadratic string building
+                report.issues.extend(self._detect_string_concat_in_loop(tree))
+
             except SyntaxError:
                 pass
         
@@ -405,6 +421,56 @@ class PerformanceAnalyzer:
         
         return patterns
     
+    def _detect_string_concat_in_loop(self, tree: ast.AST) -> List[PerformanceIssue]:
+        """Reports ``s += "..."`` inside a loop, which rebuilds the string each pass.
+
+        This used to be attempted with a text heuristic that asked
+        ``'for ' in lines[a:b]`` — a membership test against a *list*, which is
+        only true if some line equals ``"for "`` exactly. It could never fire
+        (finding F-05).
+
+        Working from the AST also removes the false positives the text version
+        would have produced: only augmented additions whose right-hand side
+        contains a string literal are reported, so numeric accumulators such as
+        ``total += item`` stay quiet.
+        """
+        issues = []
+
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
+                continue
+
+            for child in ast.walk(node):
+                if not isinstance(child, ast.AugAssign) or not isinstance(child.op, ast.Add):
+                    continue
+                if not self._contains_string_literal(child.value):
+                    continue
+
+                target = child.target
+                name = target.id if isinstance(target, ast.Name) else ""
+                issues.append(PerformanceIssue(
+                    issue_type=PerformanceIssueType.INEFFICIENT_LOOP,
+                    severity=Severity.LOW,
+                    line_number=child.lineno,
+                    symbol_name=name,
+                    description=(
+                        f"String concatenation with += inside a loop "
+                        f"(line {child.lineno}) is O(n²)"
+                    ),
+                    suggestion="Collect the parts in a list and ''.join(...) once, or use io.StringIO",
+                ))
+
+        return issues
+
+    def _contains_string_literal(self, node: ast.AST) -> bool:
+        """True when the expression mentions a string constant or an f-string."""
+        for child in ast.walk(node):
+            if isinstance(child, ast.JoinedStr):
+                return True
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                return True
+        return False
+
     def _analyze_patterns(self, content: str) -> List[PerformanceIssue]:
         """Regex tabanlı performans pattern'lerini analiz eder."""
         issues = []
@@ -421,20 +487,6 @@ class PerformanceAnalyzer:
                         symbol_name="",
                         description=desc,
                         suggestion="Consider using generators or chunked processing"
-                    ))
-            
-            # Inefficient string concatenation in loop
-            if '+=' in line and ('str' in line.lower() or '"' in line or "'" in line):
-                # Check if inside a loop (simplified)
-                if any('for ' in lines[max(0, line_no-5):line_no] or 
-                       'while ' in lines[max(0, line_no-5):line_no] for _ in [1]):
-                    issues.append(PerformanceIssue(
-                        issue_type=PerformanceIssueType.INEFFICIENT_LOOP,
-                        severity=Severity.LOW,
-                        line_number=line_no,
-                        symbol_name="",
-                        description="String concatenation with += in loop is O(n²)",
-                        suggestion="Use ''.join(list) or io.StringIO for better performance"
                     ))
             
             # Blocking I/O patterns
@@ -572,7 +624,7 @@ def analyze_performance(content: str, file_path: str = "") -> str:
         output.append("\n### Performance Issues:\n")
         
         # Severity'ye göre sırala
-        sorted_issues = sorted(report.issues, key=lambda x: x.severity.value)
+        sorted_issues = sorted(report.issues, key=lambda x: x.severity.rank)
         
         for issue in sorted_issues[:15]:  # Max 15 issue
             severity_icon = {

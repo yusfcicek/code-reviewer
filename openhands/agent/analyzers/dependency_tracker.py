@@ -245,19 +245,31 @@ class DependencyTracker:
         return affected
     
     def _classify_usage(self, context: str, symbol_name: str) -> DependencyType:
-        """Kullanım tipini sınıflandırır."""
-        context_lower = context.lower()
-        
-        if 'import' in context_lower or 'from' in context_lower:
+        """Bir satırın sembolü nasıl kullandığını sınıflandırır.
+
+        Sıra özgüllüğe göredir: ``class Child(Target)`` hem kalıtım hem çağrı
+        gibi görünür, kalıtım daha spesifik olduğu için önce denenir.
+
+        Önceki sürüm ``import``/``from`` kelimelerini satırın herhangi bir
+        yerinde arıyordu ve son ``elif`` bir operatör önceliği hatası yüzünden
+        tüm koşulu bir ternary'ye sarıyordu (F-08).
+        """
+        symbol = re.escape(symbol_name)
+
+        if re.match(r'\s*(?:import|from)\s', context):
             return DependencyType.IMPORT
-        elif f'{symbol_name}(' in context or f'{symbol_name} (' in context:
-            return DependencyType.DIRECT_CALL
-        elif 'class' in context_lower and f'({symbol_name})' in context:
+
+        if re.search(rf'class\s+\w+\s*\([^)]*\b{symbol}\b', context):
             return DependencyType.INHERITANCE
-        elif ':' in context and symbol_name in context.split(':')[1] if ':' in context else False:
+
+        if re.search(rf'\b{symbol}\s*\(', context):
+            return DependencyType.DIRECT_CALL
+
+        # Type annotation: `name: Target` in a variable, parameter or return.
+        if re.search(rf':\s*[^=]*\b{symbol}\b', context) or re.search(rf'->\s*[^:]*\b{symbol}\b', context):
             return DependencyType.TYPE_USAGE
-        else:
-            return DependencyType.DATA_STRUCTURE
+
+        return DependencyType.DATA_STRUCTURE
     
     def _find_containing_function(self, file_path: str, target_line: int) -> str:
         """Belirli bir satırı içeren fonksiyonu bulur."""

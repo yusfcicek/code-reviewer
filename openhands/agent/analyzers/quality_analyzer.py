@@ -42,6 +42,19 @@ class IssueSeverity(Enum):
     LOW = "low"
     INFO = "info"
 
+    @property
+    def rank(self) -> int:
+        """Sıralama önceliği: 0 en şiddetli (bkz. F-07)."""
+        return _SEVERITY_RANK[self]
+
+
+_SEVERITY_RANK = {
+    IssueSeverity.HIGH: 0,
+    IssueSeverity.MEDIUM: 1,
+    IssueSeverity.LOW: 2,
+    IssueSeverity.INFO: 3,
+}
+
 
 @dataclass
 class QualityIssue:
@@ -681,7 +694,7 @@ def check_code_quality(content: str, file_path: str = "") -> str:
         output.append("\n### Quality Issues:\n")
         
         # Severity'ye göre sırala
-        sorted_issues = sorted(report.all_issues, key=lambda x: x.severity.value)
+        sorted_issues = sorted(report.all_issues, key=lambda x: x.severity.rank)
         
         for issue in sorted_issues[:15]:  # Max 15 issue
             severity_icon = {
