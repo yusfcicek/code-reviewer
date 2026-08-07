@@ -39,6 +39,8 @@ Severity legend:
 | F-18 | 🟡 | `openhands/agent/triage/review_triage.py:412-440` | `triage_changes()` accepts a `TriageConfig`, but `ReviewTriage` probes for `policy.triage`/`policy.security`. A `TriageConfig` fails those checks and silently falls back to two hard-coded patterns. |
 | F-19 | 🟡 | `openhands/agent/core/agent.py:232` and `:275` | `load_context()` is called twice; the first result is overwritten unused. |
 | F-55 | 🟡 | `openhands/agent/config/config_loader.py:201-240` | `_merge_policies` never applies `version`, so a policy file declaring `version: "2.0"` still reports `1.0` in every merge-request comment and metric. *Found while fixing F-04.* |
+| F-58 | 🟠 | `code_reviewer/application/review_service.py` | An exception from the reviewer or an analyzer on one file propagates out of the workflow, so the composition root exits 1 and every completed review is discarded — nothing is posted. One flaky model call costs the whole run. *Found while specifying Level 4.* |
+| F-59 | 🟡 | `code_reviewer/infrastructure/llm/vllm.py` | The chat model is constructed with no request timeout and no retry policy. A hung endpoint hangs the pipeline until CI's own timeout kills it, with no output and no indication of why. *Found while specifying Level 4.* |
 | F-57 | 🟠 | `openhands/agent/gate/review_gate.py:65` | The gate looked for the literal string `SAST Scan Result: FAIL`, but the prompt asks the model for `- **SAST Scan Result**: FAIL - <level>`. The emphasis markers meant the check never matched anything the agent produced, so a failed security scan on its own could not fail the gate. It appeared to work only because failing reports usually also carry a critical risk assessment. *Found while writing the workflow tests in Level 2.* |
 | F-56 | 🟠 | `openhands/agent/config/config_loader.py:238` | A YAML section that is present but empty parses as `None`, and `base.custom_rules.update(None)` raises `TypeError`. The shipped `review_policy.yaml` ends with exactly such a section, so loading the project's own policy file crashed the run. It was invisible only because F-04 meant the file was never loaded. *Found while fixing F-04.* |
 
@@ -112,7 +114,7 @@ Severity legend:
 | 1 — Correctness | F-01, F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-10, F-11, F-12, F-13, F-14, F-15, F-19, F-20, F-36, F-37, F-55, F-56 | ✅ Resolved |
 | 2 — DDD layering | F-24, F-25, F-26, F-27, F-28, F-29, F-30, F-33, F-34, F-38, F-57 | ✅ Resolved |
 | 3 — Analyzer accuracy & policy | F-21, F-22, F-23, F-31, F-32 | ✅ Resolved |
-| 4 — Observability & resilience | F-16, F-17, F-47 | 📋 Open |
+| 4 — Observability & resilience | F-16, F-17, F-47, F-58, F-59 | 📋 Open |
 | 5 — CI/CD & quality gates | F-39 *(partial from L0)*, F-44, F-45, F-48 | 📋 Open |
 | 6 — Documentation & productisation | F-46, F-54 | 📋 Open |
 
