@@ -1,0 +1,107 @@
+# Enterprise Review Policy Configuration
+# Bu dosya repo'ya commit edilebilir veya environment'tan override edilebilir
+version: "1.0"
+
+triage:
+  # Otomatik skip edilecek dosya pattern'leri
+  skip_patterns:
+    - ".*\\.md$"
+    - ".*\\.txt$"
+    - ".*\\.rst$"
+    - "README.*"
+    - "CHANGELOG.*"
+    - "LICENSE.*"
+    - "\\.gitignore"
+    - "\\.gitattributes"
+    - "\\.editorconfig"
+    - ".*\\.json$"
+    - ".*\\.yaml$"
+    - ".*\\.yml$"
+    - ".*\\.toml$"
+    - "Makefile"
+    - "Dockerfile"
+    - "docker-compose.*\\.yml"
+    - "requirements.*\\.txt$"
+    - "package.*\\.json$"
+    - "poetry.lock"
+    - "go.mod"
+    - "go.sum"
+    - ".*/docs/.*"
+    - ".*/doc/.*"
+    - ".*/\\.github/.*"
+  
+  # Otomatik approve koşulları
+  max_lines_for_auto: 10
+  max_lines_for_quick: 50
+  allow_only_comments: true
+  allow_only_formatting: true
+  allow_test_files: true
+
+security:
+  # SAST severity blocking
+  block_on_critical: true
+  block_on_high: true
+  block_on_medium: false
+  
+  # Kesinlikle izin verilmeyen pattern'ler
+  banned_patterns:
+    - "eval\\s*\\("
+    - "exec\\s*\\("
+    - "pickle\\.loads"
+    - "shell=True"
+    - "os\\.system"
+    - "subprocess\\.call"
+  
+  # Secret pattern'leri
+  secret_patterns:
+    - "password\\s*=\\s*['\"][^'\"]+['\"]"
+    - "api[_-]?key\\s*="
+    - "-----BEGIN.*PRIVATE KEY-----"
+    - "secret[_-]?key\\s*="
+    - "aws_access_key"
+    - "aws_secret_access"
+
+quality:
+  # Class/Function limits
+  max_class_methods: 15
+  max_function_lines: 100
+  max_cyclomatic_complexity: 15
+  
+  # Duplicate code
+  min_duplicate_lines: 8
+  
+  # SOLID enforcement
+  enforce_srp: true
+  enforce_dip: true
+  
+  # Error handling
+  block_empty_catches: true
+  block_generic_exceptions: false
+
+performance:
+  # Complexity alerts
+  alert_on_n_squared: true
+  alert_on_n_plus_one: true
+  alert_on_memory_leak: true
+  max_nested_loops: 3
+
+gate:
+  # Score thresholds (0-100)
+  quality_score_threshold: 60
+  security_score_threshold: 70
+  performance_score_threshold: 50
+  
+  # Pipeline behavior
+  fail_pipeline_on_critical: true
+  fail_pipeline_on_quality_below: 50
+  
+  # Notifications
+  notify_on_critical: true
+  notify_channels: []
+
+# Custom rules for specific projects
+custom_rules:
+  # Örnek: Belirli dosyalarda farklı kurallar
+  # "src/legacy/**":
+  #   quality:
+  #     max_function_lines: 200
