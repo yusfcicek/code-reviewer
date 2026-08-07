@@ -1,8 +1,9 @@
-"""
-Review Triage - Akıllı Review Karar Sistemi.
+"""Triage: deciding how much review a change deserves.
 
-Değişikliğin önemine göre review seviyesi belirler.
-Model'i gereksiz yere zorlamaz - trivial değişiklikleri atlar.
+Every file sent to the model costs tokens and wall-clock time. Triage answers
+the cheaper question first — does this change need a model at all? — so that a
+documentation tweak and a change to an authentication path are not treated
+alike.
 """
 
 import re
@@ -13,18 +14,18 @@ from .policy import ReviewPolicy
 
 
 class ReviewDecision(Enum):
-    """Review kararı seviyeleri."""
+    """How much review a change warrants."""
 
-    SKIP = "skip"  # Trivial değişiklik, review gereksiz
-    AUTO_APPROVE = "auto"  # Düşük risk, otomatik onay
-    QUICK_SCAN = "quick"  # Hızlı tarama yeterli
-    FULL_REVIEW = "full"  # Tam detaylı review
-    CRITICAL = "critical"  # Acil inceleme, blocking
+    SKIP = "skip"  # Not worth reviewing: documentation, generated files
+    AUTO_APPROVE = "auto"  # Low risk: comments, formatting, no logic change
+    QUICK_SCAN = "quick"  # Moderate change: a scan is enough
+    FULL_REVIEW = "full"  # Significant change: full architectural review
+    CRITICAL = "critical"  # Security-sensitive, or a public API removal
 
 
 @dataclass
 class TriageResult:
-    """Triage sonucu."""
+    """One file's triage decision, with the reason for it."""
 
     decision: ReviewDecision
     reason: str
@@ -35,15 +36,15 @@ class TriageResult:
 
 class ReviewTriage:
     """
-    Değişikliğin önemine göre review seviyesi belirler.
+    Decides how much review a change warrants.
 
-    Karar Sırası:
-    1. Dosya pattern'i SKIP mi? -> SKIP
-    2. Security-critical pattern var mı? -> CRITICAL
-    3. Public API değişikliği mi? -> CRITICAL
+    Decision order — the first rule that matches wins:
+    1. Does the path match a skip pattern? -> SKIP
+    2. Does an added line match a security pattern? -> CRITICAL
+    3. Does it remove a public symbol? -> CRITICAL
     4. Sadece yorum/whitespace mi? -> AUTO_APPROVE
-    5. Çok az değişiklik mi (<=10 satır)? -> AUTO_APPROVE
-    6. Orta seviye değişiklik mi (<=50 satır)? -> QUICK_SCAN
+    5. Is it small (<=10 lines) with no logic change? -> AUTO_APPROVE
+    6. Is it moderate (<=50 lines)? -> QUICK_SCAN
     7. Default -> FULL_REVIEW
     """
 
@@ -53,7 +54,7 @@ class ReviewTriage:
         self._compile_patterns()
 
     def _compile_patterns(self):
-        """Regex pattern'lerini compile eder."""
+        """Compiles the patterns once, so `decide` stays cheap per file."""
         # Triage patterns
         skip_patterns = []
         if self.policy and hasattr(self.policy, "triage"):
@@ -77,26 +78,26 @@ class ReviewTriage:
 
         # API Change patterns (Hardcoded for now as they are logic-specific)
         self.api_change_patterns = [
-            r"^-\s*def\s+\w+\s*\(",  # Fonksiyon kaldırıldı
-            r"^-\s*class\s+\w+",  # Sınıf kaldırıldı
-            r"^-\s*@api\.",  # API decorator kaldırıldı
+            r"^-\s*def\s+\w+\s*\(",  # a function was removed
+            r"^-\s*class\s+\w+",  # a class was removed
+            r"^-\s*@api\.",  # an API decorator was removed
             r"BREAKING",  # Breaking change comment
         ]
         self._api_patterns = [re.compile(p, re.MULTILINE) for p in self.api_change_patterns]
 
     def decide(self, diff: str, file_path: str, full_content: str | None = None) -> TriageResult:
         """
-        Hangi seviye review gerektiğine karar verir.
+        Decides how much review this file needs.
 
         Args:
-            diff: Git diff içeriği
-            file_path: Dosya yolu
-            full_content: Dosyanın tam içeriği (opsiyonel)
+            diff: The unified diff for this file.
+            file_path: Path of the file, used for the skip and test rules.
+            full_content: The file at the reviewed commit, when it could be read.
 
         Returns:
-            TriageResult: Karar ve gerekçe
+            TriageResult: the decision and why it was taken.
         """
-        # 1. Dosya pattern'i SKIP mi?
+        # 1. Does the path match a skip pattern?
         if self._should_skip_file(file_path):
             return TriageResult(
                 decision=ReviewDecision.SKIP,
@@ -109,13 +110,12 @@ class ReviewTriage:
         added_lines, removed_lines = self._parse_diff_lines(diff)
         total_changes = len(added_lines) + len(removed_lines)
 
-        # 2. Security-critical pattern var mı?
+        # 2. Does an added line match a security pattern?
         #
-        # Yalnızca eklenen satırlara bakılır. Tüm diff taranınca, değişmemiş
-        # context satırlarındaki bir `password` bile dosyayı CRITICAL'a
-        # yükseltiyordu; triage'ın var oluş amacı olan maliyet tasarrufu tam
-        # tersine dönüyordu (F-09). Tehlikeli bir çağrının *silinmesi* de
-        # dosyayı riskli yapmaz.
+        # Added lines only. Scanning the whole diff escalated a file to
+        # CRITICAL because of a `password` in an unchanged context line, which
+        # inverted the cost saving triage exists for (finding F-09). Deleting a
+        # dangerous call does not make a file risky either.
         critical_match = self._check_critical_patterns("\n".join(added_lines))
         if critical_match:
             return TriageResult(
@@ -126,7 +126,7 @@ class ReviewTriage:
                 details={"pattern": critical_match, "type": "security"},
             )
 
-        # 3. Public API değişikliği mi?
+        # 3. Does it remove a public symbol?
         api_match = self._check_api_changes(diff)
         if api_match:
             return TriageResult(
@@ -163,7 +163,7 @@ class ReviewTriage:
                 details={"type": "formatting_only"},
             )
 
-        # 6. Test dosyası mı ve izin veriliyor mu?
+        # 6. A test file, if the policy treats those more leniently
         if allow_test and self._is_test_file(file_path):
             if total_changes <= max_lines_quick:
                 return TriageResult(
@@ -173,9 +173,9 @@ class ReviewTriage:
                     details={"type": "test_file", "lines": total_changes},
                 )
 
-        # 7. Çok az değişiklik mi?
+        # 7. Small enough to approve without a model?
         if total_changes <= max_lines_auto:
-            # Logic değişikliği var mı kontrol et
+            # ...but only when nothing about the logic moved
             if not self._has_logic_change(added_lines, removed_lines):
                 return TriageResult(
                     decision=ReviewDecision.AUTO_APPROVE,
@@ -184,7 +184,7 @@ class ReviewTriage:
                     details={"type": "minimal_change", "lines": total_changes},
                 )
 
-        # 8. Orta seviye değişiklik mi?
+        # 8. Moderate size: a scan rather than a full review
         if total_changes <= max_lines_quick:
             return TriageResult(
                 decision=ReviewDecision.QUICK_SCAN,
@@ -202,11 +202,11 @@ class ReviewTriage:
         )
 
     def _should_skip_file(self, file_path: str) -> bool:
-        """Dosya skip edilmeli mi?"""
+        """True when the policy says this path is not worth reviewing."""
         return any(pattern.search(file_path) for pattern in self._skip_patterns)
 
     def _parse_diff_lines(self, diff: str) -> tuple[list[str], list[str]]:
-        """Diff'ten eklenen ve çıkarılan satırları ayırır."""
+        """Splits a diff into its added and removed lines."""
         added = []
         removed = []
 
@@ -219,7 +219,7 @@ class ReviewTriage:
         return added, removed
 
     def _check_critical_patterns(self, diff: str) -> str | None:
-        """Güvenlik-kritik pattern kontrolü."""
+        """Returns the first security pattern an added line matches."""
         for pattern in self._critical_patterns:
             match = pattern.search(diff)
             if match:
@@ -227,7 +227,7 @@ class ReviewTriage:
         return None
 
     def _check_api_changes(self, diff: str) -> str | None:
-        """Public API değişiklik kontrolü."""
+        """Returns the first public-API removal the diff contains."""
         for pattern in self._api_patterns:
             match = pattern.search(diff)
             if match:
@@ -235,7 +235,7 @@ class ReviewTriage:
         return None
 
     def _is_only_comments(self, added: list[str], removed: list[str]) -> bool:
-        """Sadece yorum değişikliği mi?"""
+        """True when every changed line is a comment or blank."""
         comment_patterns = [
             r"^\s*#",  # Python comment
             r"^\s*//",  # C/JS comment
@@ -260,19 +260,19 @@ class ReviewTriage:
         return True
 
     def _is_only_formatting(self, added: list[str], removed: list[str]) -> bool:
-        """Sadece formatting değişikliği mi?"""
+        """True when the change only moves whitespace around."""
         if not added or not removed:
             return False
 
-        # Whitespace'i kaldırarak karşılaştır
+        # Compare with all whitespace stripped...
         added_normalized = [re.sub(r"\s+", "", line) for line in added]
         removed_normalized = [re.sub(r"\s+", "", line) for line in removed]
 
-        # Sıralayıp karşılaştır (formatting değişikliği sonucu aynı olmalı)
+        # ...and order-independently: a pure reformat leaves the same set.
         return sorted(added_normalized) == sorted(removed_normalized)
 
     def _is_test_file(self, file_path: str) -> bool:
-        """Test dosyası mı?"""
+        """True for paths that look like test files."""
         test_patterns = [
             r"test[s]?/",
             r"_test\.",
@@ -284,7 +284,7 @@ class ReviewTriage:
         return any(re.search(p, file_path, re.IGNORECASE) for p in test_patterns)
 
     def _has_logic_change(self, added: list[str], removed: list[str]) -> bool:
-        """Mantık değişikliği var mı?"""
+        """True when a changed line touches control flow or a definition."""
         logic_patterns = [
             r"\bif\b",
             r"\belse\b",
@@ -303,7 +303,7 @@ class ReviewTriage:
 
         all_lines = added + removed
         for line in all_lines:
-            # Yorumları atla
+            # Comments cannot change logic
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith("//"):
                 continue
@@ -316,7 +316,7 @@ class ReviewTriage:
 
     def batch_decide(self, changes: list[dict]) -> list[tuple[str, TriageResult]]:
         """
-        Birden fazla değişiklik için toplu karar.
+        Triages every change in one merge request.
 
         Args:
             changes: [{"new_path": str, "diff": str, "full_content": str}, ...]
@@ -337,7 +337,7 @@ class ReviewTriage:
         return results
 
     def get_review_summary(self, results: list[tuple[str, TriageResult]]) -> str:
-        """Triage sonuçlarının özeti."""
+        """A markdown summary of how the files were triaged."""
         counts = dict.fromkeys(ReviewDecision, 0)
 
         for _, result in results:
@@ -364,11 +364,12 @@ def triage_changes(
     changes: list[dict], policy: ReviewPolicy | None = None
 ) -> tuple[list[dict], list[dict], str]:
     """
-    Convenience function - değişiklikleri triage eder.
+    Convenience wrapper that triages a list of changes.
 
-    Eskiden bir ``TriageConfig`` alıyordu; ``ReviewTriage`` ise
-    ``policy.triage``/``policy.security`` arıyordu, dolayısıyla verilen config
-    sessizce yok sayılıp iki sabit pattern'e düşülüyordu (F-18, F-30).
+    It used to take a ``TriageConfig`` while ``ReviewTriage`` looked for
+    ``policy.triage`` and ``policy.security``, so the config passed in was
+    silently ignored and two hard-coded patterns were used instead
+    (findings F-18, F-30).
 
     Returns:
         Tuple[needs_review, auto_approved, summary]

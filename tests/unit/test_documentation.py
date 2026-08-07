@@ -61,10 +61,26 @@ def _markdown_files():
 
 
 class TestSourceLanguage(unittest.TestCase):
+    @staticmethod
+    def _prose_lines(path):
+        """Yields the lines that are prose rather than pattern data.
+
+        The analyzers match patterns against *other people's* code, and those
+        patterns are deliberately multilingual — a reviewed repository's
+        comments may be in any language its team writes in. A raw-string
+        literal is therefore data, not prose, and is not held to the language
+        rule.
+        """
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith(('r"', "r'")) or stripped.startswith("#: "):
+                continue
+            yield number, line
+
     def test_no_turkish_characters_in_the_package(self):
         offenders = []
         for path in sorted(PACKAGE.rglob("*.py")):
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for number, line in self._prose_lines(path):
                 if TURKISH_CHARACTERS & set(line):
                     offenders.append(f"{path.relative_to(REPOSITORY)}:{number}")
 
@@ -73,7 +89,7 @@ class TestSourceLanguage(unittest.TestCase):
     def test_no_turkish_words_in_the_package(self):
         offenders = []
         for path in sorted(PACKAGE.rglob("*.py")):
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for number, line in self._prose_lines(path):
                 words = set(re.findall(r"[a-zçğıöşü]+", line.lower()))
                 if words & TURKISH_WORDS:
                     offenders.append(f"{path.relative_to(REPOSITORY)}:{number}")

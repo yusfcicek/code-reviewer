@@ -1,15 +1,11 @@
-"""
-Quality Analyzer - Kod Kalitesi ve SOLID Prensipleri Analizi.
+"""Design quality: SOLID, duplication, testability and error handling.
 
-SOLID prensipleri, DRY, test edilebilirlik ve hata yakalama kontrolü yapar:
-- Single Responsibility Principle (SRP)
-- Open/Closed Principle (OCP)
-- Liskov Substitution Principle (LSP)
-- Interface Segregation Principle (ISP)
-- Dependency Inversion Principle (DIP)
-- Duplicate Code Detection
-- Testability Analysis
-- Error Handling Analysis
+These are the observations a reviewer makes when the code works but will be
+unpleasant to live with: a class doing four things, a function nobody can call
+without constructing half the world, an `except` that swallows the reason.
+
+Thresholds come from the policy rather than from constants, so a team decides
+what "too many" means for their codebase.
 """
 
 import ast
@@ -24,7 +20,7 @@ from code_reviewer.domain.severity import Severity
 
 
 class IssueCategory(Enum):
-    """Kalite sorunu kategorisi."""
+    """The kinds of design problem this analyzer recognises."""
 
     SOLID_SRP = "solid_srp"  # Single Responsibility
     SOLID_OCP = "solid_ocp"  # Open/Closed
@@ -40,7 +36,7 @@ class IssueCategory(Enum):
 
 @dataclass
 class QualityIssue:
-    """Kod kalitesi sorunu."""
+    """One design problem, at one line."""
 
     category: IssueCategory
     severity: Severity
@@ -53,7 +49,7 @@ class QualityIssue:
 
 @dataclass
 class DuplicateBlock:
-    """Tekrarlanan kod bloğu."""
+    """A block of code that appears in more than one place."""
 
     hash: str
     locations: list[tuple[int, int]] = field(default_factory=list)  # (start_line, end_line)
@@ -63,7 +59,7 @@ class DuplicateBlock:
 
 @dataclass
 class SOLIDReport:
-    """SOLID prensipleri raporu."""
+    """SOLID violations, grouped by principle."""
 
     srp_issues: list[QualityIssue] = field(default_factory=list)
     ocp_issues: list[QualityIssue] = field(default_factory=list)
@@ -83,7 +79,7 @@ class SOLIDReport:
 
 @dataclass
 class TestabilityScore:
-    """Test edilebilirlik skoru."""
+    """How hard the code will be to test, as a score out of 100."""
 
     score: int  # 0-100
     issues: list[QualityIssue] = field(default_factory=list)
@@ -92,7 +88,7 @@ class TestabilityScore:
 
 @dataclass
 class ErrorHandlingReport:
-    """Hata yakalama raporu."""
+    """How the code handles failure."""
 
     issues: list[QualityIssue] = field(default_factory=list)
     try_catch_count: int = 0
@@ -103,7 +99,7 @@ class ErrorHandlingReport:
 
 @dataclass
 class QualityReport:
-    """Genel kalite raporu."""
+    """Everything the quality scan found in one file."""
 
     file_path: str
     solid_report: SOLIDReport = field(default_factory=SOLIDReport)
@@ -117,17 +113,17 @@ class QualityReport:
 
 class QualityAnalyzer:
     """
-    SOLID, DRY, test edilebilirlik ve hata yakalama analizi.
+    Checks SOLID principles, duplication, testability and error handling.
     """
 
     # Defaults, used when no policy is supplied. A QualityPolicy overrides
     # each of them: configuring a threshold used to have no effect because the
     # analyzer always read these constants (finding F-31).
-    MAX_CLASS_METHODS = 10  # SRP: Sınıf başına max method
-    MAX_FUNCTION_LINES = 50  # SRP: Fonksiyon başına max satır
+    MAX_CLASS_METHODS = 10  # SRP: public methods per class
+    MAX_FUNCTION_LINES = 50  # SRP: lines per function
     MAX_FUNCTION_PARAMS = 5  # Testability: Max parametre
     MAX_CYCLOMATIC_COMPLEXITY = 10  # Max cyclomatic complexity
-    MIN_DUPLICATE_LINES = 5  # Duplicate tespiti için min satır
+    MIN_DUPLICATE_LINES = 5  # shortest block worth calling duplication
 
     def __init__(self, policy: QualityPolicy | None = None):
         self._class_info: dict[str, dict] = {}
@@ -145,11 +141,11 @@ class QualityAnalyzer:
 
     def analyze(self, content: str, file_path: str = "") -> QualityReport:
         """
-        Kapsamlı kod kalitesi analizi yapar.
+        Analyses one file.
         """
         report = QualityReport(file_path=file_path)
 
-        # Python dosyaları için AST analizi
+        # SOLID and error handling need an AST
         if file_path.endswith(".py"):
             try:
                 tree = ast.parse(content)
@@ -159,51 +155,51 @@ class QualityAnalyzer:
             except SyntaxError:
                 pass
 
-        # Duplicate code detection (dil bağımsız)
+        # Duplication is text-level, so it works for any language
         report.duplicates = self.detect_duplicates(content)
 
-        # Tüm sorunları birleştir
+        # Fold every sub-report into one issue list
         report.all_issues = self._collect_all_issues(report)
 
-        # Kalite skoru hesapla
+        # Reduce it to a score
         report.quality_score = self._calculate_quality_score(report)
 
-        # Özet oluştur
+        # ...and a summary
         report.summary = self._generate_summary(report)
 
         return report
 
     def check_solid_principles(self, tree: ast.AST, content: str) -> SOLIDReport:
-        """SOLID prensiplerini kontrol eder."""
+        """Checks each SOLID principle the policy asks for."""
         report = SOLIDReport()
 
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                # SRP: Single Responsibility
+                # Single Responsibility
                 if self.enforce_srp:
                     report.srp_issues.extend(self._check_srp(node))
 
-                # DIP: Dependency Inversion
+                # Dependency Inversion
                 if self.enforce_dip:
                     report.dip_issues.extend(self._check_dip(node))
 
-                # ISP: Interface Segregation (abstract/base class ise)
+                # Interface Segregation, for abstract classes only
                 if self._is_abstract_class(node):
                     isp_issues = self._check_isp(node)
                     report.isp_issues.extend(isp_issues)
 
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                # SRP: Fonksiyon uzunluğu
+                # A function too long to hold in one head
                 srp_issues = self._check_function_srp(node, content)
                 report.srp_issues.extend(srp_issues)
 
         return report
 
     def _check_srp(self, class_node: ast.ClassDef) -> list[QualityIssue]:
-        """Single Responsibility Principle kontrolü."""
+        """Flags classes doing more than one job."""
         issues = []
 
-        # Method sayısı kontrolü
+        # Public surface: how much does this class promise?
         method_count = sum(
             1
             for item in class_node.body
@@ -228,7 +224,7 @@ class QualityAnalyzer:
                 )
             )
 
-        # Çok fazla instance variable
+        # State: how much does it hold?
         init_method = None
         for item in class_node.body:
             if isinstance(item, ast.FunctionDef) and item.name == "__init__":
@@ -256,10 +252,10 @@ class QualityAnalyzer:
         return issues
 
     def _check_function_srp(self, func_node: ast.FunctionDef, content: str) -> list[QualityIssue]:
-        """Fonksiyon SRP kontrolü (uzunluk, complexity)."""
+        """Flags functions that are too long or too branchy."""
         issues = []
 
-        # Satır sayısı
+        # Length
         if hasattr(func_node, "end_lineno"):
             line_count = func_node.end_lineno - func_node.lineno + 1
             if line_count > self.max_function_lines:
@@ -278,7 +274,7 @@ class QualityAnalyzer:
                     )
                 )
 
-        # Cyclomatic complexity
+        # ...and branching
         complexity = self._calculate_cyclomatic_complexity(func_node)
         if complexity > self.max_cyclomatic_complexity:
             issues.append(
@@ -296,16 +292,16 @@ class QualityAnalyzer:
         return issues
 
     def _check_dip(self, class_node: ast.ClassDef) -> list[QualityIssue]:
-        """Dependency Inversion Principle kontrolü."""
+        """Flags a class that constructs its own dependencies."""
         issues = []
 
-        # __init__ içinde somut sınıf instantiation kontrolü
+        # A concrete class built in __init__ cannot be substituted in a test
         for item in class_node.body:
             if isinstance(item, ast.FunctionDef) and item.name == "__init__":
                 for stmt in ast.walk(item):
                     if isinstance(stmt, ast.Call):
                         if isinstance(stmt.func, ast.Name):
-                            # Somut sınıf instantiation (büyük harfle başlayan)
+                            # Capitalised names are classes by convention
                             if stmt.func.id[0].isupper() and stmt.func.id not in [
                                 "Type",
                                 "Dict",
@@ -336,10 +332,10 @@ class QualityAnalyzer:
         return issues
 
     def _check_isp(self, class_node: ast.ClassDef) -> list[QualityIssue]:
-        """Interface Segregation Principle kontrolü."""
+        """Flags interfaces that demand too much of an implementer."""
         issues = []
 
-        # Abstract method sayısı
+        # How much does an implementer have to provide?
         abstract_methods = []
         for item in class_node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -365,15 +361,15 @@ class QualityAnalyzer:
         return issues
 
     def _is_abstract_class(self, class_node: ast.ClassDef) -> bool:
-        """Sınıfın abstract olup olmadığını kontrol eder."""
-        # ABC inheritance veya Meta check
+        """True when the class is meant to be subclassed rather than used."""
+        # Explicit ABC inheritance...
         for base in class_node.bases:
             if isinstance(base, ast.Name) and base.id in ["ABC", "ABCMeta"]:
                 return True
             if isinstance(base, ast.Attribute) and base.attr in ["ABC", "ABCMeta"]:
                 return True
 
-        # abstractmethod decorator kontrolü
+        # ...or an abstract method, which amounts to the same thing
         for item in class_node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for decorator in item.decorator_list:
@@ -383,7 +379,7 @@ class QualityAnalyzer:
         return False
 
     def _count_instance_variables(self, init_method: ast.FunctionDef) -> int:
-        """__init__ içindeki instance variable sayısını sayar."""
+        """Counts the attributes a constructor assigns."""
         count = 0
         for stmt in ast.walk(init_method):
             if isinstance(stmt, ast.Assign):
@@ -394,7 +390,7 @@ class QualityAnalyzer:
         return count
 
     def _calculate_cyclomatic_complexity(self, func_node: ast.FunctionDef) -> int:
-        """Cyclomatic complexity hesaplar."""
+        """Counts the independent paths through a function."""
         complexity = 1  # Base complexity
 
         for node in ast.walk(func_node):
@@ -410,18 +406,18 @@ class QualityAnalyzer:
         return complexity
 
     def detect_duplicates(self, content: str) -> list[DuplicateBlock]:
-        """Tekrarlanan kod bloklarını tespit eder."""
+        """Finds identical blocks repeated in the file."""
         duplicates = []
         lines = content.split("\n")
 
-        # Normalize edilmiş satır hash'leri
+        # Normalise first: indentation and spacing are not duplication
         normalized_lines = []
         for i, line in enumerate(lines):
             normalized = self._normalize_line(line)
-            if normalized:  # Boş satırları atla
+            if normalized:  # blank lines are not code
                 normalized_lines.append((i + 1, normalized))
 
-        # Sliding window ile blok hash'leri
+        # Hash a sliding window of lines
         block_size = self.min_duplicate_lines
         block_hashes: dict[str, list[int]] = defaultdict(list)
 
@@ -431,7 +427,7 @@ class QualityAnalyzer:
             start_line = normalized_lines[i][0]
             block_hashes[block_hash].append(start_line)
 
-        # Tekrarlananları bul
+        # A hash seen twice is a block seen twice
         for hash_val, starts in block_hashes.items():
             if len(starts) > 1:
                 duplicates.append(
@@ -446,24 +442,24 @@ class QualityAnalyzer:
         return duplicates
 
     def _normalize_line(self, line: str) -> str:
-        """Satırı karşılaştırma için normalize eder."""
+        """Normalises a line so that formatting does not hide duplication."""
         stripped = line.strip()
 
-        # Yorum ve boş satırları atla
+        # Comments and blanks are not code
         if not stripped or stripped.startswith("#") or stripped.startswith("//"):
             return ""
 
-        # Whitespace'i normalize et
+        # Collapse runs of whitespace
         return re.sub(r"\s+", " ", stripped)
 
     def analyze_testability(self, tree: ast.AST, content: str) -> TestabilityScore:
-        """Test edilebilirlik analizi."""
+        """Scores how easily the code can be tested."""
         issues = []
         score = 100
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                # Çok fazla parametre
+                # Every parameter is another thing a test has to construct
                 param_count = len(node.args.args)
                 if param_count > self.max_function_params:
                     issues.append(
@@ -479,7 +475,7 @@ class QualityAnalyzer:
                     )
                     score -= 5
 
-                # Global state kullanımı
+                # Global state has to be set up and torn down
                 globals_used = self._find_global_usage(node)
                 if globals_used:
                     issues.append(
@@ -498,7 +494,7 @@ class QualityAnalyzer:
                     score -= 10
 
             elif isinstance(node, ast.ClassDef):
-                # Singleton pattern (test edilmesi zor)
+                # A singleton cannot be replaced in a test
                 if self._is_singleton(node):
                     issues.append(
                         QualityIssue(
@@ -518,7 +514,7 @@ class QualityAnalyzer:
         )
 
     def _find_global_usage(self, func_node: ast.FunctionDef) -> list[str]:
-        """Fonksiyon içinde kullanılan global değişkenleri bulur."""
+        """The globals a function declares it will write to."""
         globals_used = []
 
         for stmt in func_node.body:
@@ -528,7 +524,7 @@ class QualityAnalyzer:
         return globals_used
 
     def _is_singleton(self, class_node: ast.ClassDef) -> bool:
-        """Singleton pattern tespiti."""
+        """True when the class looks like a singleton."""
         for item in class_node.body:
             if isinstance(item, ast.FunctionDef):
                 if item.name in ["get_instance", "getInstance", "instance"]:
@@ -538,7 +534,7 @@ class QualityAnalyzer:
         return False
 
     def check_error_handling(self, tree: ast.AST) -> ErrorHandlingReport:
-        """Hata yakalama analizi."""
+        """Checks how failure is handled."""
         report = ErrorHandlingReport()
 
         for node in ast.walk(tree):
@@ -546,7 +542,7 @@ class QualityAnalyzer:
                 report.try_catch_count += 1
 
                 for handler in node.handlers:
-                    # Boş except bloğu
+                    # An empty handler discards the reason
                     if self._is_empty_handler(handler):
                         report.empty_catches += 1
                         report.issues.append(
@@ -563,7 +559,7 @@ class QualityAnalyzer:
                             )
                         )
 
-                    # Generic exception
+                    # A bare or overly broad handler catches too much
                     if handler.type is None:
                         report.generic_exceptions += 1
                         report.issues.append(
@@ -595,7 +591,7 @@ class QualityAnalyzer:
                             )
                         )
 
-                # Finally eksik (resource management varsa)
+                # A resource acquired in a try wants a finally or a with
                 if not node.finalbody and self._has_resource_management(node):
                     report.missing_finally += 1
                     report.issues.append(
@@ -615,7 +611,7 @@ class QualityAnalyzer:
         return report
 
     def _is_empty_handler(self, handler: ast.ExceptHandler) -> bool:
-        """Except bloğunun boş olup olmadığını kontrol eder."""
+        """True when the handler does nothing with the exception."""
         if len(handler.body) == 0:
             return True
         if len(handler.body) == 1:
@@ -627,7 +623,7 @@ class QualityAnalyzer:
         return False
 
     def _has_resource_management(self, try_node: ast.Try) -> bool:
-        """Try bloğunda kaynak yönetimi olup olmadığını kontrol eder."""
+        """True when the try block acquires something that needs releasing."""
         resource_patterns = ["open", "connect", "acquire", "lock", "socket"]
 
         for stmt in ast.walk(try_node):
@@ -641,7 +637,7 @@ class QualityAnalyzer:
         return False
 
     def _collect_all_issues(self, report: QualityReport) -> list[QualityIssue]:
-        """Tüm sorunları tek listede toplar."""
+        """Folds every sub-report into one issue list."""
         issues = []
 
         issues.extend(report.solid_report.srp_issues)
@@ -656,7 +652,7 @@ class QualityAnalyzer:
         if report.error_handling:
             issues.extend(report.error_handling.issues)
 
-        # Duplicate code issues
+        # Duplication, once per repeated block
         for dup in report.duplicates:
             if len(dup.locations) > 1:
                 issues.append(
@@ -674,10 +670,10 @@ class QualityAnalyzer:
         return issues
 
     def _calculate_quality_score(self, report: QualityReport) -> int:
-        """Kalite skoru hesaplar (0-100)."""
+        """Reduces the issues to a score out of 100."""
         score = 100
 
-        # Issue severity penalties
+        # Each issue costs according to how much it matters
         for issue in report.all_issues:
             if issue.severity == Severity.HIGH:
                 score -= 10
@@ -689,7 +685,7 @@ class QualityAnalyzer:
         return max(0, score)
 
     def _generate_summary(self, report: QualityReport) -> str:
-        """Kalite raporu özeti oluşturur."""
+        """A short summary a reviewer reads before the issue list."""
         parts = []
 
         score = report.quality_score
@@ -742,14 +738,15 @@ class QualityAnalyzer:
 
 def check_code_quality(content: str, file_path: str = "", policy: QualityPolicy | None = None) -> str:
     """
-    Tool wrapper - Kod kalitesi analizi yapar.
+    Runs the analysis and renders it as markdown, for the agent's tool call.
 
     Args:
-        content: Dosya içeriği
-        file_path: Dosya yolu
+        content: The file's text.
+        file_path: Used to decide whether an AST pass is possible.
+        policy: Thresholds to apply; the defaults are used without one.
 
     Returns:
-        Formatlanmış kalite raporu
+        The report as markdown.
     """
     analyzer = QualityAnalyzer(policy)
     report = analyzer.analyze(content, file_path)
@@ -760,7 +757,7 @@ def check_code_quality(content: str, file_path: str = "", policy: QualityPolicy 
     if report.all_issues:
         output.append("\n### Quality Issues:\n")
 
-        # Severity'ye göre sırala
+        # Most severe first: the truncation below must not drop them
         sorted_issues = sorted(report.all_issues, key=lambda issue: issue.severity)
 
         for issue in sorted_issues[:15]:  # Max 15 issue

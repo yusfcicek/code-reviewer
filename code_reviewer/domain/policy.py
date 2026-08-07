@@ -51,7 +51,7 @@ DEFAULT_SKIP_PATTERNS = [
 
 @dataclass
 class TriagePolicy:
-    """Triage politikası."""
+    """Which files are reviewed, and how much review each one warrants."""
 
     skip_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_SKIP_PATTERNS))
     max_lines_for_auto: int = 10
@@ -63,7 +63,7 @@ class TriagePolicy:
 
 @dataclass
 class SecurityPolicy:
-    """Güvenlik politikası."""
+    """What counts as a security problem, and what blocks on it."""
 
     block_on_critical: bool = True
     block_on_high: bool = True
@@ -84,7 +84,7 @@ class SecurityPolicy:
 
 @dataclass
 class QualityPolicy:
-    """Kod kalite politikası."""
+    """Thresholds the quality analyzer enforces."""
 
     max_class_methods: int = 15
     max_function_lines: int = 100
@@ -102,7 +102,7 @@ class QualityPolicy:
 
 @dataclass
 class PerformancePolicy:
-    """Performans politikası."""
+    """Which performance rule families run, and at what threshold."""
 
     alert_on_n_squared: bool = True
     alert_on_n_plus_one: bool = True
@@ -112,7 +112,7 @@ class PerformancePolicy:
 
 @dataclass
 class GatePolicy:
-    """Review gate politikası."""
+    """How findings and scores translate into a pipeline verdict."""
 
     #: Severity at or above which an analyzer finding fails the pipeline.
     #: Defaults to CRITICAL only, so switching the gate onto findings does not
@@ -138,7 +138,7 @@ class GatePolicy:
 
 @dataclass
 class ReviewPolicy:
-    """Tüm review politikalarını kapsayan ana yapı."""
+    """The complete set of rules one review runs under."""
 
     version: str = "1.0"
 

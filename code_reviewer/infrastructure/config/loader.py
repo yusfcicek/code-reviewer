@@ -26,18 +26,18 @@ logger = get_logger(__name__)
 
 class ReviewPolicyLoader:
     """
-    Enterprise review policy'lerini yükler.
+    Loads the review policy.
 
-    Yükleme sırası (öncelik):
-    1. Environment variables (REVIEW_POLICY_*)
-    2. ``--policy`` ile verilen dosya
-    3. Çalışma dizinindeki bilinen dosya adları
-    4. Pakete gömülü ``review_policy.yaml``
-    5. Dataclass default değerleri
+    Resolution order, highest priority first:
+    1. environment variables (``REVIEW_POLICY_*``)
+    2. the file given to ``--policy``
+    3. known file names in the working directory
+    4. the ``review_policy.yaml`` bundled with the package
+    5. the dataclass defaults
 
-    Paket içindeki dosya eskiden hiç denenmiyordu: tüm adaylar çalışma
-    dizinine göreliydi, dolayısıyla ``--policy`` verilmediğinde ajan sessizce
-    dar dataclass varsayılanlarıyla çalışıyordu (bkz. F-04).
+    The packaged file used to be unreachable: every candidate path was relative
+    to the working directory, so without an explicit ``--policy`` the agent ran
+    silently on the narrow dataclass defaults (finding F-04).
     """
 
     #: Working-directory candidates, in order.
@@ -61,13 +61,13 @@ class ReviewPolicyLoader:
 
     def load(self, policy_path: str | None = None) -> ReviewPolicy:
         """
-        Policy'yi yükler. Önce dosya, sonra env var'lar kontrol edilir.
+        Loads the policy: the file first, then environment overrides.
 
         Args:
-            policy_path: Opsiyonel YAML dosya yolu
+            policy_path: Optional path to a YAML policy file.
 
         Returns:
-            ReviewPolicy: Yüklenen policy
+            ReviewPolicy: the resolved policy.
         """
         # 1. Start with defaults
         policy = ReviewPolicy()
@@ -115,7 +115,7 @@ class ReviewPolicyLoader:
         return candidates
 
     def _load_from_file(self, policy_path: str | None = None) -> dict | None:
-        """YAML dosyasından policy yükler."""
+        """Reads the first candidate file that parses as a mapping."""
         if policy_path and not os.path.exists(policy_path):
             logger.warning("Policy file not found; falling back", extra={"fields": {"path": policy_path}})
 
@@ -146,10 +146,10 @@ class ReviewPolicyLoader:
         return None
 
     def _load_from_env(self) -> dict:
-        """Environment variable'lardan override'ları yükler."""
+        """Collects the REVIEW_POLICY_* overrides that are set."""
         overrides = {}
 
-        # Bilinen env var'ları kontrol et
+        # Only these variables are recognised; anything else is ignored.
         env_mappings = {
             "REVIEW_POLICY_MAX_LINES_AUTO": ("triage", "max_lines_for_auto", int),
             "REVIEW_POLICY_MAX_LINES_QUICK": ("triage", "max_lines_for_quick", int),
@@ -182,11 +182,11 @@ class ReviewPolicyLoader:
         return overrides
 
     def _parse_bool(self, value: str) -> bool:
-        """String'i bool'a çevirir."""
+        """Reads a boolean from an environment string."""
         return value.lower() in ("true", "1", "yes", "on")
 
     def _merge_policies(self, base: ReviewPolicy, overrides: dict) -> ReviewPolicy:
-        """Override'ları base policy'ye uygular."""
+        """Applies a mapping of overrides onto a policy in place."""
         if not overrides:
             return base
 
@@ -225,11 +225,11 @@ class ReviewPolicyLoader:
         return base
 
     def get_cached(self) -> ReviewPolicy | None:
-        """Cache'lenmiş policy'yi döner."""
+        """The policy from the last successful load, if there was one."""
         return self._cached_policy
 
     def to_yaml(self, policy: ReviewPolicy) -> str:
-        """Policy'yi YAML string'e çevirir."""
+        """Serialises a policy back to YAML, for generating a starter file."""
         data = {
             "version": policy.version,
             "triage": {
@@ -265,10 +265,10 @@ class ReviewPolicyLoader:
 
 
 def load_policy(policy_path: str | None = None) -> ReviewPolicy:
-    """Convenience function - policy yükler."""
+    """Loads a policy: the common case, without constructing a loader."""
     return ReviewPolicyLoader().load(policy_path)
 
 
 def get_default_policy() -> ReviewPolicy:
-    """Default policy döner."""
+    """The policy that applies when no file and no overrides are found."""
     return ReviewPolicy()

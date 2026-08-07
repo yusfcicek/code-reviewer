@@ -1,11 +1,10 @@
-"""
-Memory Strategies - Gelişmiş bellek yönetimi stratejileri.
+"""Token-aware memory carried between the files of one review.
 
-Token-aware, priority-based memory yönetimi:
-- Kritik bilgilerin korunması
-- Otomatik özetleme
-- Etkilenen kod takibi
-- Chunk-based dosya okuma
+A merge request is reviewed file by file, but the interesting findings are
+cross-file: a struct changed here breaks a caller there. Memory carries those
+findings forward under a token budget, and when the budget runs short it
+compresses the least important material first — never the security or breaking
+change insights, which are the reason the memory exists.
 """
 
 from collections.abc import Callable
@@ -22,17 +21,17 @@ logger = get_logger(__name__)
 
 
 class InsightPriority(Enum):
-    """Insight öncelik seviyesi."""
+    """How readily an insight may be compressed away."""
 
-    CRITICAL = "critical"  # Asla özetlenmez (breaking changes, security)
-    HIGH = "high"  # Son özetlenir
-    NORMAL = "normal"  # Normal özetleme
-    LOW = "low"  # İlk özetlenir
+    CRITICAL = "critical"  # never summarised: security, breaking changes
+    HIGH = "high"  # summarised last
+    NORMAL = "normal"  # summarised when the budget tightens
+    LOW = "low"  # summarised first
 
 
 @dataclass
 class MemoryInsight:
-    """Yapılandırılmış memory insight."""
+    """One finding carried forward, with its priority and cost."""
 
     content: str
     priority: InsightPriority = InsightPriority.NORMAL
@@ -43,21 +42,20 @@ class MemoryInsight:
 
 class SmartMemoryStrategy(MemoryStrategy):
     """
-    Token-aware, priority-based memory yönetimi.
+    Priority-based memory under a token budget.
 
-    Özellikler:
-    - Kritik bilgileri korur (güvenlik, breaking changes)
-    - Gerektiğinde otomatik özetleme
-    - Git diff dışı etkilenen kodları takip eder
-    - Büyük dosyaları chunk'lar halinde işler
+    - keeps security and breaking-change insights whatever the pressure
+    - summarises the rest, least important first
+    - tracks code affected outside the diff
+    - chunks large files rather than inlining them whole
     """
 
     # Default token limits
     DEFAULT_MAX_TOKENS = 100000
-    SUMMARIZE_THRESHOLD = 0.8  # %80 dolulukta özetleme başlat
-    CRITICAL_RESERVED = 10000  # Kritik bilgiler için rezerv
+    SUMMARIZE_THRESHOLD = 0.8  # start compressing at 80 % of the budget
+    CRITICAL_RESERVED = 10000  # held back for critical insights
 
-    # Kategori -> Priority mapping
+    # Which priority each insight tag carries
     CATEGORY_PRIORITIES: ClassVar[dict[str, InsightPriority]] = {
         "SECURITY": InsightPriority.CRITICAL,
         "BREAKING": InsightPriority.CRITICAL,
@@ -92,7 +90,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         self.normal_insights: list[MemoryInsight] = []  # Normal summarization
         self.low_insights: list[MemoryInsight] = []  # Summarized first
 
-        # Affected code tracking (git diff dışı)
+        # Code affected outside the diff
         self.affected_codes: list[AffectedCode] = []
 
         # File chunks for large files
@@ -105,10 +103,10 @@ class SmartMemoryStrategy(MemoryStrategy):
 
     def log_insight(self, insight: str):
         """
-        Insight'ı uygun priority ile kaydeder.
+        Stores an insight at the priority its category implies.
 
-        Format: [CATEGORY] message
-        Örnek: [SECURITY] SQL injection found in user_input.py
+        Format: ``[CATEGORY] message``
+        Example: ``[SECURITY] SQL injection found in user_input.py``
         """
         # Parse category from insight. The full text is stored, tag included,
         # because the tag is what makes the context readable in the prompt.
@@ -154,14 +152,14 @@ class SmartMemoryStrategy(MemoryStrategy):
         line_number: int = 0,
     ):
         """
-        Git diff'te görünmeyen ama etkilenen kodu memory'e ekler.
+        Records code the change reaches without appearing in its diff.
 
         Args:
-            file_path: Etkilenen dosya yolu
-            symbol_name: Fonksiyon/sınıf adı
-            reason: Neden etkilendiği (örn: 'data_structure_dependency')
-            content_preview: İlgili kod parçası
-            line_number: Satır numarası
+            file_path: Where the affected code lives.
+            symbol_name: The function or class affected.
+            reason: Why it is affected, e.g. "struct field renamed".
+            content_preview: The relevant source, truncated for the prompt.
+            line_number: Where in the file, when known.
         """
         entry = AffectedCode(
             file_path=file_path,
@@ -182,8 +180,10 @@ class SmartMemoryStrategy(MemoryStrategy):
 
     def load_context(self) -> str:
         """
-        Öncelik sırasına göre context string oluşturur.
-        Kritik bilgiler her zaman dahil edilir.
+        Renders the memory as prompt context, most important first.
+
+        Critical insights are always included; lower priorities are dropped
+        when the budget will not hold them.
         """
         parts = ["# SMART MEMORY CONTEXT\n"]
 
@@ -199,7 +199,7 @@ class SmartMemoryStrategy(MemoryStrategy):
             for insight in self.high_insights[:20]:  # Limit display
                 parts.append(f"- {insight.content}")
 
-        # Affected codes (git diff dışı)
+        # Code affected outside the diff
         if self.affected_codes:
             parts.append("\n## 🔗 AFFECTED CODE (Not in Git Diff)")
             for entry in self.affected_codes[:10]:
@@ -227,10 +227,10 @@ class SmartMemoryStrategy(MemoryStrategy):
 
     def summarize_if_needed(self) -> bool:
         """
-        Token limiti aşıldığında otomatik özetleme yapar.
+        Compresses memory if it has crossed the summarisation threshold.
 
         Returns:
-            bool: Özetleme yapıldı mı
+            bool: whether anything was summarised.
         """
         self._update_token_count()
         threshold = int(self.max_tokens * self.SUMMARIZE_THRESHOLD)
@@ -285,7 +285,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         return summarized
 
     def _create_summary(self, insights: list[MemoryInsight]) -> str:
-        """Insight listesini özetler."""
+        """Compresses a bucket of insights into a short summary."""
         content = "\n".join([i.content for i in insights])
 
         # Simple summary - in production, use LLM
@@ -299,15 +299,16 @@ class SmartMemoryStrategy(MemoryStrategy):
 
     def chunk_large_file(self, content: str, file_path: str, chunk_size: int = 2000) -> list[str]:
         """
-        Büyük dosyayı chunk'lara ayırır ve cache'ler.
+        Splits a large file into cached chunks.
 
         Args:
-            content: Dosya içeriği
-            file_path: Dosya yolu
-            chunk_size: Chunk başına karakter sayısı
+            content: The file's text.
+            file_path: Cache key; a second call for the same path reuses the
+                chunks rather than resplitting.
+            chunk_size: Approximate characters per chunk.
 
         Returns:
-            List[str]: Chunk listesi
+            The chunks, in order.
         """
         if file_path in self.file_chunks:
             return self.file_chunks[file_path]
@@ -336,8 +337,9 @@ class SmartMemoryStrategy(MemoryStrategy):
 
     def get_priority_context(self) -> str:
         """
-        Sadece kritik ve yüksek öncelikli bilgileri döner.
-        Token tasarrufu için kullanılır.
+        Only the critical insights and affected code.
+
+        Used when the budget is too tight for the full context.
         """
         parts = ["# PRIORITY CONTEXT (Token-Optimized)\n"]
 
@@ -354,12 +356,12 @@ class SmartMemoryStrategy(MemoryStrategy):
         return "\n".join(parts)
 
     def save_context(self, input_text: str, output_text: str) -> None:
-        """Context'i kaydeder ve gerekirse özetler."""
+        """Records an interaction and compresses memory if it is under pressure."""
         # Check for memory triggers
         self.summarize_if_needed()
 
     def _update_token_count(self):
-        """Toplam token kullanımını günceller."""
+        """Recomputes the running token total."""
         total = 0
 
         for insight in self.critical_insights:
@@ -379,11 +381,11 @@ class SmartMemoryStrategy(MemoryStrategy):
         self.total_tokens_used = total
 
     def _estimate_context_tokens(self, parts: list[str]) -> int:
-        """Context parçalarının token sayısını tahmin eder."""
+        """Estimates what the rendered context will cost."""
         return sum(self.count_tokens(p) for p in parts)
 
     def get_stats(self) -> dict:
-        """Memory istatistiklerini döner."""
+        """Counts per bucket, plus the token budget and how much of it is used."""
         return {
             "total_tokens": self.total_tokens_used,
             "max_tokens": self.max_tokens,
