@@ -38,6 +38,8 @@ Severity legend:
 | F-17 | 🟡 | `openhands/agent/main.py:152-161` | `security_score`, `performance_score`, `critical_issues`, `high_issues` and `medium_issues` are never populated, so the exported metrics always report `0`. README advertises "detailed review metrics". |
 | F-18 | 🟡 | `openhands/agent/triage/review_triage.py:412-440` | `triage_changes()` accepts a `TriageConfig`, but `ReviewTriage` probes for `policy.triage`/`policy.security`. A `TriageConfig` fails those checks and silently falls back to two hard-coded patterns. |
 | F-19 | 🟡 | `openhands/agent/core/agent.py:232` and `:275` | `load_context()` is called twice; the first result is overwritten unused. |
+| F-55 | 🟡 | `openhands/agent/config/config_loader.py:201-240` | `_merge_policies` never applies `version`, so a policy file declaring `version: "2.0"` still reports `1.0` in every merge-request comment and metric. *Found while fixing F-04.* |
+| F-56 | 🟠 | `openhands/agent/config/config_loader.py:238` | A YAML section that is present but empty parses as `None`, and `base.custom_rules.update(None)` raises `TypeError`. The shipped `review_policy.yaml` ends with exactly such a section, so loading the project's own policy file crashed the run. It was invisible only because F-04 meant the file was never loaded. *Found while fixing F-04.* |
 
 ## B. Security
 
@@ -106,7 +108,7 @@ Severity legend:
 | Level | Findings |
 |---|---|
 | 0 — Foundation & documentation truth | F-40, F-41, F-42, F-43, F-44 *(scaffold)*, F-46 *(partial)*, F-49, F-50, F-51, F-52, F-53 |
-| 1 — Correctness | F-01, F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-10, F-11, F-12, F-13, F-14, F-15, F-19, F-20, F-36, F-37 |
+| 1 — Correctness | F-01, F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-10, F-11, F-12, F-13, F-14, F-15, F-19, F-20, F-36, F-37, F-55, F-56 |
 | 2 — DDD layering | F-24, F-25, F-26, F-27, F-28, F-29, F-30, F-33, F-34, F-38 |
 | 3 — Analyzer accuracy & policy | F-16, F-17, F-18, F-21, F-22, F-31, F-32, F-35 |
 | 4 — Observability & resilience | F-16, F-17, F-47 |
