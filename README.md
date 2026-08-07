@@ -308,6 +308,17 @@ fails if that direction is ever reversed.
 
 ---
 
+## 📚 Documentation
+
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
+| [docs/adr/](docs/adr/README.md) | Eight decision records: what was decided, why, and what it costs |
+| [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory and the seven levels of work it produced |
+| [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
+| [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branching, commits, the TDD expectation, the design rules |
+
 ## 🤝 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
