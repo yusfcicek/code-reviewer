@@ -65,6 +65,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
 | Policy file | ⚠️ Partial | The bundled `review_policy.yaml` is now the default, but its quality and performance thresholds are still ignored by the analyzers, which use their own constants (F-31) |
 | Metrics | ⚠️ Partial | Only the last analysed file is exported; security, performance and issue-count fields are always `0` (F-16, F-17) |
+| Analyzer results feeding the gate | ⚠️ Open | The gate still recovers numbers by parsing the model's prose rather than reading what the analyzers computed (F-32) |
 | Tool sandboxing | ⚠️ Open | Agent file tools accept any path the model asks for, with no root confinement (F-21) |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 
@@ -127,7 +128,7 @@ export VLLM_MODEL="mistralai/Mistral-7B-Instruct-v0.2"
 ## ⚙️ Configuration
 
 Behaviour is driven by a policy file. A reference policy ships at
-`openhands/agent/config/review_policy.yaml`.
+`code_reviewer/infrastructure/config/review_policy.yaml`.
 
 It is loaded automatically. Resolution order, highest priority first:
 
@@ -135,7 +136,7 @@ It is loaded automatically. Resolution order, highest priority first:
 2. `review_policy.yaml`, `.review_policy.yaml`, `.agent/review_policy.yaml` or
    `config/review_policy.yaml` in the working directory
 3. the file bundled with the package
-4. the dataclass defaults in `openhands/agent/config/config_loader.py`
+4. the dataclass defaults in `code_reviewer/infrastructure/config/loader.py`
 
 The chosen source is printed at startup, because "which policy actually
 applied" is the first question when a review surprises someone.
@@ -205,10 +206,10 @@ uv run pytest
 uv run pytest --cov          # with coverage
 ```
 
-190 tests, 83–100 % coverage over every module except the orchestrator, which
-is scheduled for extraction in Level 2. Every behaviour change from Level 1
-onwards is written test-first: the test that pins a fix is observed failing
-before the fix lands.
+259 tests. The domain and application layers sit at 86–100 % coverage; the
+review workflow runs entirely against in-memory fakes, with no network and no
+GitLab. Every behaviour change from Level 1 onwards is written test-first: the
+test that pins a fix is observed failing before the fix lands.
 
 ---
 
@@ -216,29 +217,39 @@ before the fix lands.
 
 ```
 .
-├── openhands/
-│   └── agent/
-│       ├── analyzers/       # semantic, dependency, SAST, quality, performance
-│       ├── config/          # policy dataclasses, YAML loader, review_policy.yaml
-│       ├── core/            # ReviewAgent, its ports, token counting
-│       ├── gate/            # per-file gate and merge-request outcome
-│       ├── memory/          # SmartMemoryStrategy
-│       ├── metrics/         # Prometheus / GitLab metrics collector
-│       ├── provider/        # vLLM factory and GitLab client
-│       ├── tools/           # LangChain tool definitions
-│       ├── triage/          # review triage rules
-│       ├── cli.py           # argument parsing
-│       ├── report.py        # merge-request comment rendering
-│       └── main.py          # orchestration entry point
+├── code_reviewer/
+│   ├── domain/                  rules of code review — no I/O, no frameworks
+│   │   ├── severity.py          the one ordered Severity
+│   │   ├── finding.py           Finding, FindingCategory, AffectedCode
+│   │   ├── policy.py            ReviewPolicy and its sections
+│   │   ├── triage.py            triage decisions
+│   │   ├── gate.py              per-file PASS / WARN / FAIL
+│   │   └── outcome.py           merge-request-level verdict
+│   ├── application/             the workflow and the ports it needs
+│   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer
+│   │   ├── review_service.py    the use case
+│   │   └── report.py            merge-request comment rendering
+│   ├── infrastructure/          adapters onto the outside world
+│   │   ├── analyzers/           semantic, dependency, SAST, quality, performance
+│   │   ├── config/              YAML loader + review_policy.yaml
+│   │   ├── forge/               GitLab client and CodeForge adapter
+│   │   ├── llm/                 vLLM provider, review agent, token counting
+│   │   ├── memory/              SmartMemoryStrategy
+│   │   ├── metrics/             Prometheus / GitLab exporter
+│   │   └── tools/               LangChain tool definitions
+│   ├── cli.py                   argument parsing
+│   └── __main__.py              composition root
 ├── tests/
-│   ├── unit/                # one component each
-│   └── integration/         # components wired together, still offline
-├── docs/roadmap/            # findings inventory, per-level specs and plans
+│   ├── unit/{domain,application,infrastructure}/
+│   └── integration/
+├── docs/roadmap/                findings inventory, per-level specs and plans
 └── assets/
 ```
 
-This layout is technical rather than domain-oriented and is scheduled to be
-restructured into domain / application / infrastructure layers in Level 2.
+Dependencies point one way: `infrastructure → application → domain`. The domain
+imports nothing but the standard library, so its rules are testable without a
+single mock. `tests/unit/test_architecture.py` parses every module's imports and
+fails if that direction is ever reversed.
 
 ---
 
