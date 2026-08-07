@@ -27,7 +27,7 @@ Every level follows the same three-step rhythm:
 
 | Level | Theme | Status |
 |---|---|---|
-| [0](level-0/spec.md) | Foundation & documentation truth | 🚧 In progress |
+| [0](level-0/spec.md) | Foundation & documentation truth | ✅ Done |
 | 1 | Correctness — fix behaviour that silently does nothing | 📋 Planned |
 | 2 | DDD layering — domain, application, infrastructure | 📋 Planned |
 | 3 | Analyzer accuracy & policy enforcement | 📋 Planned |
