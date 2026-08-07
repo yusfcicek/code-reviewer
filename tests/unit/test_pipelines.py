@@ -93,9 +93,7 @@ class TestPreCommit(unittest.TestCase):
         self.assertTrue(PRE_COMMIT.is_file(), f"{PRE_COMMIT} is missing")
 
         config = _load(PRE_COMMIT)
-        hook_ids = {
-            hook["id"] for repo in config["repos"] for hook in repo.get("hooks", [])
-        }
+        hook_ids = {hook["id"] for repo in config["repos"] for hook in repo.get("hooks", [])}
 
         self.assertIn("ruff-check", hook_ids | {h.replace("ruff", "ruff-check") for h in hook_ids})
         self.assertTrue(any("ruff" in hook_id for hook_id in hook_ids))
