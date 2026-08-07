@@ -15,6 +15,10 @@ from code_reviewer.application.ports import MemoryStrategy, LLMProvider
 from code_reviewer.domain.finding import AffectedCode
 from code_reviewer.infrastructure.llm.token_counter import HeuristicTokenCounter
 
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class InsightPriority(Enum):
     """Insight öncelik seviyesi."""
@@ -231,7 +235,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         if self.total_tokens_used < threshold:
             return False
         
-        print(f"[MEMORY] Summarization triggered. Usage: {self.total_tokens_used}/{self.max_tokens}")
+        logger.info("Memory summarisation triggered", extra={"fields": {"used": self.total_tokens_used, "budget": self.max_tokens}})
         
         # Summarize in order: low -> normal -> high (never critical)
         summarized = False
@@ -263,7 +267,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         if summarized:
             self.summarization_count += 1
             self._update_token_count()
-            print(f"[MEMORY] After summarization: {self.total_tokens_used}/{self.max_tokens}")
+            logger.info("Memory summarised", extra={"fields": {"used": self.total_tokens_used, "budget": self.max_tokens}})
         
         return summarized
     

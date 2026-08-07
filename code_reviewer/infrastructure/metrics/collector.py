@@ -13,6 +13,10 @@ from typing import List, Dict, Any, Optional
 
 from code_reviewer.domain.triage import ReviewDecision
 
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class ReviewMetrics:
@@ -91,7 +95,7 @@ class MetricsCollector:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
         except Exception as e:
-            print(f"Error exporting metrics to {file_path}: {e}")
+            logger.error("Could not export metrics", extra={"fields": {"path": file_path, "error": str(e)}})
     
     def export_json(self, file_path: str = "review_metrics.json"):
         """JSON formatında kaydeder."""
@@ -100,4 +104,4 @@ class MetricsCollector:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"Error exporting JSON metrics: {e}")
+            logger.error("Could not export JSON metrics", extra={"fields": {"path": file_path, "error": str(e)}})
