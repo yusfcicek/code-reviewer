@@ -9,6 +9,7 @@ from .performance import PerformanceAnalyzer
 from .quality import QualityAnalyzer
 from .sast import SASTAnalyzer
 from .semantic import SemanticChangeAnalyzer
+from .suite import StaticAnalysisSuite
 
 __all__ = [
     "DependencyTracker",
@@ -16,4 +17,5 @@ __all__ = [
     "QualityAnalyzer",
     "SASTAnalyzer",
     "SemanticChangeAnalyzer",
+    "StaticAnalysisSuite",
 ]

@@ -14,6 +14,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
+from code_reviewer.domain.finding import Finding
+
 
 @dataclass(frozen=True)
 class FileChange:
@@ -94,6 +96,18 @@ class MemoryStrategy(ABC):
     @abstractmethod
     def log_insight(self, insight: str) -> None:
         """Stores one finding, tagged with its category."""
+
+
+class StaticAnalysis(ABC):
+    """Deterministic analysis of one file.
+
+    Declared here so the workflow can guarantee that every reviewed file is
+    analysed, whether or not the model chooses to call a tool (finding F-32).
+    """
+
+    @abstractmethod
+    def analyze(self, file_path: str, content: str, diff: str = "") -> List[Finding]:
+        """Returns findings for one file, most severe first."""
 
 
 class Reviewer(ABC):

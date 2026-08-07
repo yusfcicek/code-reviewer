@@ -8,8 +8,10 @@ missing must not be treated as a report scoring zero (F-10).
 
 import unittest
 
-from code_reviewer.infrastructure.config.loader import ReviewPolicy
+from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.gate import ReviewGate, ReviewGateResult
+from code_reviewer.domain.policy import ReviewPolicy
+from code_reviewer.domain.severity import Severity
 
 PASSING_REPORT = """
 # 🏛️ Architectural Review Summary
@@ -75,12 +77,12 @@ class TestReviewGate(unittest.TestCase):
         evaluation = self.gate.evaluate(report)
 
         self.assertEqual(evaluation.result, ReviewGateResult.FAIL)
-        self.assertIn("SAST Scan Failed", evaluation.reasons)
+        self.assertTrue(any("SAST Scan Failed" in reason for reason in evaluation.reasons))
 
     def test_sast_pass_is_not_read_as_a_failure(self):
         evaluation = self.gate.evaluate(PASSING_REPORT)
 
-        self.assertNotIn("SAST Scan Failed", evaluation.reasons)
+        self.assertFalse(any("SAST Scan Failed" in reason for reason in evaluation.reasons))
 
     def test_result_is_an_enum_not_a_string(self):
         """Regression for F-01.
@@ -148,6 +150,128 @@ class TestReviewGate(unittest.TestCase):
 
         self.assertEqual(evaluation.result, ReviewGateResult.WARN)
         self.assertIn("Breaking Changes Detected", evaluation.reasons)
+
+
+class TestFindingsDriveTheDecision(unittest.TestCase):
+    """Regression for F-32.
+
+    The gate recovered a quality score and a risk level by running regular
+    expressions over the model's prose, even though the analyzers had already
+    computed both. The pipeline decision therefore rested on the model's
+    formatting — F-57 was one instance of that fragility.
+    """
+
+    def setUp(self):
+        self.gate = ReviewGate(ReviewPolicy())
+
+    def _finding(self, severity, title="Command Injection", line=7):
+        return Finding(
+            category=FindingCategory.SECURITY,
+            severity=severity,
+            file_path="src/app.py",
+            line_number=line,
+            title=title,
+            description="eval() executes arbitrary code",
+            remediation="Use ast.literal_eval() for data parsing",
+            cwe_id="CWE-95",
+        )
+
+    def test_a_critical_finding_blocks_however_clean_the_prose(self):
+        evaluation = self.gate.evaluate(PASSING_REPORT, [self._finding(Severity.CRITICAL)])
+
+        self.assertEqual(evaluation.result, ReviewGateResult.FAIL)
+        self.assertTrue(evaluation.blocking_issues)
+
+    def test_the_blocking_issue_names_the_location(self):
+        evaluation = self.gate.evaluate(PASSING_REPORT, [self._finding(Severity.CRITICAL)])
+
+        self.assertIn("src/app.py:7", evaluation.blocking_issues[0])
+
+    def test_the_blocking_finding_is_returned_for_the_report(self):
+        finding = self._finding(Severity.CRITICAL)
+
+        evaluation = self.gate.evaluate(PASSING_REPORT, [finding])
+
+        self.assertEqual(evaluation.blocking_findings, [finding])
+
+    def test_unparseable_prose_with_clean_findings_passes(self):
+        evaluation = self.gate.evaluate("The change looks fine to me.", [])
+
+        self.assertEqual(evaluation.result, ReviewGateResult.PASS)
+
+    def test_a_high_finding_warns_under_the_default_threshold(self):
+        evaluation = self.gate.evaluate(PASSING_REPORT, [self._finding(Severity.HIGH)])
+
+        self.assertEqual(evaluation.result, ReviewGateResult.WARN)
+        self.assertEqual(evaluation.blocking_issues, [])
+
+    def test_the_blocking_threshold_is_policy_driven(self):
+        policy = ReviewPolicy()
+        policy.gate.blocking_severity = "high"
+        gate = ReviewGate(policy)
+
+        evaluation = gate.evaluate(PASSING_REPORT, [self._finding(Severity.HIGH)])
+
+        self.assertEqual(evaluation.result, ReviewGateResult.FAIL)
+
+    def test_the_quality_score_is_computed_from_findings(self):
+        evaluation = self.gate.evaluate(PASSING_REPORT, [self._finding(Severity.MEDIUM)])
+
+        # One MEDIUM finding costs its weight, not the 88 the prose claims.
+        self.assertEqual(evaluation.scores["quality"], 100 - Severity.MEDIUM.weight)
+
+    def test_a_clean_analysis_scores_full_marks(self):
+        evaluation = self.gate.evaluate("prose the parser cannot read", [])
+
+        self.assertEqual(evaluation.scores["quality"], 100)
+
+    def test_no_analysis_leaves_the_score_unknown(self):
+        """`None` means the analysis did not run; `[]` means it ran and was
+        clean. Only the first leaves the score unknown."""
+        evaluation = self.gate.evaluate("prose the parser cannot read")
+
+        self.assertIsNone(evaluation.scores["quality"])
+
+    def test_enough_findings_drive_the_score_below_the_threshold(self):
+        findings = [self._finding(Severity.MEDIUM, line=i) for i in range(12)]
+
+        evaluation = self.gate.evaluate(PASSING_REPORT, findings)
+
+        self.assertEqual(evaluation.result, ReviewGateResult.FAIL)
+
+    def test_reasons_say_which_source_produced_them(self):
+        evaluation = self.gate.evaluate(SAST_FAILING_REPORT, [self._finding(Severity.MEDIUM)])
+
+        self.assertTrue(any(reason.startswith("[analysis]") for reason in evaluation.reasons))
+        self.assertTrue(any(reason.startswith("[review]") for reason in evaluation.reasons))
+
+    def test_prose_alone_cannot_block_when_findings_are_available(self):
+        """A model that phrases its report alarmingly does not fail a build on
+        its own; an analyzer finding does."""
+        evaluation = self.gate.evaluate(SAST_FAILING_REPORT, [self._finding(Severity.LOW)])
+
+        self.assertEqual(evaluation.result, ReviewGateResult.WARN)
+
+
+class TestScoreFromFindings(unittest.TestCase):
+    def test_no_findings_scores_one_hundred(self):
+        self.assertEqual(ReviewGate.score_from_findings([]), 100)
+
+    def test_the_score_never_goes_negative(self):
+        findings = [
+            Finding(
+                category=FindingCategory.SECURITY,
+                severity=Severity.CRITICAL,
+                file_path="a.py",
+                line_number=i,
+                title="t",
+                description="d",
+                remediation="r",
+            )
+            for i in range(20)
+        ]
+
+        self.assertEqual(ReviewGate.score_from_findings(findings), 0)
 
 
 if __name__ == "__main__":

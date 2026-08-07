@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Set, Optional, Tuple
 
+from code_reviewer.domain.policy import PerformancePolicy
 from code_reviewer.domain.severity import Severity
 
 
@@ -132,9 +133,21 @@ class PerformanceAnalyzer:
         (r'\*\s*\d{4,}', "large allocation"),
     ]
     
-    def __init__(self):
+    #: Loop nesting at or above which a function is reported. A
+    #: PerformancePolicy overrides it, along with the switches for each rule
+    #: family; configuring them used to have no effect (finding F-31).
+    MAX_NESTED_LOOPS = 2
+
+    def __init__(self, policy: Optional[PerformancePolicy] = None):
         self._loop_depth = 0
         self._current_function = ""
+
+        # A policy states the deepest acceptable nesting; the analyzer reports
+        # anything deeper, so the alert threshold is one past the limit.
+        self.max_nested_loops = policy.max_nested_loops if policy else self.MAX_NESTED_LOOPS
+        self.alert_on_n_squared = policy.alert_on_n_squared if policy else True
+        self.alert_on_n_plus_one = policy.alert_on_n_plus_one if policy else True
+        self.alert_on_memory_leak = policy.alert_on_memory_leak if policy else True
     
     def analyze(self, content: str, file_path: str = "") -> PerformanceReport:
         """
@@ -158,10 +171,12 @@ class PerformanceAnalyzer:
                 report.complexity_reports = self._analyze_complexity(tree)
                 
                 # Memory leak riskleri
-                report.memory_leak_risks = self._detect_memory_leaks(tree)
-                
+                if self.alert_on_memory_leak:
+                    report.memory_leak_risks = self._detect_memory_leaks(tree)
+
                 # N+1 pattern
-                report.n_plus_one_patterns = self._detect_n_plus_one(tree, content)
+                if self.alert_on_n_plus_one:
+                    report.n_plus_one_patterns = self._detect_n_plus_one(tree, content)
 
                 # Quadratic string building
                 report.issues.extend(self._detect_string_concat_in_loop(tree))
@@ -226,10 +241,10 @@ class PerformanceAnalyzer:
         )
         
         # Uyarılar ekle
-        if max_depth >= 2:
+        if self.alert_on_n_squared and max_depth >= self.max_nested_loops:
             report.issues.append(PerformanceIssue(
                 issue_type=PerformanceIssueType.HIGH_COMPLEXITY,
-                severity=Severity.HIGH if max_depth >= 3 else Severity.MEDIUM,
+                severity=Severity.HIGH if max_depth > self.max_nested_loops else Severity.MEDIUM,
                 line_number=func_node.lineno,
                 symbol_name=func_node.name,
                 description=f"Function has {max_depth} levels of nested loops",
@@ -584,7 +599,7 @@ class PerformanceAnalyzer:
         return '\n'.join(parts)
 
 
-def analyze_performance(content: str, file_path: str = "") -> str:
+def analyze_performance(content: str, file_path: str = "", policy: Optional[PerformancePolicy] = None) -> str:
     """
     Tool wrapper - Performans analizi yapar.
     
@@ -595,7 +610,7 @@ def analyze_performance(content: str, file_path: str = "") -> str:
     Returns:
         Formatlanmış performans raporu
     """
-    analyzer = PerformanceAnalyzer()
+    analyzer = PerformanceAnalyzer(policy)
     report = analyzer.analyze(content, file_path)
     
     output = [f"## ⚡ Performance Analysis: `{file_path or 'Code'}`\n"]

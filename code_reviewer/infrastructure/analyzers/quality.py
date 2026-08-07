@@ -19,6 +19,7 @@ from enum import Enum
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
 
+from code_reviewer.domain.policy import QualityPolicy
 from code_reviewer.domain.severity import Severity
 import hashlib
 
@@ -108,16 +109,28 @@ class QualityAnalyzer:
     SOLID, DRY, test edilebilirlik ve hata yakalama analizi.
     """
     
-    # Thresholds
+    # Defaults, used when no policy is supplied. A QualityPolicy overrides
+    # each of them: configuring a threshold used to have no effect because the
+    # analyzer always read these constants (finding F-31).
     MAX_CLASS_METHODS = 10          # SRP: Sınıf başına max method
     MAX_FUNCTION_LINES = 50         # SRP: Fonksiyon başına max satır
     MAX_FUNCTION_PARAMS = 5         # Testability: Max parametre
     MAX_CYCLOMATIC_COMPLEXITY = 10  # Max cyclomatic complexity
     MIN_DUPLICATE_LINES = 5         # Duplicate tespiti için min satır
-    
-    def __init__(self):
+
+    def __init__(self, policy: Optional[QualityPolicy] = None):
         self._class_info: Dict[str, Dict] = {}
         self._function_info: Dict[str, Dict] = {}
+
+        self.max_class_methods = policy.max_class_methods if policy else self.MAX_CLASS_METHODS
+        self.max_function_lines = policy.max_function_lines if policy else self.MAX_FUNCTION_LINES
+        self.max_cyclomatic_complexity = (
+            policy.max_cyclomatic_complexity if policy else self.MAX_CYCLOMATIC_COMPLEXITY
+        )
+        self.min_duplicate_lines = policy.min_duplicate_lines if policy else self.MIN_DUPLICATE_LINES
+        self.max_function_params = self.MAX_FUNCTION_PARAMS
+        self.enforce_srp = policy.enforce_srp if policy else True
+        self.enforce_dip = policy.enforce_dip if policy else True
     
     def analyze(self, content: str, file_path: str = "") -> QualityReport:
         """
@@ -156,12 +169,12 @@ class QualityAnalyzer:
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 # SRP: Single Responsibility
-                srp_issues = self._check_srp(node)
-                report.srp_issues.extend(srp_issues)
-                
+                if self.enforce_srp:
+                    report.srp_issues.extend(self._check_srp(node))
+
                 # DIP: Dependency Inversion
-                dip_issues = self._check_dip(node)
-                report.dip_issues.extend(dip_issues)
+                if self.enforce_dip:
+                    report.dip_issues.extend(self._check_dip(node))
                 
                 # ISP: Interface Segregation (abstract/base class ise)
                 if self._is_abstract_class(node):
@@ -186,13 +199,13 @@ class QualityAnalyzer:
             and not item.name.startswith('_')
         )
         
-        if method_count > self.MAX_CLASS_METHODS:
+        if method_count > self.max_class_methods:
             issues.append(QualityIssue(
                 category=IssueCategory.SOLID_SRP,
                 severity=Severity.MEDIUM,
                 line_number=class_node.lineno,
                 symbol_name=class_node.name,
-                description=f"Class '{class_node.name}' has {method_count} public methods (max: {self.MAX_CLASS_METHODS})",
+                description=f"Class '{class_node.name}' has {method_count} public methods (max: {self.max_class_methods})",
                 suggestion="Consider splitting into multiple smaller classes with focused responsibilities",
                 metrics={"method_count": method_count}
             ))
@@ -226,20 +239,20 @@ class QualityAnalyzer:
         # Satır sayısı
         if hasattr(func_node, 'end_lineno'):
             line_count = func_node.end_lineno - func_node.lineno + 1
-            if line_count > self.MAX_FUNCTION_LINES:
+            if line_count > self.max_function_lines:
                 issues.append(QualityIssue(
                     category=IssueCategory.SOLID_SRP,
                     severity=Severity.MEDIUM,
                     line_number=func_node.lineno,
                     symbol_name=func_node.name,
-                    description=f"Function '{func_node.name}' is {line_count} lines (max: {self.MAX_FUNCTION_LINES})",
+                    description=f"Function '{func_node.name}' is {line_count} lines (max: {self.max_function_lines})",
                     suggestion="Break down into smaller, focused functions",
                     metrics={"line_count": line_count}
                 ))
         
         # Cyclomatic complexity
         complexity = self._calculate_cyclomatic_complexity(func_node)
-        if complexity > self.MAX_CYCLOMATIC_COMPLEXITY:
+        if complexity > self.max_cyclomatic_complexity:
             issues.append(QualityIssue(
                 category=IssueCategory.MAINTAINABILITY,
                 severity=Severity.HIGH,
@@ -361,7 +374,7 @@ class QualityAnalyzer:
                 normalized_lines.append((i + 1, normalized))
         
         # Sliding window ile blok hash'leri
-        block_size = self.MIN_DUPLICATE_LINES
+        block_size = self.min_duplicate_lines
         block_hashes: Dict[str, List[int]] = defaultdict(list)
         
         for i in range(len(normalized_lines) - block_size + 1):
@@ -402,7 +415,7 @@ class QualityAnalyzer:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 # Çok fazla parametre
                 param_count = len(node.args.args)
-                if param_count > self.MAX_FUNCTION_PARAMS:
+                if param_count > self.max_function_params:
                     issues.append(QualityIssue(
                         category=IssueCategory.TESTABILITY,
                         severity=Severity.MEDIUM,
@@ -654,7 +667,7 @@ class QualityAnalyzer:
         return '\n'.join(parts)
 
 
-def check_code_quality(content: str, file_path: str = "") -> str:
+def check_code_quality(content: str, file_path: str = "", policy: Optional[QualityPolicy] = None) -> str:
     """
     Tool wrapper - Kod kalitesi analizi yapar.
     
@@ -665,7 +678,7 @@ def check_code_quality(content: str, file_path: str = "") -> str:
     Returns:
         Formatlanmış kalite raporu
     """
-    analyzer = QualityAnalyzer()
+    analyzer = QualityAnalyzer(policy)
     report = analyzer.analyze(content, file_path)
     
     output = [f"## 📊 Code Quality Analysis: `{file_path or 'Code'}`\n"]

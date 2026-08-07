@@ -3,32 +3,42 @@
 version: "1.0"
 
 triage:
-  # Otomatik skip edilecek dosya pattern'leri
+  # Skipped outright: prose a reviewer reads anyway, and machine-generated
+  # lock files that are enormous and contain nothing a human would act on.
+  #
+  # Deliberately NOT skipped: Dockerfiles, pipeline definitions, Kubernetes
+  # manifests, Terraform and dependency manifests. Those are exactly where a
+  # privilege escalation, a changed base image or a swapped dependency hides.
   skip_patterns:
+    # Documentation
     - ".*\\.md$"
     - ".*\\.txt$"
     - ".*\\.rst$"
-    - "README.*"
-    - "CHANGELOG.*"
-    - "LICENSE.*"
-    - "\\.gitignore"
-    - "\\.gitattributes"
-    - "\\.editorconfig"
-    - ".*\\.json$"
-    - ".*\\.yaml$"
-    - ".*\\.yml$"
-    - ".*\\.toml$"
-    - "Makefile"
-    - "Dockerfile"
-    - "docker-compose.*\\.yml"
-    - "requirements.*\\.txt$"
-    - "package.*\\.json$"
-    - "poetry.lock"
-    - "go.mod"
-    - "go.sum"
-    - ".*/docs/.*"
-    - ".*/doc/.*"
-    - ".*/\\.github/.*"
+    - ".*\\.adoc$"
+    - "^LICENSE"
+    - "^CHANGELOG"
+    - "^AUTHORS"
+    # Repository metadata
+    - "\\.gitignore$"
+    - "\\.gitattributes$"
+    - "\\.editorconfig$"
+    - "\\.dockerignore$"
+    # Generated lock files
+    - "(^|/)uv\\.lock$"
+    - "(^|/)poetry\\.lock$"
+    - "(^|/)Pipfile\\.lock$"
+    - "(^|/)package-lock\\.json$"
+    - "(^|/)yarn\\.lock$"
+    - "(^|/)pnpm-lock\\.yaml$"
+    - "(^|/)Cargo\\.lock$"
+    - "(^|/)composer\\.lock$"
+    - "(^|/)Gemfile\\.lock$"
+    - "(^|/)go\\.sum$"
+    # Binary and vendored content
+    - "\\.(png|jpe?g|gif|svg|ico|pdf|woff2?|ttf|eot)$"
+    - "(^|/)vendor/"
+    - "(^|/)node_modules/"
+    - "(^|/)\\.min\\.(js|css)$"
   
   # Otomatik approve koşulları
   max_lines_for_auto: 10
@@ -86,6 +96,10 @@ performance:
   max_nested_loops: 3
 
 gate:
+  # Severity at or above which an analyzer finding fails the pipeline.
+  # One of: critical, high, medium, low, info.
+  blocking_severity: "critical"
+
   # Score thresholds (0-100)
   quality_score_threshold: 60
   security_score_threshold: 70

@@ -37,14 +37,27 @@ Classifies each changed file before any LLM call:
 
 ### 🛡️ 3. Policy and gate
 - Rules are declared in `review_policy.yaml` — skip patterns, banned patterns,
-  secret patterns, quality thresholds and pipeline behaviour.
-- The **review gate** turns a review report into `PASS`, `WARN` or `FAIL`.
+  secret patterns, quality thresholds and pipeline behaviour. Thresholds are
+  enforced: raising `max_class_methods` changes what is reported.
+- Every reviewed file is analysed **unconditionally**, not only when the model
+  asks for it, and the findings drive the decision.
+- The **review gate** turns findings and the review report into `PASS`, `WARN`
+  or `FAIL`. Findings block; the model's prose warns. Each reason names its
+  source, so an analyzer's verdict is distinguishable from the model's opinion.
+- `gate.blocking_severity` sets how severe a finding has to be to fail a
+  pipeline. It defaults to `critical`.
 
-### 📈 4. Metrics
+### 🔒 4. Confinement
+Every file the agent reads is resolved against the checkout under review and
+refused if it lands outside — including through `..` and symlinks. The paths the
+agent asks for ultimately come from the diff, so anyone who can open a merge
+request could otherwise attempt to steer them.
+
+### 📈 5. Metrics
 Review duration and quality score are exported in Prometheus text format for
 GitLab's `metrics` report artifact.
 
-### 🧠 5. Token-aware memory
+### 🧠 6. Token-aware memory
 `SmartMemoryStrategy` keeps findings in priority buckets, never summarises
 `SECURITY` or `BREAKING` insights, and compresses lower-priority context first.
 
@@ -63,10 +76,11 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Review gate | ✅ Works | A failing gate blocks the run and exits non-zero when the policy asks for it |
 | Agent tool loop | ✅ Works | Tool catalogue and scratchpad both use the Hermes dialect the parser reads; exercised end to end against a scripted model |
 | Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
-| Policy file | ⚠️ Partial | The bundled `review_policy.yaml` is now the default, but its quality and performance thresholds are still ignored by the analyzers, which use their own constants (F-31) |
+| Policy file | ✅ Works | The bundled `review_policy.yaml` is the default, and its thresholds change what the analyzers report |
+| Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
+| Tool sandboxing | ✅ Works | Every file tool resolves against a workspace root and refuses paths outside it, including traversal and symlinks |
 | Metrics | ⚠️ Partial | Only the last analysed file is exported; security, performance and issue-count fields are always `0` (F-16, F-17) |
-| Analyzer results feeding the gate | ⚠️ Open | The gate still recovers numbers by parsing the model's prose rather than reading what the analyzers computed (F-32) |
-| Tool sandboxing | ⚠️ Open | Agent file tools accept any path the model asks for, with no root confinement (F-21) |
+| Logging | ⚠️ Open | Diagnostics are `print()` calls with hand-written prefixes; no levels, no structure (F-47) |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 
 Remaining items are scheduled in [Levels 3 and 4](docs/roadmap/README.md) of
@@ -154,10 +168,20 @@ security:
     - "eval\\s*\\("
     - "exec\\s*\\("
 
+quality:
+  max_class_methods: 15
+  max_cyclomatic_complexity: 15
+
 gate:
+  blocking_severity: "critical"   # critical | high | medium | low | info
   quality_score_threshold: 60
   fail_pipeline_on_critical: true
 ```
+
+Documentation, generated lock files, binary assets and vendored trees are
+skipped by default. Dockerfiles, pipeline definitions, Kubernetes manifests,
+Terraform and dependency manifests are **not** — that is where a privilege
+escalation or a changed base image hides.
 
 Selected values can be overridden from the environment with `REVIEW_POLICY_*`
 variables — see `ReviewPolicyLoader._load_from_env` for the supported keys.
@@ -206,7 +230,7 @@ uv run pytest
 uv run pytest --cov          # with coverage
 ```
 
-259 tests. The domain and application layers sit at 86–100 % coverage; the
+350 tests. The domain and application layers sit at 88–100 % coverage; the
 review workflow runs entirely against in-memory fakes, with no network and no
 GitLab. Every behaviour change from Level 1 onwards is written test-first: the
 test that pins a fix is observed failing before the fix lands.
@@ -230,13 +254,13 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── review_service.py    the use case
 │   │   └── report.py            merge-request comment rendering
 │   ├── infrastructure/          adapters onto the outside world
-│   │   ├── analyzers/           semantic, dependency, SAST, quality, performance
+│   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
 │   │   ├── forge/               GitLab client and CodeForge adapter
 │   │   ├── llm/                 vLLM provider, review agent, token counting
 │   │   ├── memory/              SmartMemoryStrategy
 │   │   ├── metrics/             Prometheus / GitLab exporter
-│   │   └── tools/               LangChain tool definitions
+│   │   └── tools/               tool definitions + workspace confinement
 │   ├── cli.py                   argument parsing
 │   └── __main__.py              composition root
 ├── tests/

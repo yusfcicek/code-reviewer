@@ -10,14 +10,50 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 
+#: Files worth skipping: prose a reviewer reads anyway, and machine-generated
+#: lock files that are enormous and contain nothing a human would act on.
+#:
+#: Deliberately *not* skipped: Dockerfiles, pipeline definitions, Kubernetes
+#: manifests, Terraform and dependency manifests. Earlier defaults excluded
+#: every `.yaml`, `.json` and `Dockerfile`, which is precisely where privilege
+#: escalation, a changed base image or a swapped dependency hides (F-22).
+DEFAULT_SKIP_PATTERNS = [
+    # Documentation
+    r".*\.md$",
+    r".*\.txt$",
+    r".*\.rst$",
+    r".*\.adoc$",
+    r"^LICENSE",
+    r"^CHANGELOG",
+    r"^AUTHORS",
+    # Repository metadata
+    r"\.gitignore$",
+    r"\.gitattributes$",
+    r"\.editorconfig$",
+    r"\.dockerignore$",
+    # Generated lock files
+    r"(^|/)uv\.lock$",
+    r"(^|/)poetry\.lock$",
+    r"(^|/)Pipfile\.lock$",
+    r"(^|/)package-lock\.json$",
+    r"(^|/)yarn\.lock$",
+    r"(^|/)pnpm-lock\.yaml$",
+    r"(^|/)Cargo\.lock$",
+    r"(^|/)composer\.lock$",
+    r"(^|/)Gemfile\.lock$",
+    r"(^|/)go\.sum$",
+    # Binary and vendored content
+    r"\.(png|jpe?g|gif|svg|ico|pdf|woff2?|ttf|eot)$",
+    r"(^|/)vendor/",
+    r"(^|/)node_modules/",
+    r"(^|/)\.min\.(js|css)$",
+]
+
+
 @dataclass
 class TriagePolicy:
     """Triage politikası."""
-    skip_patterns: List[str] = field(default_factory=lambda: [
-        r".*\.md$", r".*\.txt$", r".*\.rst$", r"README.*", r"CHANGELOG.*", r"LICENSE.*",
-        r"\.gitignore", r"\.gitattributes", r".*\.json$", r".*\.yaml$", r".*\.yml$",
-        r"requirements.*\.txt$", r"package.*\.json$", r"Dockerfile", r"Makefile"
-    ])
+    skip_patterns: List[str] = field(default_factory=lambda: list(DEFAULT_SKIP_PATTERNS))
     max_lines_for_auto: int = 10
     max_lines_for_quick: int = 50
     allow_only_comments: bool = True
@@ -72,6 +108,11 @@ class PerformancePolicy:
 @dataclass
 class GatePolicy:
     """Review gate politikası."""
+    #: Severity at or above which an analyzer finding fails the pipeline.
+    #: Defaults to CRITICAL only, so switching the gate onto findings does not
+    #: silently start failing pipelines that used to pass.
+    blocking_severity: str = "critical"
+
     quality_score_threshold: int = 60
     security_score_threshold: int = 70
     performance_score_threshold: int = 50
