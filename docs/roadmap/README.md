@@ -33,7 +33,7 @@ Every level follows the same three-step rhythm:
 | [3](level-3/spec.md) | Analyzer accuracy & policy enforcement | ✅ Done |
 | [4](level-4/spec.md) | Observability & resilience | ✅ Done |
 | [5](level-5/spec.md) | CI/CD & quality gates | ✅ Done |
-| 6 | Documentation & productisation | 📋 Planned |
+| [6](level-6/spec.md) | Documentation & productisation | ✅ Done |
 
 ### Deferred with a reason
 
@@ -44,6 +44,11 @@ Every level follows the same three-step rhythm:
 The complete inventory of defects that produced these levels is in
 [`findings.md`](findings.md). Each finding carries an ID (`F-NN`) that the
 level specs reference, so every fix is traceable back to an observation.
+
+Five of the 59 findings were discovered *while fixing others* — F-55 and F-56
+when the policy file was loaded for the first time, F-57 when the workflow got
+its first tests, F-58 and F-59 while specifying observability. That is the
+argument for the order: each level makes the next one's defects visible.
 
 ## Why this order
 

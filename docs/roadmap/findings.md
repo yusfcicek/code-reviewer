@@ -117,7 +117,7 @@ Severity legend:
 | 4 — Observability & resilience | F-16, F-17, F-47, F-58, F-59 | ✅ Resolved |
 | 5 — CI/CD & quality gates | F-39, F-44, F-48 | ✅ Resolved |
 | — deferred | F-45 *(LangChain upgrade needs its own level)* | 📋 Documented |
-| 6 — Documentation & productisation | F-46, F-54 | 📋 Open |
+| 6 — Documentation & productisation | F-46, F-54 | ✅ Resolved |
 
 Some findings appear in two levels: the first occurrence establishes the
 structure, the second completes the behaviour once the structure exists.
