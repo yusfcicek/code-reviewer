@@ -121,9 +121,7 @@ class TestSmartMemoryStrategy(unittest.TestCase):
 
     def test_token_counter_is_injectable(self):
         """Token estimation is a collaborator, not a patch on the model."""
-        strategy = SmartMemoryStrategy(
-            self.provider, max_tokens=100, token_counter=lambda text: len(text)
-        )
+        strategy = SmartMemoryStrategy(self.provider, max_tokens=100, token_counter=lambda text: len(text))
 
         strategy.log_insight("[TODO] abc")
 

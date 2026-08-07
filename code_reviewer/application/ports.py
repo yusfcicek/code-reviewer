@@ -12,7 +12,7 @@ which handed callers a framework type through the abstraction meant to hide it
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 from code_reviewer.domain.finding import Finding
 
@@ -58,11 +58,11 @@ class CodeForge(ABC):
         """Identifies the merge request and the commit under review."""
 
     @abstractmethod
-    def fetch_changes(self, reference: MergeRequestRef) -> List[FileChange]:
+    def fetch_changes(self, reference: MergeRequestRef) -> list[FileChange]:
         """Returns every file the merge request touches."""
 
     @abstractmethod
-    def fetch_file(self, reference: MergeRequestRef, path: str) -> Optional[str]:
+    def fetch_file(self, reference: MergeRequestRef, path: str) -> str | None:
         """Returns a file's full contents at the reviewed commit.
 
         ``None`` when the file cannot be read — it may be binary, or the ref may
@@ -106,7 +106,7 @@ class StaticAnalysis(ABC):
     """
 
     @abstractmethod
-    def analyze(self, file_path: str, content: str, diff: str = "") -> List[Finding]:
+    def analyze(self, file_path: str, content: str, diff: str = "") -> list[Finding]:
         """Returns findings for one file, most severe first."""
 
 
@@ -118,7 +118,7 @@ class Reviewer(ABC):
         self,
         filename: str,
         diff_content: str,
-        full_file_content: Optional[str] = None,
-        other_files: Optional[List[str]] = None,
+        full_file_content: str | None = None,
+        other_files: list[str] | None = None,
     ) -> str:
         """Returns the review report for one file, as markdown."""

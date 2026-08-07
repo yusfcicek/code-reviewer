@@ -26,7 +26,7 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, Optional, TextIO
+from typing import Any, TextIO
 
 #: Root of the package's logger hierarchy. Configuring this one leaves other
 #: libraries' loggers alone.
@@ -35,12 +35,15 @@ ROOT_LOGGER_NAME = "code_reviewer"
 DEFAULT_LEVEL = logging.INFO
 
 #: Attributes every LogRecord carries; anything else was added by a caller.
-_STANDARD_ATTRIBUTES = set(
-    logging.LogRecord("", 0, "", 0, "", (), None).__dict__
-) | {"message", "asctime", "fields", "taskName"}
+_STANDARD_ATTRIBUTES = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {
+    "message",
+    "asctime",
+    "fields",
+    "taskName",
+}
 
 
-def _record_fields(record: logging.LogRecord) -> Dict[str, Any]:
+def _record_fields(record: logging.LogRecord) -> dict[str, Any]:
     """Structured values attached to a record, from ``extra``."""
     fields = dict(getattr(record, "fields", {}) or {})
     for key, value in record.__dict__.items():
@@ -75,7 +78,7 @@ class JsonFormatter(logging.Formatter):
     """One JSON object per record, for a log aggregator."""
 
     def format(self, record: logging.LogRecord) -> str:
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "timestamp": self.formatTime(record),
             "level": record.levelname,
             "logger": record.name,
@@ -89,14 +92,14 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def _resolve_level(raw: Optional[str]) -> int:
+def _resolve_level(raw: str | None) -> int:
     if not raw:
         return DEFAULT_LEVEL
     level = logging.getLevelName(raw.strip().upper())
     return level if isinstance(level, int) else DEFAULT_LEVEL
 
 
-def configure_logging(stream: Optional[TextIO] = None) -> logging.Logger:
+def configure_logging(stream: TextIO | None = None) -> logging.Logger:
     """Configures the package logger. Safe to call more than once.
 
     Args:
@@ -125,12 +128,12 @@ def configure_logging(stream: Optional[TextIO] = None) -> logging.Logger:
     handler.setLevel(level)
     logger.addHandler(handler)
 
-    if raw_level and _resolve_level(raw_level) == DEFAULT_LEVEL and raw_level.strip().upper() not in (
-        "INFO",
+    if (
+        raw_level
+        and _resolve_level(raw_level) == DEFAULT_LEVEL
+        and raw_level.strip().upper() not in ("INFO",)
     ):
-        logger.warning(
-            "Unrecognised LOG_LEVEL; using INFO", extra={"fields": {"requested": raw_level}}
-        )
+        logger.warning("Unrecognised LOG_LEVEL; using INFO", extra={"fields": {"requested": raw_level}})
 
     return logger
 

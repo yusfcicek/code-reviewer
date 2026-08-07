@@ -32,8 +32,14 @@ Every level follows the same three-step rhythm:
 | [2](level-2/spec.md) | DDD layering — domain, application, infrastructure | ✅ Done |
 | [3](level-3/spec.md) | Analyzer accuracy & policy enforcement | ✅ Done |
 | [4](level-4/spec.md) | Observability & resilience | ✅ Done |
-| 5 | CI/CD & quality gates | 📋 Planned |
+| [5](level-5/spec.md) | CI/CD & quality gates | ✅ Done |
 | 6 | Documentation & productisation | 📋 Planned |
+
+### Deferred with a reason
+
+| Item | Why it is not done | Where |
+|---|---|---|
+| LangChain 0.1 → 0.3 upgrade | 0.2 relocated `AgentExecutor` and reworked the prompt and scratchpad APIs the Hermes tool loop is written against. It needs its own spec, its own contracts and a run against a live model — not a line change inside a CI level. | F-45, `pyproject.toml` |
 
 The complete inventory of defects that produced these levels is in
 [`findings.md`](findings.md). Each finding carries an ID (`F-NN`) that the

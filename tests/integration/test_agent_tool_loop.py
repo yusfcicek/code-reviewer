@@ -13,8 +13,8 @@ import pytest
 from langchain.tools import StructuredTool
 from langchain_community.chat_models.fake import FakeListChatModel
 
-from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.application.ports import MemoryStrategy
+from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 
 pytestmark = pytest.mark.integration
 

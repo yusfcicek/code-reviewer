@@ -8,8 +8,8 @@ change did not touch, which is the opposite of what triage is for (F-09).
 
 import unittest
 
-from code_reviewer.infrastructure.config.loader import ReviewPolicy
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
+from code_reviewer.infrastructure.config.loader import ReviewPolicy
 
 
 class TestSkipRules(unittest.TestCase):
@@ -71,7 +71,7 @@ class TestSecurityEscalation(unittest.TestCase):
         self.triage = ReviewTriage(ReviewPolicy())
 
     def test_added_secret_escalates_to_critical(self):
-        diff = "@@ -1,3 +1,4 @@\n context line\n+password = \"hunter22\"\n context line\n"
+        diff = '@@ -1,3 +1,4 @@\n context line\n+password = "hunter22"\n context line\n'
 
         result = self.triage.decide(diff, "src/app.py")
 
@@ -79,13 +79,7 @@ class TestSecurityEscalation(unittest.TestCase):
 
     def test_secret_in_unchanged_context_does_not_escalate(self):
         """Regression for F-09."""
-        diff = (
-            "@@ -1,4 +1,4 @@\n"
-            " password = \"hunter22\"\n"
-            "-timeout = 10\n"
-            "+timeout = 30\n"
-            " done = True\n"
-        )
+        diff = '@@ -1,4 +1,4 @@\n password = "hunter22"\n-timeout = 10\n+timeout = 30\n done = True\n'
 
         result = self.triage.decide(diff, "src/app.py")
 
@@ -175,10 +169,12 @@ class TestSizeBasedDecisions(unittest.TestCase):
 class TestBatchSummary(unittest.TestCase):
     def test_summary_counts_each_decision(self):
         triage = ReviewTriage(ReviewPolicy())
-        results = triage.batch_decide([
-            {"new_path": "docs/a.md", "diff": "+text"},
-            {"new_path": "src/app.py", "diff": "+password = \"hunter22\""},
-        ])
+        results = triage.batch_decide(
+            [
+                {"new_path": "docs/a.md", "diff": "+text"},
+                {"new_path": "src/app.py", "diff": '+password = "hunter22"'},
+            ]
+        )
 
         summary = triage.get_review_summary(results)
 

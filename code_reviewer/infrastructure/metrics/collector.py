@@ -18,7 +18,6 @@ were removed rather than exported as zero.
 import json
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Dict, List, Optional
 
 from code_reviewer.infrastructure.observability.logging import get_logger
 
@@ -51,14 +50,14 @@ class ReviewMetrics:
     timestamp: float = field(default_factory=time.time)
 
     lines_analyzed: int = 0
-    triage_decisions: Dict[str, int] = field(default_factory=dict)
+    triage_decisions: dict[str, int] = field(default_factory=dict)
     gate_result: str = "pass"
 
     #: ``None`` when no score could be established, which is not the same as 0.
-    quality_score: Optional[int] = None
+    quality_score: int | None = None
 
     #: Counts keyed by severity value, from the findings the workflow recorded.
-    findings_by_severity: Dict[str, int] = field(default_factory=dict)
+    findings_by_severity: dict[str, int] = field(default_factory=dict)
 
     duration_ms: int = 0
 
@@ -71,10 +70,10 @@ class ReviewAggregate:
     mr_id: str = ""
     files_analyzed: int = 0
     lines_analyzed: int = 0
-    triage_decisions: Dict[str, int] = field(default_factory=dict)
-    findings_by_severity: Dict[str, int] = field(default_factory=dict)
+    triage_decisions: dict[str, int] = field(default_factory=dict)
+    findings_by_severity: dict[str, int] = field(default_factory=dict)
     gate_result: str = "pass"
-    quality_score: Optional[int] = None
+    quality_score: int | None = None
     duration_ms: int = 0
     slowest_file_ms: int = 0
 
@@ -87,13 +86,13 @@ class MetricsCollector:
     """Collects per-file metrics and exports the review as a whole."""
 
     def __init__(self):
-        self._metrics: List[ReviewMetrics] = []
+        self._metrics: list[ReviewMetrics] = []
 
     def record(self, metrics: ReviewMetrics) -> None:
         self._metrics.append(metrics)
 
     @property
-    def records(self) -> List[ReviewMetrics]:
+    def records(self) -> list[ReviewMetrics]:
         return list(self._metrics)
 
     def aggregate(self) -> ReviewAggregate:
@@ -114,18 +113,14 @@ class MetricsCollector:
             aggregate.slowest_file_ms = max(aggregate.slowest_file_ms, metric.duration_ms)
 
             for decision, count in metric.triage_decisions.items():
-                aggregate.triage_decisions[decision] = (
-                    aggregate.triage_decisions.get(decision, 0) + count
-                )
+                aggregate.triage_decisions[decision] = aggregate.triage_decisions.get(decision, 0) + count
 
             for severity, count in metric.findings_by_severity.items():
                 aggregate.findings_by_severity[severity] = (
                     aggregate.findings_by_severity.get(severity, 0) + count
                 )
 
-            if _GATE_SEVERITY.get(metric.gate_result, 0) > _GATE_SEVERITY.get(
-                aggregate.gate_result, 0
-            ):
+            if _GATE_SEVERITY.get(metric.gate_result, 0) > _GATE_SEVERITY.get(aggregate.gate_result, 0):
                 aggregate.gate_result = metric.gate_result
 
             if metric.quality_score is not None:
@@ -148,7 +143,7 @@ class MetricsCollector:
 
         aggregate = self.aggregate()
         labels = f'project_id="{aggregate.project_id}",mr_id="{aggregate.mr_id}"'
-        lines: List[str] = []
+        lines: list[str] = []
 
         def emit(name: str, value, extra_labels: str = "") -> None:
             help_text, metric_type = _HELP[name]

@@ -14,10 +14,10 @@ value is rejected with a message instead of surfacing later as a type surprise.
 import argparse
 import os
 import sys
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 
-def _env_int(name: str) -> Optional[str]:
+def _env_int(name: str) -> str | None:
     """Reads an environment default, leaving conversion to argparse's ``type``."""
     value = os.getenv(name)
     return value if value not in (None, "") else None
@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parses ``argv``, filling missing identifiers from the CI environment.
 
     Environment values go through the parser rather than around it, so

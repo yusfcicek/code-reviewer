@@ -17,14 +17,26 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "python-gitlab==4.4.0",
-    "openai==1.12.0",
-    "requests",
-    "httpx",
+    # Pins are exact where the API this project builds on is version-sensitive.
+    #
+    # LangChain is held at 0.1.x deliberately: 0.2 relocated AgentExecutor and
+    # reworked the prompt and scratchpad APIs that the Hermes tool loop in
+    # infrastructure/llm/review_agent.py is written against. Upgrading is a
+    # level's worth of work with its own contracts and its own risk, tracked in
+    # docs/roadmap/README.md, not a line change (finding F-45).
     "langchain==0.1.0",
     "langchain-community==0.0.10",
+    "langchain-openai==0.0.2",
+    # Pinned alongside langchain-openai, which constrains the client surface it
+    # uses.
+    "openai==1.12.0",
+    # python-gitlab's 4.x API is stable across minors; the pin is exactness for
+    # reproducible CI rather than a compatibility constraint.
+    "python-gitlab==4.4.0",
+    # Unpinned: used through stable, long-standing interfaces.
+    "requests",
+    "httpx",
     "PyYAML",
-    "langchain-openai==0.0.2"
 ]
 
 [project.urls]
@@ -44,14 +56,21 @@ packages = ["code_reviewer"]
 
 [dependency-groups]
 dev = [
+    "mypy>=2.3.0",
+    "pre-commit>=4.0",
     "pytest",
-    "pytest-cov"
+    "pytest-cov",
+    "ruff>=0.16.2",
 ]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["."]
+# Coverage is not in addopts on purpose: it would make `pytest tests/unit/x.py`
+# fail the floor every time, which trains people to pass --no-cov. CI and the
+# pre-push check run `pytest --cov`, where [tool.coverage.report] fail_under
+# applies.
 addopts = "-ra --strict-markers --strict-config"
 markers = [
     "integration: exercises more than one component together",
@@ -63,8 +82,67 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
+# The floor sits just under the measured value (87 %), so a regression trips it
+# while ordinary work does not. Raise it when coverage rises; never lower it to
+# make a red build green.
+fail_under = 85
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
 ]
+
+[tool.ruff]
+# 110 rather than 88 or 100: the analyzers' findings carry a written
+# description and a remediation on one line each, and breaking those f-strings
+# across continuations makes the rule tables harder to scan than the length
+# does. Code that needs more than 110 columns is still flagged.
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplifications
+    "RUF",  # ruff-specific
+]
+ignore = [
+    # The codebase documents itself partly in Turkish and uses typographic
+    # dashes in prose. These three rules flag every non-ASCII character as
+    # "ambiguous", which here means "correct".
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Nested `if isinstance(node, X)` / `if hasattr(node, "y")` in AST walks
+    # narrows the node type step by step. Collapsing the pair into one
+    # condition hides which check is the type guard and which is the
+    # behavioural test, so this rule makes the analyzers harder to read.
+    "SIM102",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build deliberately awkward inputs and assert on them; a few
+# simplifications would obscure what is being exercised.
+"tests/**" = ["SIM117", "B017"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["code_reviewer"]
+
+[tool.mypy]
+python_version = "3.12"
+# The domain and application layers carry no framework types and are where a
+# type error would be a genuine design fault. The infrastructure layer is
+# reported but not gating: most of what mypy finds there is LangChain's own
+# missing annotations.
+files = ["code_reviewer/domain", "code_reviewer/application"]
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true

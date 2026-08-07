@@ -6,7 +6,11 @@ It integrates various analyzers (Semantic, SAST, Quality) and manages the intera
 with the LLM using a structured prompt and memory strategies.
 """
 
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+import json
+import re
+import textwrap
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from langchain.agents import AgentExecutor, AgentOutputParser
 from langchain_core.agents import AgentAction, AgentFinish
@@ -15,12 +19,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from code_reviewer.application.ports import LLMProvider, MemoryStrategy
 from code_reviewer.infrastructure.llm.token_counter import ModelTokenCounter
-from code_reviewer.infrastructure.tools.definitions import get_tools
-import json
-import re
-import textwrap
-
 from code_reviewer.infrastructure.observability.logging import get_logger
+from code_reviewer.infrastructure.tools.definitions import get_tools
 
 logger = get_logger(__name__)
 
@@ -80,8 +80,8 @@ def render_tool_catalogue(tools: Sequence[Any]) -> str:
 
 
 def format_to_hermes_messages(
-    intermediate_steps: Sequence[Tuple[AgentAction, str]],
-) -> List[BaseMessage]:
+    intermediate_steps: Sequence[tuple[AgentAction, str]],
+) -> list[BaseMessage]:
     """Renders completed tool calls as the model's own turns plus responses.
 
     The scratchpad used to be built with ``format_to_openai_function_messages``,
@@ -89,7 +89,7 @@ def format_to_hermes_messages(
     those — it produces Hermes XML — so the transcript it was shown did not
     match the transcript it had written (finding F-03).
     """
-    messages: List[BaseMessage] = []
+    messages: list[BaseMessage] = []
     for action, observation in intermediate_steps:
         messages.append(AIMessage(content=action.log))
         messages.append(HumanMessage(content=f"<tool_response>\n{observation}\n</tool_response>"))
@@ -98,35 +98,41 @@ def format_to_hermes_messages(
 
 class HermesToolOutputParser(AgentOutputParser):
     """Parses Hermes / vLLM XML-style tool calls from LLM output."""
-    
+
     def parse(self, text: str):
         # Clean cleanup
         text = text.strip()
-        
-        # Regex for <tool_call><function=NAME><parameter=ARG>VALUE</parameter></function></tool_call>
+
+        # Regex for
+        # <tool_call><function=NAME><parameter=ARG>VALUE</parameter></function></tool_call>
         # Supporting single parameter for now as per observations
-        # <tool_call>\n<function=list_files>\n<parameter=path>\nxxxxx.h\n</parameter>\n</function>\n</tool_call>
-        
-        tool_regex = r"<tool_call>\s*<function=(.*?)>\s*<parameter=(.*?)>\s*(.*?)\s*</parameter>\s*</function>\s*</tool_call>"
+        # <tool_call>\n<function=list_files>\n<parameter=path>\nxxxxx.h\n</parameter>\n</function>\n
+        # </tool_call>
+
+        tool_regex = (
+            r"<tool_call>\s*<function=(.*?)>\s*<parameter=(.*?)>\s*"
+            r"(.*?)\s*</parameter>\s*</function>\s*</tool_call>"
+        )
         match = re.search(tool_regex, text, re.DOTALL)
-        
+
         if match:
             func_name = match.group(1).strip()
             param_name = match.group(2).strip()
             param_value = match.group(3).strip()
-            
+
             # Construct dictionary input
             tool_input = {param_name: param_value}
-            
+
             return AgentAction(tool=func_name, tool_input=tool_input, log=text)
-            
+
         # If no tool call, assume final answer
         return AgentFinish(return_values={"output": text}, log=text)
+
 
 class ReviewAgent:
     """
     Advanced Architectural Code Review Agent.
-    
+
     Capabilities:
     - Semantic Change Analysis (beyond syntax)
     - Dependency Tracking (including code not in git diff)
@@ -134,22 +140,22 @@ class ReviewAgent:
     - SOLID Principles & Code Quality
     - Performance Analysis (O(n²), memory leaks)
     - Smart Token Management
-    """ 
+    """
 
     SYSTEM_TEMPLATE = textwrap.dedent("""
         You are an Advanced Architectural Code Review Agent (SENIOR SOFTWARE ARCHITECT).
         Your analysis goes BEYOND syntax to understand SEMANTIC IMPACT of changes.
-        
+
         ═══════════════════════════════════════════════════════════════════════════════
         🧠 OPERATIONAL STRATEGY (Follow in Order)
         ═══════════════════════════════════════════════════════════════════════════════
-        
+
         1. **SEMANTIC CHANGE ANALYSIS** (First Step):
            - Use `run_semantic_analysis` with format 'diff ||| full_content ||| file_path'
            - Identify WHAT type of change this is: REFACTOR, FEATURE, BUGFIX, BREAKING_CHANGE
            - Check completeness: Are there missing pieces to this change?
            - Evaluate code integrity: Does this change maintain system cohesion?
-        
+
         2. **DEPENDENCY IMPACT ANALYSIS** (CRITICAL):
            - When data structures change (especially for IPC/messaging):
              * Use `find_affected_by_change` to find ALL dependent functions
@@ -159,13 +165,13 @@ class ReviewAgent:
            - Use `get_file_imports` for direct dependencies
            - Use `find_references` for reverse dependencies
            - **Rule**: If you cannot prove a refactor is safe, do not suggest it.
-        
+
         3. **SECURITY ANALYSIS (SAST)**:
            - Use `run_sast_scan` on modified files
            - Check for: SQL Injection, XSS, Command Injection, Hardcoded Secrets
            - Log findings: `ADD_MEMORY: [SECURITY] <severity> <finding>`
            - Risk score: CRITICAL/HIGH/MEDIUM/LOW
-        
+
         4. **CODE QUALITY ASSESSMENT**:
            - Use `check_code_quality` for SOLID principles
            - Check for:
@@ -174,14 +180,14 @@ class ReviewAgent:
              * DRY: Duplicate code blocks
              * Error Handling: Empty catches, generic exceptions
              * Testability: Global state, too many parameters
-        
+
         5. **PERFORMANCE ANALYSIS**:
            - Use `analyze_performance` to detect:
              * O(n²) or worse nested loops
              * Memory leak patterns (unclosed resources)
              * N+1 query patterns (DB calls in loops)
              * Blocking operations
-        
+
         6. **MEMORY & TRACEABILITY**:
            - Log important findings: `ADD_MEMORY: [TAG] <file_or_concept>: <insight>`
            - Tags:
@@ -193,13 +199,13 @@ class ReviewAgent:
              * `[PERFORMANCE]` - Performance issues (NORMAL priority)
              * `[PATTERN]` - Design patterns (NORMAL priority)
              * `[QUALITY]` - Code quality issues (NORMAL priority)
-        
+
         7. **TOKEN MANAGEMENT**:
            - Context limit: ~131k tokens
            - Memory auto-summarizes when reaching 80% capacity
            - CRITICAL and SECURITY insights are NEVER summarized
            - If you see "MEMORY IS FULL", summarize your findings
-        
+
         ═══════════════════════════════════════════════════════════════════════════════
         🛠️ DIFF GENERATION RULES
         ═══════════════════════════════════════════════════════════════════════════════
@@ -209,36 +215,36 @@ class ReviewAgent:
            --- path/to/file
            +++ path/to/file
            @@ -line,count +line,count @@
-        
+
         ═══════════════════════════════════════════════════════════════════════════════
         📋 OUTPUT FORMAT
         ═══════════════════════════════════════════════════════════════════════════════
-        
+
         # 🏛️ Architectural Review Summary
         > [High-level summary of system health, technical debt, and risks.]
-        
+
         ## 🔒 Security Analysis
         - **SAST Scan Result**: [Specify: PASS/FAIL - Risk Level]
         - **Vulnerabilities Found**: [List specific findings or 'None']
-        
+
         ## 🔍 Semantic Change Analysis
         - **Change Type**: [Specify one: REFACTOR/FEATURE/BUGFIX/BREAKING_CHANGE]
         - **Completeness**: [Assess: Complete/Incomplete - Provide Details]
         - **Breaking Changes**: [Yes/No - Detail the Impact]
-        
+
         ## 🔗 Impact Analysis
         - **Dependencies Checked**: [List of files analyzed]
         - **Affected Code (Not in Diff)**: [List files/symbols or 'None']
         - **Risk Assessment**: [Specify: Low/Medium/High/Critical] - [Justification]
-        
+
         ## 📊 Code Quality
         - **SOLID Compliance**: [Numeric Score/100]
         - **Issues Found**: [List key violations or 'None']
-        
+
         ## ⚡ Performance Analysis
         - **Complexity Issues**: [Describe: e.g., O(n²) loops, or 'None']
         - **Resource Leaks**: [Report: Memory/File/Connection issues or 'None']
-        
+
         ## 🛠️ Refactoring Roadmap
         ### [Specify Priority: High/Med/Low] - [Short Descriptive Title]
         **Why**: [Detailed explanation linking to SOLID/patterns/security/impact]
@@ -255,7 +261,6 @@ class ReviewAgent:
         [Context]
         ```
     """).strip()
-    
 
     #: Context window of the served model, used for the buffer report shown to it.
     CONTEXT_WINDOW_TOKENS = 131072
@@ -268,7 +273,7 @@ class ReviewAgent:
         self,
         llm_provider: LLMProvider,
         memory_strategy: MemoryStrategy,
-        token_counter: Optional[Callable[[str], int]] = None,
+        token_counter: Callable[[str], int] | None = None,
         verbose: bool = False,
     ):
         self.llm = llm_provider.get_chat_model()
@@ -279,13 +284,18 @@ class ReviewAgent:
         # The tool catalogue is a literal SystemMessage rather than a template
         # string: it contains JSON braces, which a template would try to
         # interpret as variables.
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", self.SYSTEM_TEMPLATE),
-            SystemMessage(content=render_tool_catalogue(self.tools)),
-            ("system", "REVIEW MEMORY (carried over from files already analysed):\n{memory_context}"),
-            ("user", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", self.SYSTEM_TEMPLATE),
+                SystemMessage(content=render_tool_catalogue(self.tools)),
+                (
+                    "system",
+                    "REVIEW MEMORY (carried over from files already analysed):\n{memory_context}",
+                ),
+                ("user", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ]
+        )
 
         self.agent_runnable = (
             {
@@ -307,40 +317,51 @@ class ReviewAgent:
             max_iterations=self.MAX_TOOL_ITERATIONS,
         )
 
-    def review_diff(self, filename: str, diff_content: str, full_file_content: str = None, other_files: list = None) -> str:
+    def review_diff(
+        self,
+        filename: str,
+        diff_content: str,
+        full_file_content: str | None = None,
+        other_files: list | None = None,
+    ) -> str:
         """
         Main entry point for reviewing a single file diff.
-        
+
         Args:
             filename: Name of the file being reviewed.
             diff_content: Git diff content.
             full_file_content: Optional full content of the file for context.
-            other_files: List of other files modified in the same Merge Request, 
+            other_files: List of other files modified in the same Merge Request,
                          used to provide cross-file context to the agent.
-                         
+
         Returns:
             str: The review output generated by the agent.
         """
         # Formulate Input with Context Awareness
         user_input = f"Review the changes in `{filename}`.\n\n"
-        
+
         if other_files:
-             # Filter out self
-             others = [f for f in other_files if f != filename]
-             if others:
-                 user_input += f"CONTEXT: The following files are ALSO modified in this MR:\n" + "\n".join([f"- {f}" for f in others]) + "\n\n"
-        
+            # Filter out self
+            others = [f for f in other_files if f != filename]
+            if others:
+                user_input += (
+                    "CONTEXT: The following files are ALSO modified in this MR:\n"
+                    + "\n".join([f"- {f}" for f in others])
+                    + "\n\n"
+                )
+
         user_input += f"DIFF:\n{diff_content}\n"
         if full_file_content:
             user_input += f"\nFULL FILE CONTENT (Reference):\n{full_file_content}\n"
-            
+
         # --- AUTO-DEPENDENCY ANALYSIS (Fail-Safe) ---
         # The user requires us to find "outside files" affected by this change.
         # We do this programmatically to ensure it's not skipped by the Agent.
         try:
-            from code_reviewer.infrastructure.tools.definitions import DependencyAnalysisTools
             import os  # Fix: Ensure os is imported locally if not global
-            
+
+            from code_reviewer.infrastructure.tools.definitions import DependencyAnalysisTools
+
             # 1. Start with imports of the modified file
             deps = DependencyAnalysisTools.get_file_imports(filename)
             if "Error" not in deps:
@@ -354,11 +375,15 @@ class ReviewAgent:
             # If C++, try stripping extension for header search or just search full name
             refs = DependencyAnalysisTools.find_references(base_name)
             if "Error" not in refs and "No references" not in refs:
-                 self.memory_strategy.log_insight(f"ADD_MEMORY: [DEPENDENCY] ALIAS/FILES DEPENDING ON {base_name}:\n{refs}")
-                 logger.debug("Analysed reverse dependencies", extra={"fields": {"path": filename}})
-                 
+                self.memory_strategy.log_insight(
+                    f"ADD_MEMORY: [DEPENDENCY] ALIAS/FILES DEPENDING ON {base_name}:\n{refs}"
+                )
+                logger.debug("Analysed reverse dependencies", extra={"fields": {"path": filename}})
+
         except Exception as e:
-            logger.warning("Dependency analysis failed", extra={"fields": {"path": filename, "error": str(e)}})
+            logger.warning(
+                "Dependency analysis failed", extra={"fields": {"path": filename, "error": str(e)}}
+            )
         # ----------------------------------------------
 
         # Load context once, after the automatic dependency analysis above has
@@ -370,7 +395,7 @@ class ReviewAgent:
         current_context_tokens = self.count_tokens(self.SYSTEM_TEMPLATE + context_str + user_input)
 
         remaining = self.CONTEXT_WINDOW_TOKENS - current_context_tokens
-        avg_file_tokens = 500 # Estimated
+        avg_file_tokens = 500  # Estimated
         safe_files_buffer = int(remaining / avg_file_tokens)
 
         token_status_msg = (
@@ -393,34 +418,41 @@ class ReviewAgent:
 
         if current_context_tokens > self.MEMORY_PRESSURE_TOKENS:
             warn_msg = "⚠️ CRITICAL WARNING: MEMORY IS FULL (>90k). YOU MUST TRIGGER 'Summarize_Memory' NOW."
-            token_status_msg += f"\n{warn_msg}\n(Do not continue reading new files until you have summarized previous insights)."
-            logger.warning("Memory pressure: instructing the model to summarise", extra={"fields": {"used": current_context_tokens}})
-        
+            token_status_msg += (
+                f"\n{warn_msg}\n(Do not continue reading new files until you have "
+                "summarized previous insights)."
+            )
+            logger.warning(
+                "Memory pressure: instructing the model to summarise",
+                extra={"fields": {"used": current_context_tokens}},
+            )
+
         user_input += token_status_msg
-            
+
         # Run Agent
         try:
             logger.info("Reviewing file", extra={"fields": {"path": filename}})
-            result = self.agent_executor.invoke({
-                "input": user_input, 
-                "memory_context": context_str
-            })
-            output = result['output']
-            
+            result = self.agent_executor.invoke({"input": user_input, "memory_context": context_str})
+            output = result["output"]
+
             # Check for memory updates (ADD_MEMORY pattern) in the output
             if "ADD_MEMORY:" in output:
-                lines = output.split('\n')
+                lines = output.split("\n")
                 for line in lines:
                     if "ADD_MEMORY:" in line:
-                         insight = line.split("ADD_MEMORY:", 1)[1].strip()
-                         self.memory_strategy.log_insight(insight)
-                         logger.debug("Insight stored", extra={"fields": {"insight": insight}})
-            
+                        insight = line.split("ADD_MEMORY:", 1)[1].strip()
+                        self.memory_strategy.log_insight(insight)
+                        logger.debug("Insight stored", extra={"fields": {"insight": insight}})
+
             # Save interaction/summary
             self.memory_strategy.save_context(user_input, output)
-            
+
             return output
-            
+
         except Exception as e:
-            logger.error("Review agent failed", extra={"fields": {"path": filename, "error": str(e)}}, exc_info=True)
+            logger.error(
+                "Review agent failed",
+                extra={"fields": {"path": filename, "error": str(e)}},
+                exc_info=True,
+            )
             return f"Agent failed: {e}"

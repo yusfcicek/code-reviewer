@@ -191,10 +191,12 @@ class TestGateOutcome(unittest.TestCase):
         self.assertIn("Pipeline BLOCKED", forge.published[0])
 
     def test_one_failing_file_among_several_blocks_the_review(self):
-        forge = FakeForge([
-            FileChange("src/ok.py", _significant_diff("ok")),
-            FileChange("src/bad.py", _significant_diff("bad")),
-        ])
+        forge = FakeForge(
+            [
+                FileChange("src/ok.py", _significant_diff("ok")),
+                FileChange("src/bad.py", _significant_diff("bad")),
+            ]
+        )
         reviewer = ScriptedReviewer(CLEAN_REVIEW, per_file={"src/bad.py": BLOCKING_REVIEW})
 
         result = _service(forge, reviewer).review(1, 2)
@@ -230,10 +232,12 @@ class TestPublishing(unittest.TestCase):
         self.assertEqual(forge.published, [])
 
     def test_exactly_one_comment_is_posted(self):
-        forge = FakeForge([
-            FileChange("src/a.py", _significant_diff("a")),
-            FileChange("src/b.py", _significant_diff("b")),
-        ])
+        forge = FakeForge(
+            [
+                FileChange("src/a.py", _significant_diff("a")),
+                FileChange("src/b.py", _significant_diff("b")),
+            ]
+        )
 
         _service(forge, ScriptedReviewer()).review(1, 2)
 
@@ -272,11 +276,13 @@ class TestContext(unittest.TestCase):
 
 class TestMetrics(unittest.TestCase):
     def test_one_metric_is_recorded_per_considered_file(self):
-        forge = FakeForge([
-            FileChange("src/a.py", _significant_diff("a")),
-            FileChange("src/b.py", "+# comment\n"),
-            FileChange("docs/c.md", "+ text"),
-        ])
+        forge = FakeForge(
+            [
+                FileChange("src/a.py", _significant_diff("a")),
+                FileChange("src/b.py", "+# comment\n"),
+                FileChange("docs/c.md", "+ text"),
+            ]
+        )
 
         result = _service(forge, ScriptedReviewer()).review(1, 2)
 
@@ -306,10 +312,12 @@ class TestStaticAnalysisIntegration(unittest.TestCase):
     """
 
     def test_every_reviewed_file_is_analysed(self):
-        forge = FakeForge([
-            FileChange("src/a.py", _significant_diff("a")),
-            FileChange("src/b.py", _significant_diff("b")),
-        ])
+        forge = FakeForge(
+            [
+                FileChange("src/a.py", _significant_diff("a")),
+                FileChange("src/b.py", _significant_diff("b")),
+            ]
+        )
         analysis = RecordingAnalysis()
 
         _service(forge, ScriptedReviewer(), analysis=analysis).review(1, 2)
@@ -412,11 +420,13 @@ class TestFailureIsolation(unittest.TestCase):
     """
 
     def _three_files(self):
-        return FakeForge([
-            FileChange("src/a.py", _significant_diff("a")),
-            FileChange("src/b.py", _significant_diff("b")),
-            FileChange("src/c.py", _significant_diff("c")),
-        ])
+        return FakeForge(
+            [
+                FileChange("src/a.py", _significant_diff("a")),
+                FileChange("src/b.py", _significant_diff("b")),
+                FileChange("src/c.py", _significant_diff("c")),
+            ]
+        )
 
     def test_the_other_files_are_still_reviewed(self):
         forge = self._three_files()
@@ -492,9 +502,7 @@ class TestFailureIsolation(unittest.TestCase):
     def test_every_file_failing_still_posts_a_comment(self):
         forge = self._three_files()
 
-        result = _service(
-            forge, ExplodingReviewer(["src/a.py", "src/b.py", "src/c.py"])
-        ).review(1, 2)
+        result = _service(forge, ExplodingReviewer(["src/a.py", "src/b.py", "src/c.py"])).review(1, 2)
 
         self.assertEqual(len(forge.published), 1)
         self.assertEqual(len(result.outcome.failed_files), 3)

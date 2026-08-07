@@ -105,9 +105,7 @@ class TestTestability(unittest.TestCase):
         self.assertIn(IssueCategory.TESTABILITY, _categories(report))
 
     def test_score_never_goes_negative(self):
-        source = "\n".join(
-            f"def wide_{i}(a, b, c, d, e, f, g):\n    return a" for i in range(40)
-        )
+        source = "\n".join(f"def wide_{i}(a, b, c, d, e, f, g):\n    return a" for i in range(40))
 
         report = QualityAnalyzer().analyze(source, "m.py")
 

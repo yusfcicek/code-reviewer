@@ -2,4 +2,4 @@
 
 from .client import MissingCredentialsError, build_gitlab_client
 
-__all__ = ["build_gitlab_client", "MissingCredentialsError"]
+__all__ = ["MissingCredentialsError", "build_gitlab_client"]

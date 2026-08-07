@@ -216,33 +216,52 @@ uv run ai-code-review --project-id <PROJECT_ID> --mr-iid <MR_IID>
 
 ### GitLab CI
 
-No pipeline definition ships with the repository yet (finding F-44); the job
-below is the intended shape.
+The repository ships `.gitlab-ci.yml`; this is the review job from it.
 
 ```yaml
 ai-code-review:
   stage: review
   image: python:3.12-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - pip install --quiet uv
+    - uv sync --frozen
   script:
-    - curl -LsSf https://astral.sh/uv/install.sh | sh
-    - uv sync
-    - uv run ai-code-review --project-id $CI_PROJECT_ID --mr-iid $CI_MERGE_REQUEST_IID
+    - uv run ai-code-review --project-id "$CI_PROJECT_ID" --mr-iid "$CI_MERGE_REQUEST_IID"
   artifacts:
+    when: always
     reports:
       metrics: metrics.txt
   allow_failure: true
 ```
 
+`allow_failure: true` keeps a review that cannot run from blocking a merge.
+Set it to `false` once you trust the verdict, and use
+`gate.fail_pipeline_on_critical` and `gate.blocking_severity` to decide what
+"trust" means.
+
 ---
 
-## 🧪 Testing
+## 🧪 Development
 
 ```bash
-uv run pytest
-uv run pytest --cov          # with coverage
+uv sync
+uv run pre-commit install
+
+uv run ruff check code_reviewer tests          # lint
+uv run ruff format code_reviewer tests         # format
+uv run mypy                                    # types (domain + application)
+uv run pytest                                  # tests
+uv run pytest --cov                            # tests with the coverage floor
 ```
 
-412 tests. The domain and application layers sit at 88–100 % coverage; the
+CI runs exactly these four checks — `.github/workflows/ci.yml` on GitHub and
+`.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
+its own merge requests, so the job below is one the project uses on itself.
+
+423 tests, 87 % coverage with an enforced floor of 85 %. The domain and
+application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
 GitLab. Every behaviour change from Level 1 onwards is written test-first: the
 test that pins a fix is observed failing before the fix lands.

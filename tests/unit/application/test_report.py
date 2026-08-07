@@ -7,9 +7,9 @@ from orchestration here so that both branches can be asserted directly.
 
 import unittest
 
-from code_reviewer.domain.outcome import ReviewOutcome
-from code_reviewer.domain.gate import GateEvaluation, ReviewGateResult
 from code_reviewer.application.report import render_review_comment
+from code_reviewer.domain.gate import GateEvaluation, ReviewGateResult
+from code_reviewer.domain.outcome import ReviewOutcome
 
 
 def _evaluation(result, blocking=(), reasons=()):

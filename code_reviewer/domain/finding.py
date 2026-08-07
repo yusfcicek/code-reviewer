@@ -7,10 +7,10 @@ and the gate had to recover numbers by parsing the model's prose instead of
 reading the values the analyzers had already computed (findings F-28, F-32).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import total_ordering
-from typing import Dict, Iterable, List, Optional, Tuple
 
 from .severity import Severity
 
@@ -58,7 +58,7 @@ class Finding:
     #: The source line that triggered the rule, trimmed for display.
     evidence: str = ""
     #: Rule-specific numbers, e.g. loop depth or method count.
-    metrics: Dict = field(default_factory=dict)
+    metrics: dict = field(default_factory=dict)
 
     @property
     def location(self) -> str:
@@ -69,7 +69,7 @@ class Finding:
             return self.file_path
         return f"{self.file_path}:{self.line_number}"
 
-    def _sort_key(self) -> Tuple:
+    def _sort_key(self) -> tuple:
         return (self.severity, self.file_path, self.line_number, self.title)
 
     def __lt__(self, other: "Finding") -> bool:
@@ -78,9 +78,9 @@ class Finding:
         return self._sort_key() < other._sort_key()
 
     @staticmethod
-    def count_by_severity(findings: Iterable["Finding"]) -> Dict[Severity, int]:
+    def count_by_severity(findings: Iterable["Finding"]) -> dict[Severity, int]:
         """Counts per severity, with every level present so callers can index freely."""
-        counts = {severity: 0 for severity in Severity}
+        counts = dict.fromkeys(Severity, 0)
         for finding in findings:
             counts[finding.severity] += 1
         return counts
@@ -109,7 +109,7 @@ class AffectedCode:
     symbol_name: str
     reason: str = ""
     #: How the affected code depends on what changed, when it is known.
-    dependency_type: Optional[DependencyType] = None
+    dependency_type: DependencyType | None = None
     #: The source line where the dependency was observed.
     context: str = ""
     preview: str = ""
@@ -120,7 +120,7 @@ class AffectedCode:
             self.preview = self.preview[: self.MAX_PREVIEW_CHARS]
 
     @property
-    def identity(self) -> Tuple[str, str]:
+    def identity(self) -> tuple[str, str]:
         """What makes two entries the same: one symbol in one file."""
         return (self.file_path, self.symbol_name)
 
@@ -134,7 +134,7 @@ class AffectedCode:
         return f"{self.location} `{self.symbol_name}` — {self.reason}"
 
 
-def deduplicate(entries: Iterable[AffectedCode]) -> List[AffectedCode]:
+def deduplicate(entries: Iterable[AffectedCode]) -> list[AffectedCode]:
     """Keeps the first entry per symbol, preserving discovery order."""
     seen = set()
     unique = []

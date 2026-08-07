@@ -12,7 +12,8 @@ A counter is any callable from ``str`` to ``int``, which keeps test doubles to
 one line.
 """
 
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -47,7 +48,7 @@ class ModelTokenCounter:
     number instead of failing the review.
     """
 
-    def __init__(self, model: Any, fallback: Optional[Callable[[str], int]] = None):
+    def __init__(self, model: Any, fallback: Callable[[str], int] | None = None):
         self._model = model
         self._fallback = fallback or HeuristicTokenCounter()
 

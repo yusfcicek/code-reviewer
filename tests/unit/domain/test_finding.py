@@ -12,15 +12,15 @@ from code_reviewer.domain.severity import Severity
 
 
 def _finding(severity=Severity.MEDIUM, line=1, **kwargs):
-    defaults = dict(
-        category=FindingCategory.SECURITY,
-        severity=severity,
-        file_path="src/app.py",
-        line_number=line,
-        title="Something is wrong",
-        description="A longer explanation of what is wrong.",
-        remediation="Do the other thing instead.",
-    )
+    defaults = {
+        "category": FindingCategory.SECURITY,
+        "severity": severity,
+        "file_path": "src/app.py",
+        "line_number": line,
+        "title": "Something is wrong",
+        "description": "A longer explanation of what is wrong.",
+        "remediation": "Do the other thing instead.",
+    }
     defaults.update(kwargs)
     return Finding(**defaults)
 

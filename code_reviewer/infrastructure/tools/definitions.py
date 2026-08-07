@@ -15,7 +15,6 @@ review continues, with the model told why it cannot have the file.
 import ast
 import re
 import subprocess
-from typing import List, Optional
 
 from langchain.tools import StructuredTool
 
@@ -28,10 +27,10 @@ MAX_OUTPUT_CHARS = 2000
 #: Directories never worth searching.
 EXCLUDED_DIRS = ("build", ".git", "__pycache__", "node_modules", ".gradle", ".idea", ".venv")
 
-_workspace: Optional[Workspace] = None
+_workspace: Workspace | None = None
 
 
-def set_workspace(workspace: Optional[Workspace]) -> None:
+def set_workspace(workspace: Workspace | None) -> None:
     """Sets the workspace every tool is confined to.
 
     Called once by the composition root. ``None`` restores the default, which
@@ -56,7 +55,6 @@ def _truncate(text: str) -> str:
 
 
 class FileSystemTools:
-
     @staticmethod
     def read_file(file_path: str) -> str:
         """Reads a file from inside the workspace."""
@@ -93,7 +91,6 @@ class FileSystemTools:
 
 
 class CodeSearchTools:
-
     @staticmethod
     def grep_search(pattern: str, path: str = ".") -> str:
         """Searches for a text pattern inside the workspace."""
@@ -120,7 +117,6 @@ class CodeSearchTools:
 
 
 class SmartFileTools:
-
     @staticmethod
     def find_file(filename: str) -> str:
         """Locates a file by name inside the workspace."""
@@ -177,7 +173,6 @@ class SmartFileTools:
 
 
 class DependencyAnalysisTools:
-
     @staticmethod
     def get_file_imports(file_path: str) -> str:
         """Lists imported modules. Supports Python (AST) and C/C++ (regex)."""
@@ -319,7 +314,7 @@ class AnalyzerTools:
             return f"Error finding ripple effects: {exc}"
 
 
-def get_tools() -> List[StructuredTool]:
+def get_tools() -> list[StructuredTool]:
     """Every tool the agent may call."""
     return [
         StructuredTool.from_function(
@@ -330,7 +325,10 @@ def get_tools() -> List[StructuredTool]:
         StructuredTool.from_function(
             func=FileSystemTools.list_files,
             name="list_files",
-            description="Lists files under a directory of the repository. Input: directory_path (string), defaults to '.'.",
+            description=(
+                "Lists files under a directory of the repository. Input: directory_path (string), "
+                "defaults to '.'."
+            ),
         ),
         StructuredTool.from_function(
             func=CodeSearchTools.grep_search,
@@ -345,7 +343,10 @@ def get_tools() -> List[StructuredTool]:
         StructuredTool.from_function(
             func=SmartFileTools.read_symbol_definition,
             name="read_symbol_definition",
-            description="Reads one symbol's definition. Input: 'SymbolName in FilePath'. Example: 'handle in src/app.py'.",
+            description=(
+                "Reads one symbol's definition. Input: 'SymbolName in FilePath'. Example: 'handle "
+                "in src/app.py'."
+            ),
         ),
         StructuredTool.from_function(
             func=DependencyAnalysisTools.get_file_imports,
@@ -355,32 +356,48 @@ def get_tools() -> List[StructuredTool]:
         StructuredTool.from_function(
             func=DependencyAnalysisTools.find_references,
             name="find_references",
-            description="Finds references to a symbol, to identify reverse dependencies. Input: symbol_name (string).",
+            description=(
+                "Finds references to a symbol, to identify reverse dependencies. Input: symbol_name (string)."
+            ),
         ),
         StructuredTool.from_function(
             func=AnalyzerTools.run_sast_scan,
             name="run_sast_scan",
-            description="Runs a SAST security scan: SQL injection, XSS, hardcoded secrets and more. Input: file_path (string).",
+            description=(
+                "Runs a SAST security scan: SQL injection, XSS, hardcoded secrets and more. "
+                "Input: file_path (string)."
+            ),
         ),
         StructuredTool.from_function(
             func=AnalyzerTools.check_code_quality,
             name="check_code_quality",
-            description="Checks SOLID principles, duplicate code, testability and error handling. Input: file_path (string).",
+            description=(
+                "Checks SOLID principles, duplicate code, testability and error handling. Input: "
+                "file_path (string)."
+            ),
         ),
         StructuredTool.from_function(
             func=AnalyzerTools.analyze_performance,
             name="analyze_performance",
-            description="Analyses O(n²) complexity, memory leaks and N+1 query patterns. Input: file_path (string).",
+            description=(
+                "Analyses O(n²) complexity, memory leaks and N+1 query patterns. Input: file_path (string)."
+            ),
         ),
         StructuredTool.from_function(
             func=AnalyzerTools.find_affected_by_change,
             name="find_affected_by_change",
-            description="Finds all code affected by a change, including code not in the diff. Input: symbol_name (string).",
+            description=(
+                "Finds all code affected by a change, including code not in the diff. Input: "
+                "symbol_name (string)."
+            ),
         ),
         StructuredTool.from_function(
             func=AnalyzerTools.run_semantic_analysis,
             name="run_semantic_analysis",
-            description="Classifies a change as REFACTOR/FEATURE/BUGFIX/BREAKING_CHANGE. Input: 'diff ||| full_content ||| file_path'.",
+            description=(
+                "Classifies a change as REFACTOR/FEATURE/BUGFIX/BREAKING_CHANGE. Input: 'diff ||| "
+                "full_content ||| file_path'."
+            ),
         ),
         StructuredTool.from_function(
             func=AnalyzerTools.find_ripple_effects,

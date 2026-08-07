@@ -11,9 +11,9 @@ there is no representation in which the mistake can be repeated silently.
 
 import unittest
 
-from code_reviewer.infrastructure.config.loader import ReviewPolicy
-from code_reviewer.domain.outcome import ReviewOutcome
 from code_reviewer.domain.gate import GateEvaluation, ReviewGateResult
+from code_reviewer.domain.outcome import ReviewOutcome
+from code_reviewer.infrastructure.config.loader import ReviewPolicy
 
 
 def _evaluation(result, blocking=(), reasons=()):

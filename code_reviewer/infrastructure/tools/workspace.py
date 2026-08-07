@@ -14,7 +14,6 @@ escapes.
 
 import os
 from pathlib import Path
-from typing import Optional, Union
 
 #: Files larger than this are truncated before reaching the prompt. A single
 #: oversized file would otherwise consume the context the review needs.
@@ -36,13 +35,13 @@ class Workspace:
 
     def __init__(
         self,
-        root: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
         max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     ):
         self.root = Path(root).resolve() if root is not None else Path.cwd().resolve()
         self.max_file_bytes = max_file_bytes
 
-    def resolve(self, path: Union[str, Path]) -> Path:
+    def resolve(self, path: str | Path) -> Path:
         """Resolves ``path`` against the root, refusing anything outside it.
 
         Raises:
@@ -63,7 +62,7 @@ class Workspace:
 
         return resolved
 
-    def read(self, path: Union[str, Path]) -> str:
+    def read(self, path: str | Path) -> str:
         """Reads a confined file as text, truncating it if it is large.
 
         Undecodable bytes are replaced rather than raising: a binary file that
@@ -87,6 +86,6 @@ class Workspace:
             )
         return text
 
-    def relative(self, path: Union[str, Path]) -> str:
+    def relative(self, path: str | Path) -> str:
         """Path as written relative to the root, for display."""
         return os.path.relpath(self.resolve(path), self.root)

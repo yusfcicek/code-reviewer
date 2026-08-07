@@ -17,9 +17,9 @@ verdict from the model's opinion.
 """
 
 import re
-from enum import Enum
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from enum import Enum
 
 from .finding import Finding
 from .policy import ReviewPolicy
@@ -28,6 +28,7 @@ from .severity import Severity
 
 class ReviewGateResult(Enum):
     """Pipeline karar sonucu."""
+
     PASS = "pass"
     WARN = "warn"
     FAIL = "fail"
@@ -40,13 +41,14 @@ class GateEvaluation:
     ``scores`` değerleri ``None`` olabilir: ne bulgulardan ne de rapordan
     hesaplanabildiyse skor *bilinmiyor* demektir, sıfır değil (bkz. F-10).
     """
+
     result: ReviewGateResult
     exit_code: int
-    reasons: List[str]
-    scores: Dict[str, Optional[int]]
-    blocking_issues: List[str]
+    reasons: list[str]
+    scores: dict[str, int | None]
+    blocking_issues: list[str]
     #: Findings that caused the block, so the report can show where they are.
-    blocking_findings: List[Finding] = field(default_factory=list)
+    blocking_findings: list[Finding] = field(default_factory=list)
 
 
 class ReviewGate:
@@ -67,7 +69,7 @@ class ReviewGate:
     def evaluate(
         self,
         review_markdown: str,
-        findings: Optional[Sequence[Finding]] = None,
+        findings: Sequence[Finding] | None = None,
     ) -> GateEvaluation:
         """
         Bir dosyanın review sonucunu değerlendirir.
@@ -88,10 +90,10 @@ class ReviewGate:
         analysis_ran = findings is not None
         findings = list(findings) if findings else []
 
-        reasons: List[str] = []
-        blocking_issues: List[str] = []
-        blocking_findings: List[Finding] = []
-        scores: Dict[str, Optional[int]] = {}
+        reasons: list[str] = []
+        blocking_issues: list[str] = []
+        blocking_findings: list[Finding] = []
+        scores: dict[str, int | None] = {}
 
         if analysis_ran:
             self._evaluate_findings(findings, reasons, blocking_issues, blocking_findings, scores)
@@ -143,9 +145,7 @@ class ReviewGate:
             if severity.is_at_least(threshold):
                 continue  # already blocking, no need to warn as well
             if counts[severity]:
-                reasons.append(
-                    f"[analysis] {counts[severity]} {severity.value} finding(s) reported"
-                )
+                reasons.append(f"[analysis] {counts[severity]} {severity.value} finding(s) reported")
 
         quality_score = self.score_from_findings(findings)
         scores["quality"] = quality_score

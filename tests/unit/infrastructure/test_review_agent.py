@@ -10,8 +10,8 @@ afterwards and made results order-dependent (finding F-37).
 import unittest
 from unittest.mock import MagicMock, patch
 
-from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.application.ports import LLMProvider, MemoryStrategy
+from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 
 
 class TestReviewAgent(unittest.TestCase):

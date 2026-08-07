@@ -9,7 +9,6 @@ directly and therefore had no tests at all (findings F-25, F-27).
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.gate import ReviewGate
@@ -27,9 +26,7 @@ from .report import render_review_comment
 logger = logging.getLogger(__name__)
 
 #: Triage decisions that call for the model rather than a rule.
-NEEDS_REVIEWER = frozenset(
-    {ReviewDecision.QUICK_SCAN, ReviewDecision.FULL_REVIEW, ReviewDecision.CRITICAL}
-)
+NEEDS_REVIEWER = frozenset({ReviewDecision.QUICK_SCAN, ReviewDecision.FULL_REVIEW, ReviewDecision.CRITICAL})
 
 
 @dataclass
@@ -43,7 +40,7 @@ class FileMetric:
     file_path: str
     triage_decisions: dict
     gate_result: str
-    quality_score: Optional[int]
+    quality_score: int | None
     lines_analyzed: int
     duration_ms: int = 0
     findings_by_severity: dict = field(default_factory=dict)
@@ -54,8 +51,8 @@ class ReviewResult:
     """Everything one review run produced."""
 
     outcome: ReviewOutcome
-    metrics: List[FileMetric] = field(default_factory=list)
-    findings: List[Finding] = field(default_factory=list)
+    metrics: list[FileMetric] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     comment: str = ""
     exit_code: int = 0
 
@@ -69,8 +66,8 @@ class ReviewService:
         reviewer: Reviewer,
         triage: ReviewTriage,
         policy: ReviewPolicy,
-        analysis: Optional[StaticAnalysis] = None,
-        gate: Optional[ReviewGate] = None,
+        analysis: StaticAnalysis | None = None,
+        gate: ReviewGate | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -104,9 +101,7 @@ class ReviewService:
             # exception discarded every review completed so far and posted
             # nothing (finding F-58).
             try:
-                section, metric, findings = self._review_one(
-                    reference, change, sibling_paths, outcome
-                )
+                section, metric, findings = self._review_one(reference, change, sibling_paths, outcome)
             except Exception as exc:
                 logger.error(
                     "Could not review file",
@@ -127,9 +122,7 @@ class ReviewService:
             result.findings.extend(findings or [])
 
         if sections:
-            result.comment = render_review_comment(
-                self._policy.version, outcome, sections, result.findings
-            )
+            result.comment = render_review_comment(self._policy.version, outcome, sections, result.findings)
             self._forge.publish_comment(reference, result.comment)
 
         result.exit_code = outcome.exit_code(self._policy)
@@ -139,7 +132,7 @@ class ReviewService:
         self,
         reference: MergeRequestRef,
         change: FileChange,
-        sibling_paths: List[str],
+        sibling_paths: list[str],
         outcome: ReviewOutcome,
     ):
         """Triages one file and, if it warrants it, reviews and gates it."""

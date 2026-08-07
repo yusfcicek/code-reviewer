@@ -13,9 +13,27 @@ from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 
 CHANGES_PAYLOAD = {
     "changes": [
-        {"new_path": "src/app.py", "old_path": "src/app.py", "diff": "+ line", "deleted_file": False, "new_file": False},
-        {"new_path": "src/gone.py", "old_path": "src/gone.py", "diff": "- line", "deleted_file": True, "new_file": False},
-        {"new_path": "src/new.py", "old_path": "src/new.py", "diff": "+ line", "deleted_file": False, "new_file": True},
+        {
+            "new_path": "src/app.py",
+            "old_path": "src/app.py",
+            "diff": "+ line",
+            "deleted_file": False,
+            "new_file": False,
+        },
+        {
+            "new_path": "src/gone.py",
+            "old_path": "src/gone.py",
+            "diff": "- line",
+            "deleted_file": True,
+            "new_file": False,
+        },
+        {
+            "new_path": "src/new.py",
+            "old_path": "src/new.py",
+            "diff": "+ line",
+            "deleted_file": False,
+            "new_file": True,
+        },
     ]
 }
 
@@ -108,9 +126,7 @@ class TestFetchFile(unittest.TestCase):
 
         forge.fetch_file(reference, "src/app.py")
 
-        client.projects.get.return_value.files.get.assert_called_with(
-            file_path="src/app.py", ref="abc123"
-        )
+        client.projects.get.return_value.files.get.assert_called_with(file_path="src/app.py", ref="abc123")
 
     def test_an_unreadable_file_reads_as_none_rather_than_raising(self):
         forge = GitLabForge(client=_client(raises=True))

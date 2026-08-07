@@ -37,9 +37,7 @@ class TestDeserialisationRules(unittest.TestCase):
 
     def test_explicit_safe_loader_is_not_reported(self):
         """Regression for F-06."""
-        report = self.analyzer.analyze(
-            "data = yaml.load(handle, Loader=yaml.SafeLoader)\n", "config.py"
-        )
+        report = self.analyzer.analyze("data = yaml.load(handle, Loader=yaml.SafeLoader)\n", "config.py")
 
         self.assertNotIn(VulnerabilityType.INSECURE_DESERIALIZATION, _types(report))
 
@@ -62,9 +60,7 @@ class TestInjectionRules(unittest.TestCase):
         self.assertEqual(findings[0].cwe_id, "CWE-95")
 
     def test_string_concatenated_sql_is_reported(self):
-        report = self.analyzer.analyze(
-            'cursor.execute("SELECT * FROM t WHERE id=" + user_id)\n', "db.py"
-        )
+        report = self.analyzer.analyze('cursor.execute("SELECT * FROM t WHERE id=" + user_id)\n', "db.py")
 
         self.assertIn(VulnerabilityType.SQL_INJECTION, _types(report))
 

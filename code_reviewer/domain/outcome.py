@@ -11,10 +11,9 @@ policy rather than from an ad-hoc flag.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
-from .policy import ReviewPolicy
 from .gate import GateEvaluation, ReviewGateResult
+from .policy import ReviewPolicy
 
 #: Ordered from most to least permissive; the aggregate verdict is the worst.
 _SEVERITY_ORDER = {
@@ -33,11 +32,11 @@ class ReviewOutcome:
     were considered without those files influencing the verdict.
     """
 
-    evaluations: List[Tuple[str, GateEvaluation]] = field(default_factory=list)
-    unevaluated_files: List[str] = field(default_factory=list)
+    evaluations: list[tuple[str, GateEvaluation]] = field(default_factory=list)
+    unevaluated_files: list[str] = field(default_factory=list)
     #: Files the reviewer could not process, with the reason. "The reviewer
     #: crashed here" is not evidence that the file is fine (finding F-58).
-    failed_files: List[Tuple[str, str]] = field(default_factory=list)
+    failed_files: list[tuple[str, str]] = field(default_factory=list)
 
     def record(self, file_path: str, evaluation: GateEvaluation) -> None:
         self.evaluations.append((file_path, evaluation))
@@ -72,7 +71,7 @@ class ReviewOutcome:
         return self.result is ReviewGateResult.FAIL
 
     @property
-    def blocking_issues(self) -> List[str]:
+    def blocking_issues(self) -> list[str]:
         """Blocking issues, each attributed to the file that raised it."""
         return [
             f"{file_path}: {issue}"
@@ -81,15 +80,14 @@ class ReviewOutcome:
         ]
 
     @property
-    def warnings(self) -> List[str]:
+    def warnings(self) -> list[str]:
         gate_warnings = [
             f"{file_path}: {reason}"
             for file_path, evaluation in self.evaluations
             for reason in evaluation.reasons
         ]
         failures = [
-            f"{file_path}: could not be reviewed — {reason}"
-            for file_path, reason in self.failed_files
+            f"{file_path}: could not be reviewed — {reason}" for file_path, reason in self.failed_files
         ]
         return gate_warnings + failures
 
@@ -109,11 +107,11 @@ class ReviewOutcome:
             return 1
         return 0
 
-    def worst_quality_score(self) -> Optional[int]:
+    def worst_quality_score(self) -> int | None:
         """Lowest reported quality score, or ``None`` if none was reported."""
-        scores = [
-            evaluation.scores.get("quality")
-            for _, evaluation in self.evaluations
-            if evaluation.scores.get("quality") is not None
-        ]
+        scores: list[int] = []
+        for _, evaluation in self.evaluations:
+            score = evaluation.scores.get("quality")
+            if score is not None:
+                scores.append(score)
         return min(scores) if scores else None
