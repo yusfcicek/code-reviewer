@@ -108,6 +108,11 @@ gate:
   # Pipeline behavior
   fail_pipeline_on_critical: true
   fail_pipeline_on_quality_below: 50
+
+  # Whether a file the reviewer could not process fails the pipeline.
+  # False keeps a flaky model endpoint from blocking merges; the failure is
+  # reported in the merge request comment either way.
+  fail_on_review_error: false
   
   # Notifications
   notify_on_critical: true

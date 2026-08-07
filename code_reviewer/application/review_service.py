@@ -7,6 +7,7 @@ be a 150-line function that reached into ``project.mergerequests.get(...)``
 directly and therefore had no tests at all (findings F-25, F-27).
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -18,6 +19,12 @@ from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
 
 from .ports import CodeForge, FileChange, MergeRequestRef, Reviewer, StaticAnalysis
 from .report import render_review_comment
+
+# Standard logging, not the infrastructure helper: the application layer may
+# not import downwards. Every module in this package lives under the
+# `code_reviewer` logger hierarchy, so the configuration applied in
+# infrastructure.observability still governs these records.
+logger = logging.getLogger(__name__)
 
 #: Triage decisions that call for the model rather than a rule.
 NEEDS_REVIEWER = frozenset(
@@ -93,9 +100,26 @@ class ReviewService:
 
         sections = []
         for change in changes:
-            section, metric, findings = self._review_one(
-                reference, change, sibling_paths, outcome
-            )
+            # One file's failure costs that file, not the run: propagating the
+            # exception discarded every review completed so far and posted
+            # nothing (finding F-58).
+            try:
+                section, metric, findings = self._review_one(
+                    reference, change, sibling_paths, outcome
+                )
+            except Exception as exc:
+                logger.error(
+                    "Could not review file",
+                    extra={"fields": {"path": change.path, "error": str(exc)}},
+                    exc_info=True,
+                )
+                outcome.record_failure(change.path, str(exc))
+                sections.append(
+                    f"## ⚠️ Could not review `{change.path}`\n"
+                    f"> The reviewer failed on this file: {exc}\n"
+                    f"> Treat it as unreviewed rather than as approved.\n\n---\n"
+                )
+                continue
             if section:
                 sections.append(section)
             if metric:
@@ -123,6 +147,16 @@ class ReviewService:
 
         full_content = self._forge.fetch_file(reference, change.path)
         decision = self._triage.decide(change.diff, change.path, full_content)
+        logger.info(
+            "Triaged",
+            extra={
+                "fields": {
+                    "path": change.path,
+                    "decision": decision.decision.value,
+                    "reason": decision.reason,
+                }
+            },
+        )
 
         if decision.decision is ReviewDecision.SKIP:
             return None, None, []
@@ -138,7 +172,8 @@ class ReviewService:
         elif decision.decision in NEEDS_REVIEWER:
             # Analysis runs first and unconditionally: whether a file gets a
             # security scan must not depend on the model deciding to ask for
-            # one (finding F-32).
+            # one (finding F-32). A failing analyzer degrades the review to
+            # prose rather than losing the file entirely.
             findings = self._analyse(change, full_content)
 
             review_text = self._reviewer.review_diff(
@@ -170,10 +205,23 @@ class ReviewService:
         return section, metric, findings or []
 
     def _analyse(self, change: FileChange, full_content):
-        """Runs the analysis suite, returning None when none is configured."""
+        """Runs the analysis suite, returning None when none ran.
+
+        A broken analyzer must not cost the file its model review: the result
+        is a review with less evidence, which the gate handles by falling back
+        to the prose path.
+        """
         if self._analysis is None:
             return None
-        return self._analysis.analyze(change.path, full_content or "", change.diff)
+        try:
+            return self._analysis.analyze(change.path, full_content or "", change.diff)
+        except Exception as exc:
+            logger.error(
+                "Static analysis failed; continuing without it",
+                extra={"fields": {"path": change.path, "error": str(exc)}},
+                exc_info=True,
+            )
+            return None
 
     @staticmethod
     def _render_section(path: str, review_text: str, findings) -> str:

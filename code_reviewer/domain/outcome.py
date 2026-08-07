@@ -35,6 +35,9 @@ class ReviewOutcome:
 
     evaluations: List[Tuple[str, GateEvaluation]] = field(default_factory=list)
     unevaluated_files: List[str] = field(default_factory=list)
+    #: Files the reviewer could not process, with the reason. "The reviewer
+    #: crashed here" is not evidence that the file is fine (finding F-58).
+    failed_files: List[Tuple[str, str]] = field(default_factory=list)
 
     def record(self, file_path: str, evaluation: GateEvaluation) -> None:
         self.evaluations.append((file_path, evaluation))
@@ -42,15 +45,27 @@ class ReviewOutcome:
     def record_unevaluated(self, file_path: str) -> None:
         self.unevaluated_files.append(file_path)
 
+    def record_failure(self, file_path: str, reason: str) -> None:
+        """Records that a file could not be reviewed at all."""
+        self.failed_files.append((file_path, reason))
+
     @property
     def result(self) -> ReviewGateResult:
-        """The worst verdict across all evaluated files."""
-        if not self.evaluations:
+        """The worst verdict across all evaluated files.
+
+        A file that could not be reviewed is at least a warning: the review
+        has less evidence than it appears to.
+        """
+        verdicts = [evaluation.result for _, evaluation in self.evaluations]
+        if self.failed_files:
+            verdicts.append(ReviewGateResult.WARN)
+        if not verdicts:
             return ReviewGateResult.PASS
-        return max(
-            (evaluation.result for _, evaluation in self.evaluations),
-            key=lambda result: _SEVERITY_ORDER[result],
-        )
+        return max(verdicts, key=lambda result: _SEVERITY_ORDER[result])
+
+    @property
+    def has_failures(self) -> bool:
+        return bool(self.failed_files)
 
     @property
     def is_blocking(self) -> bool:
@@ -67,15 +82,20 @@ class ReviewOutcome:
 
     @property
     def warnings(self) -> List[str]:
-        return [
+        gate_warnings = [
             f"{file_path}: {reason}"
             for file_path, evaluation in self.evaluations
             for reason in evaluation.reasons
         ]
+        failures = [
+            f"{file_path}: could not be reviewed — {reason}"
+            for file_path, reason in self.failed_files
+        ]
+        return gate_warnings + failures
 
     @property
     def files_considered(self) -> int:
-        return len(self.evaluations) + len(self.unevaluated_files)
+        return len(self.evaluations) + len(self.unevaluated_files) + len(self.failed_files)
 
     def exit_code(self, policy: ReviewPolicy) -> int:
         """Process exit code implied by this outcome under ``policy``.
@@ -84,6 +104,8 @@ class ReviewOutcome:
         which lets a team roll the agent out in observation mode first.
         """
         if self.is_blocking and policy.gate.fail_pipeline_on_critical:
+            return 1
+        if self.failed_files and policy.gate.fail_on_review_error:
             return 1
         return 0
 

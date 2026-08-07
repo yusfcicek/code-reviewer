@@ -49,11 +49,12 @@ def _export_metrics(result, project_id, merge_request_iid) -> None:
             ReviewMetrics(
                 project_id=str(project_id),
                 mr_id=str(merge_request_iid),
-                files_analyzed=1,
+                file_path=metric.file_path,
                 lines_analyzed=metric.lines_analyzed,
                 triage_decisions=metric.triage_decisions,
                 gate_result=metric.gate_result,
-                quality_score=metric.quality_score or 0,
+                quality_score=metric.quality_score,
+                findings_by_severity=metric.findings_by_severity,
                 duration_ms=metric.duration_ms,
             )
         )
