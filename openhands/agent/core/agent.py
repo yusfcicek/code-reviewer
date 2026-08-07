@@ -6,18 +6,91 @@ It integrates various analyzers (Semantic, SAST, Quality) and manages the intera
 with the LLM using a structured prompt and memory strategies.
 """
 
+from typing import Any, Callable, List, Optional, Sequence, Tuple
+
 from langchain.agents import AgentExecutor, AgentOutputParser
-from langchain.agents.output_parsers import OpenAIFunctionsAgentOutputParser
-
-
-from langchain.agents.format_scratchpad import format_to_openai_function_messages
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.agents import AgentAction, AgentFinish
-from langchain_core.runnables import RunnableSequence
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+
 from openhands.agent.core.interfaces import LLMProvider, MemoryStrategy
+from openhands.agent.core.token_counter import ModelTokenCounter
 from openhands.agent.tools.definitions import get_tools
+import json
 import re
 import textwrap
+
+
+TOOL_CALL_FORMAT = (
+    "<tool_call>\n"
+    "<function=TOOL_NAME>\n"
+    "<parameter=ARGUMENT_NAME>\n"
+    "ARGUMENT_VALUE\n"
+    "</parameter>\n"
+    "</function>\n"
+    "</tool_call>"
+)
+
+
+def render_tool_catalogue(tools: Sequence[Any]) -> str:
+    """Describes the available tools in the dialect the parser reads.
+
+    The model is served through vLLM in a Hermes dialect, which is why
+    ``HermesToolOutputParser`` exists. Binding tools through the OpenAI
+    function-calling API would produce payloads that parser cannot read, so the
+    catalogue is rendered into the prompt instead and both ends of the loop
+    speak one convention (finding F-03).
+    """
+    if not tools:
+        return (
+            "You have no tools available in this run. Base your review only on "
+            "the diff and the file content you were given."
+        )
+
+    entries = []
+    for tool in tools:
+        try:
+            parameters = tool.args
+        except Exception:  # a tool without an args schema is still worth listing
+            parameters = {}
+        entries.append(
+            json.dumps(
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": {"type": "object", "properties": parameters},
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    return (
+        "You can call the following tools.\n\n"
+        "<tools>\n" + "\n".join(entries) + "\n</tools>\n\n"
+        "To call one, emit exactly this and nothing else:\n"
+        f"{TOOL_CALL_FORMAT}\n\n"
+        "Call one tool at a time and wait for its <tool_response> before the "
+        "next call. When you have gathered enough evidence, stop calling tools "
+        "and reply with the review report."
+    )
+
+
+def format_to_hermes_messages(
+    intermediate_steps: Sequence[Tuple[AgentAction, str]],
+) -> List[BaseMessage]:
+    """Renders completed tool calls as the model's own turns plus responses.
+
+    The scratchpad used to be built with ``format_to_openai_function_messages``,
+    which emits OpenAI ``function_call`` payloads. The model never produced
+    those — it produces Hermes XML — so the transcript it was shown did not
+    match the transcript it had written (finding F-03).
+    """
+    messages: List[BaseMessage] = []
+    for action, observation in intermediate_steps:
+        messages.append(AIMessage(content=action.log))
+        messages.append(HumanMessage(content=f"<tool_response>\n{observation}\n</tool_response>"))
+    return messages
+
 
 class HermesToolOutputParser(AgentOutputParser):
     """Parses Hermes / vLLM XML-style tool calls from LLM output."""
@@ -180,38 +253,54 @@ class ReviewAgent:
     """).strip()
     
 
-    def __init__(self, llm_provider: LLMProvider, memory_strategy: MemoryStrategy):
+    #: Context window of the served model, used for the buffer report shown to it.
+    CONTEXT_WINDOW_TOKENS = 131072
+    #: Point at which the model is told to summarise before reading anything else.
+    MEMORY_PRESSURE_TOKENS = 90000
+    #: Upper bound on tool calls for a single file, so one review cannot run away.
+    MAX_TOOL_ITERATIONS = 10
+
+    def __init__(
+        self,
+        llm_provider: LLMProvider,
+        memory_strategy: MemoryStrategy,
+        token_counter: Optional[Callable[[str], int]] = None,
+        verbose: bool = False,
+    ):
         self.llm = llm_provider.get_chat_model()
         self.memory_strategy = memory_strategy
         self.tools = get_tools()
-        
-        # Create Chat Prompt
+        self.count_tokens = token_counter or ModelTokenCounter(self.llm)
+
+        # The tool catalogue is a literal SystemMessage rather than a template
+        # string: it contains JSON braces, which a template would try to
+        # interpret as variables.
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", self.SYSTEM_TEMPLATE),
+            SystemMessage(content=render_tool_catalogue(self.tools)),
+            ("system", "REVIEW MEMORY (carried over from files already analysed):\n{memory_context}"),
             ("user", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
         ])
-        
-        llm_with_tools = self.llm 
-        
+
         self.agent_runnable = (
             {
                 "input": lambda x: x["input"],
-                "agent_scratchpad": lambda x: format_to_openai_function_messages(x["intermediate_steps"]), 
-                "memory_context": lambda x: x["memory_context"]
+                "memory_context": lambda x: x.get("memory_context", ""),
+                "agent_scratchpad": lambda x: format_to_hermes_messages(x["intermediate_steps"]),
             }
             | self.prompt
-            | llm_with_tools
+            | self.llm
             | HermesToolOutputParser()
         )
-        
+
         # Executor
         self.agent_executor = AgentExecutor(
-            agent=self.agent_runnable, 
-            tools=self.tools, 
-            verbose=True, 
+            agent=self.agent_runnable,
+            tools=self.tools,
+            verbose=verbose,
             handle_parsing_errors=True,
-            max_iterations=10
+            max_iterations=self.MAX_TOOL_ITERATIONS,
         )
 
     def review_diff(self, filename: str, diff_content: str, full_file_content: str = None, other_files: list = None) -> str:
@@ -228,9 +317,6 @@ class ReviewAgent:
         Returns:
             str: The review output generated by the agent.
         """
-        # Load Context
-        context_str = self.memory_strategy.load_context()
-        
         # Formulate Input with Context Awareness
         user_input = f"Review the changes in `{filename}`.\n\n"
         
@@ -271,38 +357,31 @@ class ReviewAgent:
             print(f"[WARNING] Auto-Dependency Analysis failed: {e}")
         # ----------------------------------------------
 
-        # Load Context (Now includes the fresh insights!)
+        # Load context once, after the automatic dependency analysis above has
+        # had a chance to add its insights (finding F-19: this used to be
+        # loaded a second time at the top of the method and thrown away).
         context_str = self.memory_strategy.load_context()
-        
+
         # Token Management / "Impact Architect" Logic
-        # Calculate approximate current usage (Context + Input)
-        messages = [
-            {"role": "system", "content": self.SYSTEM_TEMPLATE},
-            {"role": "user", "content": context_str + user_input}
-        ]
-        
-        # Robust Token Counting (Offline Fallback)
-        try:
-            current_context_tokens = self.llm.get_num_tokens_from_messages(messages)
-        except Exception:
-            # Fallback to Char/4 heuristic if model doesn't support token counting
-            total_chars = sum(len(str(m.get('content', ''))) for m in messages)
-            current_context_tokens = int(total_chars / 4)
-        
-        remaining = 131072 - current_context_tokens
+        current_context_tokens = self.count_tokens(self.SYSTEM_TEMPLATE + context_str + user_input)
+
+        remaining = self.CONTEXT_WINDOW_TOKENS - current_context_tokens
         avg_file_tokens = 500 # Estimated
         safe_files_buffer = int(remaining / avg_file_tokens)
 
         token_status_msg = (
             f"\n[SYSTEM METRICS]\n"
-            f"- Current Token Usage: {current_context_tokens} / 131072\n"
+            f"- Current Token Usage: {current_context_tokens} / {self.CONTEXT_WINDOW_TOKENS}\n"
             f"- Remaining Buffer: ~{safe_files_buffer} files can be read safely.\n"
         )
-        
+
         # LOGGING TO STDOUT FOR CI VISIBILITY
-        print(f"[INFO] Token Usage: {current_context_tokens} / 131072. Buffer: ~{safe_files_buffer} files.")
-        
-        if current_context_tokens > 90000:
+        print(
+            f"[INFO] Token Usage: {current_context_tokens} / {self.CONTEXT_WINDOW_TOKENS}. "
+            f"Buffer: ~{safe_files_buffer} files."
+        )
+
+        if current_context_tokens > self.MEMORY_PRESSURE_TOKENS:
             warn_msg = "⚠️ CRITICAL WARNING: MEMORY IS FULL (>90k). YOU MUST TRIGGER 'Summarize_Memory' NOW."
             token_status_msg += f"\n{warn_msg}\n(Do not continue reading new files until you have summarized previous insights)."
             print(f"[WARNING] {warn_msg}")

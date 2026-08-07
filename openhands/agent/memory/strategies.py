@@ -8,10 +8,11 @@ Token-aware, priority-based memory yönetimi:
 - Chunk-based dosya okuma
 """
 
-from typing import Any, List, Dict, Optional, Tuple
+from typing import Any, Callable, List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from openhands.agent.core.interfaces import MemoryStrategy, LLMProvider
+from openhands.agent.core.token_counter import HeuristicTokenCounter
 
 
 class InsightPriority(Enum):
@@ -73,24 +74,20 @@ class SmartMemoryStrategy(MemoryStrategy):
         "GENERAL": InsightPriority.LOW,
     }
     
-    def __init__(self, llm_provider: LLMProvider, max_tokens: int = None):
-        import types
-        self.llm = llm_provider.get_chat_model()
+    def __init__(
+        self,
+        llm_provider: LLMProvider,
+        max_tokens: int = None,
+        token_counter: Optional[Callable[[str], int]] = None,
+    ):
+        # The provider is kept so a future summarisation step can ask the model
+        # for a real summary. The chat model itself is deliberately not touched:
+        # this class used to inject a token-counting method onto it, which then
+        # shadowed the tokenizer the agent relied on (finding F-11).
+        self.llm_provider = llm_provider
         self.max_tokens = max_tokens or self.DEFAULT_MAX_TOKENS
-        
-        # Offline token counting
-        def offline_get_num_tokens(self, messages: list) -> int:
-            total_chars = 0
-            for m in messages:
-                if hasattr(m, 'content'):
-                    total_chars += len(m.content)
-                else:
-                    total_chars += len(str(m))
-            return int(total_chars / 4)
-        
-        object.__setattr__(self.llm, 'get_num_tokens_from_messages', 
-                          types.MethodType(offline_get_num_tokens, self.llm))
-        
+        self.count_tokens: Callable[[str], int] = token_counter or HeuristicTokenCounter()
+
         # Priority-based insight storage
         self.critical_insights: List[MemoryInsight] = []   # Never summarized
         self.high_insights: List[MemoryInsight] = []       # Summarized last
@@ -129,7 +126,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         priority = self.CATEGORY_PRIORITIES.get(category, InsightPriority.NORMAL)
         
         # Estimate tokens
-        tokens = len(insight) // 4
+        tokens = self.count_tokens(insight)
         
         # Create insight object
         memory_insight = MemoryInsight(
@@ -371,16 +368,16 @@ class SmartMemoryStrategy(MemoryStrategy):
         for insight in self.low_insights:
             total += insight.tokens
         
-        total += len(self.summary_buffer) // 4
-        
+        total += self.count_tokens(self.summary_buffer)
+
         for entry in self.affected_codes:
-            total += len(str(entry)) // 4
-        
+            total += self.count_tokens(str(entry))
+
         self.total_tokens_used = total
-    
+
     def _estimate_context_tokens(self, parts: List[str]) -> int:
         """Context parçalarının token sayısını tahmin eder."""
-        return sum(len(p) // 4 for p in parts)
+        return sum(self.count_tokens(p) for p in parts)
     
     def get_stats(self) -> Dict:
         """Memory istatistiklerini döner."""

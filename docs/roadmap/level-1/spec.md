@@ -121,7 +121,8 @@ its framework, and test results do not depend on collection order.
 
 | # | Criterion | Verified by |
 |---|---|---|
-| AC-1 | Every contract C-1…C-13 has at least one test that fails on commit `51a7492` | Tests are written first and observed failing |
+| AC-1 | Every contract C-1…C-12 has at least one test that fails on commit `51a7492` | Tests are written first and observed failing |
+| AC-1b | C-13 is a test-quality contract, so it has no failing-first test. It is verified structurally instead | `grep` for `sys.modules[` in `tests/`; the summarisation test asserts a bucket shrinks |
 | AC-2 | `uv run pytest` is green | CI-equivalent local run |
 | AC-3 | No test mutates `sys.modules` | `grep -r "sys.modules\[" tests/` returns nothing |
 | AC-4 | Coverage of the modules touched in this level is above 70 % | `uv run pytest --cov` |
