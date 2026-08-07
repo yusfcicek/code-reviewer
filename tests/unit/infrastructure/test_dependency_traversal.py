@@ -104,8 +104,19 @@ class TestRippleEffects(unittest.TestCase):
 
         def usages(symbol):
             if symbol == "Target":
-                return [AffectedCode("a.py", "caller", line_number=3, dependency_type=DependencyType.DIRECT_CALL)]
-            return [AffectedCode("b.py", "outer_caller", line_number=9, dependency_type=DependencyType.DIRECT_CALL)]
+                return [
+                    AffectedCode(
+                        "a.py", "caller", line_number=3, dependency_type=DependencyType.DIRECT_CALL
+                    )
+                ]
+            return [
+                AffectedCode(
+                    "b.py",
+                    "outer_caller",
+                    line_number=9,
+                    dependency_type=DependencyType.DIRECT_CALL,
+                )
+            ]
 
         tracker._find_all_usages = usages
         affected = tracker.find_ripple_effects("Target")

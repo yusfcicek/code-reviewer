@@ -30,7 +30,9 @@ class TestPolicyDefaults(unittest.TestCase):
 
 
 class TestBundledPolicyIsTheDefault(unittest.TestCase):
-    def test_load_policy_finds_the_packaged_file_from_any_directory(self, ):
+    def test_load_policy_finds_the_packaged_file_from_any_directory(
+        self,
+    ):
         with _in_temporary_cwd() as cwd:
             self.assertEqual(list(Path(cwd).iterdir()), [])
             policy = load_policy()
@@ -57,9 +59,7 @@ class TestBundledPolicyIsTheDefault(unittest.TestCase):
 
     def test_working_directory_file_wins_over_the_packaged_file(self):
         with _in_temporary_cwd() as cwd:
-            (Path(cwd) / "review_policy.yaml").write_text(
-                "version: '7.7'\n", encoding="utf-8"
-            )
+            (Path(cwd) / "review_policy.yaml").write_text("version: '7.7'\n", encoding="utf-8")
             policy = load_policy()
 
         self.assertEqual(policy.version, "7.7")

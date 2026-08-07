@@ -56,7 +56,11 @@ class TestInjectionRules(unittest.TestCase):
     def test_eval_is_critical(self):
         report = self.analyzer.analyze("result = eval(user_input)\n", "app.py")
 
-        findings = [f for f in report.findings if f.vulnerability_type is VulnerabilityType.COMMAND_INJECTION]
+        findings = [
+            f
+            for f in report.findings
+            if f.vulnerability_type is VulnerabilityType.COMMAND_INJECTION
+        ]
         self.assertTrue(findings)
         self.assertEqual(findings[0].severity, Severity.CRITICAL)
         self.assertEqual(findings[0].cwe_id, "CWE-95")
@@ -83,7 +87,9 @@ class TestSecretRules(unittest.TestCase):
     def test_hardcoded_password_is_reported_with_its_line(self):
         report = SASTAnalyzer().analyze('\n\npassword = "hunter22"\n', "settings.py")
 
-        findings = [f for f in report.findings if f.vulnerability_type is VulnerabilityType.HARDCODED_SECRET]
+        findings = [
+            f for f in report.findings if f.vulnerability_type is VulnerabilityType.HARDCODED_SECRET
+        ]
         self.assertTrue(findings)
         self.assertEqual(findings[0].line_number, 3)
 

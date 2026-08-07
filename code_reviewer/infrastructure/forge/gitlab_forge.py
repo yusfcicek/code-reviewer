@@ -6,8 +6,6 @@ second forge means adding a sibling of this module and nothing else
 (finding F-27).
 """
 
-from typing import List, Optional
-
 from code_reviewer.application.ports import CodeForge, FileChange, MergeRequestRef
 
 from .client import build_gitlab_client
@@ -39,7 +37,7 @@ class GitLabForge(CodeForge):
         self._merge_requests[self._key(reference)] = merge_request
         return reference
 
-    def fetch_changes(self, reference: MergeRequestRef) -> List[FileChange]:
+    def fetch_changes(self, reference: MergeRequestRef) -> list[FileChange]:
         merge_request = self._merge_request(reference)
         payload = merge_request.changes().get("changes", [])
 
@@ -54,7 +52,7 @@ class GitLabForge(CodeForge):
             for entry in payload
         ]
 
-    def fetch_file(self, reference: MergeRequestRef, path: str) -> Optional[str]:
+    def fetch_file(self, reference: MergeRequestRef, path: str) -> str | None:
         project = self._project(reference)
         try:
             blob = project.files.get(file_path=path, ref=reference.head_sha)

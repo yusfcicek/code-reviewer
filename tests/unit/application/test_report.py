@@ -7,9 +7,9 @@ from orchestration here so that both branches can be asserted directly.
 
 import unittest
 
-from code_reviewer.domain.outcome import ReviewOutcome
-from code_reviewer.domain.gate import GateEvaluation, ReviewGateResult
 from code_reviewer.application.report import render_review_comment
+from code_reviewer.domain.gate import GateEvaluation, ReviewGateResult
+from code_reviewer.domain.outcome import ReviewOutcome
 
 
 def _evaluation(result, blocking=(), reasons=()):
@@ -34,7 +34,9 @@ class TestRenderReviewComment(unittest.TestCase):
 
     def test_blocking_review_announces_the_block_and_lists_the_issues(self):
         outcome = ReviewOutcome()
-        outcome.record("src/db.py", _evaluation(ReviewGateResult.FAIL, blocking=["SAST Scan Failed"]))
+        outcome.record(
+            "src/db.py", _evaluation(ReviewGateResult.FAIL, blocking=["SAST Scan Failed"])
+        )
 
         comment = render_review_comment("1.0", outcome, ["## Review for `src/db.py`\nbad"])
 
@@ -43,7 +45,9 @@ class TestRenderReviewComment(unittest.TestCase):
 
     def test_warnings_are_surfaced_without_claiming_a_block(self):
         outcome = ReviewOutcome()
-        outcome.record("a.py", _evaluation(ReviewGateResult.WARN, reasons=["Breaking Changes Detected"]))
+        outcome.record(
+            "a.py", _evaluation(ReviewGateResult.WARN, reasons=["Breaking Changes Detected"])
+        )
 
         comment = render_review_comment("1.0", outcome, ["## Review for `a.py`\nhmm"])
 

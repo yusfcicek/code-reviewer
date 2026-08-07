@@ -2,4 +2,4 @@
 
 from .collector import MetricsCollector, ReviewAggregate, ReviewMetrics
 
-__all__ = ["MetricsCollector", "ReviewMetrics", "ReviewAggregate"]
+__all__ = ["MetricsCollector", "ReviewAggregate", "ReviewMetrics"]

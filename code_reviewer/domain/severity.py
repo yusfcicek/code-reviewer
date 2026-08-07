@@ -11,7 +11,6 @@ function.
 
 from enum import Enum
 from functools import total_ordering
-from typing import Optional
 
 
 @total_ordering
@@ -42,7 +41,7 @@ class Severity(Enum):
         return _ORDER[self] <= _ORDER[threshold]
 
     @classmethod
-    def parse(cls, raw: Optional[str], default: "Severity" = None) -> "Severity":
+    def parse(cls, raw: str | None, default: "Severity" = None) -> "Severity":
         """Reads a severity from free text, falling back rather than raising.
 
         Severities arrive from YAML policy files and from model output, neither

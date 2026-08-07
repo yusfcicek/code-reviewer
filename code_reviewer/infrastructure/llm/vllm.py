@@ -10,7 +10,6 @@ editing a pipeline definition.
 """
 
 import os
-from typing import Optional
 
 import httpx
 from langchain_openai import ChatOpenAI
@@ -79,9 +78,9 @@ class VLLMProvider(LLMProvider):
 
     def __init__(
         self,
-        model_name: Optional[str] = None,
-        api_url: Optional[str] = None,
-        api_key: Optional[str] = None,
+        model_name: str | None = None,
+        api_url: str | None = None,
+        api_key: str | None = None,
     ):
         self.model_name = model_name or os.getenv("VLLM_MODEL")
         self.api_url = api_url or os.getenv("VLLM_API_URL")

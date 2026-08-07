@@ -10,8 +10,8 @@ afterwards and made results order-dependent (finding F-37).
 import unittest
 from unittest.mock import MagicMock, patch
 
-from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.application.ports import LLMProvider, MemoryStrategy
+from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 
 
 class TestReviewAgent(unittest.TestCase):
@@ -74,7 +74,9 @@ class TestReviewAgent(unittest.TestCase):
         self.mock_memory.log_insight.assert_any_call("[RISK] Risk found")
 
     def test_auto_dependency_imports(self):
-        with patch("code_reviewer.infrastructure.tools.definitions.DependencyAnalysisTools") as mock_tools:
+        with patch(
+            "code_reviewer.infrastructure.tools.definitions.DependencyAnalysisTools"
+        ) as mock_tools:
             mock_tools.get_file_imports.return_value = ["import os", "import sys"]
             mock_tools.find_references.return_value = "No references"
 

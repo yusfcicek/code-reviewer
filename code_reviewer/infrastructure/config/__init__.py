@@ -2,4 +2,4 @@
 
 from .loader import ReviewPolicyLoader, get_default_policy, load_policy
 
-__all__ = ["ReviewPolicyLoader", "load_policy", "get_default_policy"]
+__all__ = ["ReviewPolicyLoader", "get_default_policy", "load_policy"]

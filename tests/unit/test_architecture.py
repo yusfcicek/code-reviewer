@@ -10,19 +10,28 @@ imports and fails on the first violation, naming the module and the import.
 
 import ast
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, List, Tuple
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "code_reviewer"
 
 #: Third-party packages that tie a module to a particular piece of machinery.
-FRAMEWORKS = {"gitlab", "langchain", "langchain_core", "langchain_community", "langchain_openai", "openai", "httpx", "requests"}
+FRAMEWORKS = {
+    "gitlab",
+    "langchain",
+    "langchain_core",
+    "langchain_community",
+    "langchain_openai",
+    "openai",
+    "httpx",
+    "requests",
+}
 
 #: Standard-library modules that mean a module performs I/O.
 IO_MODULES = {"subprocess", "socket", "urllib", "http", "shutil"}
 
 
-def _modules(layer: str) -> Iterator[Tuple[Path, ast.Module]]:
+def _modules(layer: str) -> Iterator[tuple[Path, ast.Module]]:
     """Yields every module in a layer with its parsed syntax tree."""
     directory = PACKAGE_ROOT / layer if layer else PACKAGE_ROOT
     if not directory.is_dir():
@@ -31,7 +40,7 @@ def _modules(layer: str) -> Iterator[Tuple[Path, ast.Module]]:
         yield path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
-def _imported_roots(tree: ast.Module) -> List[str]:
+def _imported_roots(tree: ast.Module) -> list[str]:
     """Top-level package name of every import in the module."""
     roots = []
     for node in ast.walk(tree):
@@ -45,7 +54,7 @@ def _imported_roots(tree: ast.Module) -> List[str]:
     return roots
 
 
-def _imported_layers(tree: ast.Module) -> List[str]:
+def _imported_layers(tree: ast.Module) -> list[str]:
     """Which `code_reviewer.<layer>` packages a module imports from."""
     layers = []
     for node in ast.walk(tree):
@@ -129,7 +138,7 @@ class TestNoLegacyPackage(unittest.TestCase):
 
 
 class TestSingleSharedModels(unittest.TestCase):
-    def _class_definitions(self, name: str) -> List[Path]:
+    def _class_definitions(self, name: str) -> list[Path]:
         found = []
         for path, tree in _modules(""):
             for node in ast.walk(tree):

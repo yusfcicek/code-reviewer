@@ -13,9 +13,27 @@ from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 
 CHANGES_PAYLOAD = {
     "changes": [
-        {"new_path": "src/app.py", "old_path": "src/app.py", "diff": "+ line", "deleted_file": False, "new_file": False},
-        {"new_path": "src/gone.py", "old_path": "src/gone.py", "diff": "- line", "deleted_file": True, "new_file": False},
-        {"new_path": "src/new.py", "old_path": "src/new.py", "diff": "+ line", "deleted_file": False, "new_file": True},
+        {
+            "new_path": "src/app.py",
+            "old_path": "src/app.py",
+            "diff": "+ line",
+            "deleted_file": False,
+            "new_file": False,
+        },
+        {
+            "new_path": "src/gone.py",
+            "old_path": "src/gone.py",
+            "diff": "- line",
+            "deleted_file": True,
+            "new_file": False,
+        },
+        {
+            "new_path": "src/new.py",
+            "old_path": "src/new.py",
+            "diff": "+ line",
+            "deleted_file": False,
+            "new_file": True,
+        },
     ]
 }
 

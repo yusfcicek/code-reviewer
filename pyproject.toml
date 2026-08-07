@@ -70,3 +70,36 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplifications
+    "RUF",  # ruff-specific
+]
+ignore = [
+    # The codebase documents itself partly in Turkish and uses typographic
+    # dashes in prose. These three rules flag every non-ASCII character as
+    # "ambiguous", which here means "correct".
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build deliberately awkward inputs and assert on them; a few
+# simplifications would obscure what is being exercised.
+"tests/**" = ["SIM117", "B017"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["code_reviewer"]

@@ -49,18 +49,14 @@ class TestClassifyUsage(unittest.TestCase):
         self.assertIs(self._classify("handler: Target = None"), DependencyType.TYPE_USAGE)
 
     def test_annotated_parameter(self):
-        self.assertIs(
-            self._classify("def run(handler: Target):"), DependencyType.TYPE_USAGE
-        )
+        self.assertIs(self._classify("def run(handler: Target):"), DependencyType.TYPE_USAGE)
 
     def test_bare_reference_is_a_data_structure_usage(self):
         self.assertIs(self._classify("payload = Target"), DependencyType.DATA_STRUCTURE)
 
     def test_word_boundaries_are_respected(self):
         """`TargetHelper` is a different symbol and must not read as a call."""
-        self.assertIs(
-            self._classify("value = TargetHelper(x)"), DependencyType.DATA_STRUCTURE
-        )
+        self.assertIs(self._classify("value = TargetHelper(x)"), DependencyType.DATA_STRUCTURE)
 
 
 class TestRiskLevels(unittest.TestCase):

@@ -43,9 +43,7 @@ class TestAggregate(unittest.TestCase):
         self.assertEqual(aggregate.files_analyzed, 3)
 
     def test_lines_are_summed(self):
-        aggregate = _collector(
-            _metric(lines_analyzed=10), _metric(lines_analyzed=32)
-        ).aggregate()
+        aggregate = _collector(_metric(lines_analyzed=10), _metric(lines_analyzed=32)).aggregate()
 
         self.assertEqual(aggregate.lines_analyzed, 42)
 
@@ -79,23 +77,17 @@ class TestAggregate(unittest.TestCase):
         self.assertEqual(aggregate.gate_result, "warn")
 
     def test_the_lowest_quality_score_is_reported(self):
-        aggregate = _collector(
-            _metric(quality_score=90), _metric(quality_score=40)
-        ).aggregate()
+        aggregate = _collector(_metric(quality_score=90), _metric(quality_score=40)).aggregate()
 
         self.assertEqual(aggregate.quality_score, 40)
 
     def test_unknown_quality_scores_are_ignored(self):
-        aggregate = _collector(
-            _metric(quality_score=None), _metric(quality_score=70)
-        ).aggregate()
+        aggregate = _collector(_metric(quality_score=None), _metric(quality_score=70)).aggregate()
 
         self.assertEqual(aggregate.quality_score, 70)
 
     def test_durations_are_summed_and_the_slowest_is_kept(self):
-        aggregate = _collector(
-            _metric(duration_ms=100), _metric(duration_ms=400)
-        ).aggregate()
+        aggregate = _collector(_metric(duration_ms=100), _metric(duration_ms=400)).aggregate()
 
         self.assertEqual(aggregate.duration_ms, 500)
         self.assertEqual(aggregate.slowest_file_ms, 400)
@@ -148,7 +140,7 @@ class TestPrometheusExport(unittest.TestCase):
         """Regression for F-17."""
         text = _collector(_metric(findings_by_severity={"critical": 2})).export_prometheus()
 
-        self.assertIn('code_review_findings{', text)
+        self.assertIn("code_review_findings{", text)
         self.assertIn('severity="critical"', text)
 
     def test_labels_carry_project_and_merge_request(self):

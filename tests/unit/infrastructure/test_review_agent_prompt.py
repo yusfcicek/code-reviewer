@@ -15,12 +15,12 @@ from unittest.mock import MagicMock, patch
 from langchain.tools import StructuredTool
 from langchain_core.agents import AgentAction
 
+from code_reviewer.application.ports import LLMProvider, MemoryStrategy
 from code_reviewer.infrastructure.llm.review_agent import (
     ReviewAgent,
     format_to_hermes_messages,
     render_tool_catalogue,
 )
-from code_reviewer.application.ports import LLMProvider, MemoryStrategy
 
 
 def _sample_tool_input(target_path: str) -> str:

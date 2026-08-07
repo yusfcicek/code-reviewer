@@ -5,7 +5,7 @@ GitLab instance. The blocked branch was previously unreachable: the flag that
 selected it was a string compared against a ``ReviewGateResult`` (finding F-01).
 """
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.outcome import ReviewOutcome
@@ -15,7 +15,7 @@ def render_review_comment(
     policy_version: str,
     outcome: ReviewOutcome,
     sections: Sequence[str],
-    findings: Optional[Sequence[Finding]] = None,
+    findings: Sequence[Finding] | None = None,
 ) -> str:
     """Builds the markdown comment posted on the merge request."""
     parts = ["# 🤖 AI Review Report\n"]

@@ -11,7 +11,6 @@ environment, and turning it off is noisy.
 
 import os
 import warnings
-from typing import Union
 
 import gitlab
 
@@ -28,7 +27,7 @@ class MissingCredentialsError(RuntimeError):
     """
 
 
-def resolve_ssl_verify() -> Union[bool, str]:
+def resolve_ssl_verify() -> bool | str:
     """Decides what to pass as ``ssl_verify``.
 
     Returns the path to a CA bundle when ``GITLAB_CA_BUNDLE`` is set, ``False``

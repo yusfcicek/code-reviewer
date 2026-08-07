@@ -15,7 +15,6 @@ review continues, with the model told why it cannot have the file.
 import ast
 import re
 import subprocess
-from typing import List, Optional
 
 from langchain.tools import StructuredTool
 
@@ -28,10 +27,10 @@ MAX_OUTPUT_CHARS = 2000
 #: Directories never worth searching.
 EXCLUDED_DIRS = ("build", ".git", "__pycache__", "node_modules", ".gradle", ".idea", ".venv")
 
-_workspace: Optional[Workspace] = None
+_workspace: Workspace | None = None
 
 
-def set_workspace(workspace: Optional[Workspace]) -> None:
+def set_workspace(workspace: Workspace | None) -> None:
     """Sets the workspace every tool is confined to.
 
     Called once by the composition root. ``None`` restores the default, which
@@ -56,7 +55,6 @@ def _truncate(text: str) -> str:
 
 
 class FileSystemTools:
-
     @staticmethod
     def read_file(file_path: str) -> str:
         """Reads a file from inside the workspace."""
@@ -93,7 +91,6 @@ class FileSystemTools:
 
 
 class CodeSearchTools:
-
     @staticmethod
     def grep_search(pattern: str, path: str = ".") -> str:
         """Searches for a text pattern inside the workspace."""
@@ -120,7 +117,6 @@ class CodeSearchTools:
 
 
 class SmartFileTools:
-
     @staticmethod
     def find_file(filename: str) -> str:
         """Locates a file by name inside the workspace."""
@@ -177,7 +173,6 @@ class SmartFileTools:
 
 
 class DependencyAnalysisTools:
-
     @staticmethod
     def get_file_imports(file_path: str) -> str:
         """Lists imported modules. Supports Python (AST) and C/C++ (regex)."""
@@ -319,7 +314,7 @@ class AnalyzerTools:
             return f"Error finding ripple effects: {exc}"
 
 
-def get_tools() -> List[StructuredTool]:
+def get_tools() -> list[StructuredTool]:
     """Every tool the agent may call."""
     return [
         StructuredTool.from_function(

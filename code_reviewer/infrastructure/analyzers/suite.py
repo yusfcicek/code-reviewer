@@ -19,8 +19,6 @@ directly would be a large change with no behavioural gain, and their tests pin
 the current output (decision D-2).
 """
 
-from typing import List, Optional
-
 from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
@@ -40,21 +38,21 @@ _SEMANTIC_SEVERITY = {
 class StaticAnalysisSuite:
     """Every analyzer, one call, one vocabulary."""
 
-    def __init__(self, policy: Optional[ReviewPolicy] = None):
+    def __init__(self, policy: ReviewPolicy | None = None):
         self._policy = policy
         self._sast = SASTAnalyzer()
         self._quality = QualityAnalyzer(policy.quality if policy else None)
         self._performance = PerformanceAnalyzer(policy.performance if policy else None)
         self._semantic = SemanticChangeAnalyzer()
 
-    def analyze(self, file_path: str, content: str, diff: str = "") -> List[Finding]:
+    def analyze(self, file_path: str, content: str, diff: str = "") -> list[Finding]:
         """Analyses one file, returning findings most severe first.
 
         An analyzer that cannot handle the input contributes nothing rather
         than failing the review: a syntax error in a half-finished branch is a
         reason to say less, not a reason to abort.
         """
-        findings: List[Finding] = []
+        findings: list[Finding] = []
 
         if content:
             findings.extend(self._security_findings(file_path, content))
@@ -68,7 +66,7 @@ class StaticAnalysisSuite:
 
     # -- per-analyzer adapters ----------------------------------------------
 
-    def _security_findings(self, file_path: str, content: str) -> List[Finding]:
+    def _security_findings(self, file_path: str, content: str) -> list[Finding]:
         try:
             report = self._sast.analyze(content, file_path)
         except Exception:
@@ -91,7 +89,7 @@ class StaticAnalysisSuite:
             for item in report.findings
         ]
 
-    def _quality_findings(self, file_path: str, content: str) -> List[Finding]:
+    def _quality_findings(self, file_path: str, content: str) -> list[Finding]:
         try:
             report = self._quality.analyze(content, file_path)
         except Exception:
@@ -113,7 +111,7 @@ class StaticAnalysisSuite:
             for issue in report.all_issues
         ]
 
-    def _performance_findings(self, file_path: str, content: str) -> List[Finding]:
+    def _performance_findings(self, file_path: str, content: str) -> list[Finding]:
         try:
             report = self._performance.analyze(content, file_path)
         except Exception:
@@ -135,7 +133,7 @@ class StaticAnalysisSuite:
             for issue in report.issues
         ]
 
-    def _semantic_findings(self, file_path: str, content: str, diff: str) -> List[Finding]:
+    def _semantic_findings(self, file_path: str, content: str, diff: str) -> list[Finding]:
         try:
             analysis = self._semantic.analyze_diff(diff, content or None, file_path)
         except Exception:

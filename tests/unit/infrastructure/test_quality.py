@@ -105,9 +105,7 @@ class TestTestability(unittest.TestCase):
         self.assertIn(IssueCategory.TESTABILITY, _categories(report))
 
     def test_score_never_goes_negative(self):
-        source = "\n".join(
-            f"def wide_{i}(a, b, c, d, e, f, g):\n    return a" for i in range(40)
-        )
+        source = "\n".join(f"def wide_{i}(a, b, c, d, e, f, g):\n    return a" for i in range(40))
 
         report = QualityAnalyzer().analyze(source, "m.py")
 
@@ -220,7 +218,9 @@ class TestPolicyDrivenThresholds(unittest.TestCase):
         source = f"def classify(value):\n{branches}\n    return None\n"
 
         strict = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=3)).analyze(source, "m.py")
-        lenient = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=50)).analyze(source, "m.py")
+        lenient = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=50)).analyze(
+            source, "m.py"
+        )
 
         self.assertIn(IssueCategory.MAINTAINABILITY, _categories(strict))
         self.assertNotIn(IssueCategory.MAINTAINABILITY, _categories(lenient))

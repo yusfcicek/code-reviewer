@@ -9,7 +9,6 @@ directly and therefore had no tests at all (findings F-25, F-27).
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.gate import ReviewGate
@@ -43,7 +42,7 @@ class FileMetric:
     file_path: str
     triage_decisions: dict
     gate_result: str
-    quality_score: Optional[int]
+    quality_score: int | None
     lines_analyzed: int
     duration_ms: int = 0
     findings_by_severity: dict = field(default_factory=dict)
@@ -54,8 +53,8 @@ class ReviewResult:
     """Everything one review run produced."""
 
     outcome: ReviewOutcome
-    metrics: List[FileMetric] = field(default_factory=list)
-    findings: List[Finding] = field(default_factory=list)
+    metrics: list[FileMetric] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     comment: str = ""
     exit_code: int = 0
 
@@ -69,8 +68,8 @@ class ReviewService:
         reviewer: Reviewer,
         triage: ReviewTriage,
         policy: ReviewPolicy,
-        analysis: Optional[StaticAnalysis] = None,
-        gate: Optional[ReviewGate] = None,
+        analysis: StaticAnalysis | None = None,
+        gate: ReviewGate | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -87,7 +86,9 @@ class ReviewService:
     def review(self, project_id: int, merge_request_iid: int) -> ReviewResult:
         """Runs the full workflow and returns what happened."""
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
-        changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
+        changes = [
+            change for change in self._forge.fetch_changes(reference) if not change.is_deleted
+        ]
 
         outcome = ReviewOutcome()
         result = ReviewResult(outcome=outcome)
@@ -139,7 +140,7 @@ class ReviewService:
         self,
         reference: MergeRequestRef,
         change: FileChange,
-        sibling_paths: List[str],
+        sibling_paths: list[str],
         outcome: ReviewOutcome,
     ):
         """Triages one file and, if it warrants it, reviews and gates it."""
