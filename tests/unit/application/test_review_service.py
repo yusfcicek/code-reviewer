@@ -383,5 +383,122 @@ class TestStaticAnalysisIntegration(unittest.TestCase):
         self.assertTrue(result.outcome.is_blocking)
 
 
+class ExplodingReviewer(Reviewer):
+    """Fails on the named files and behaves on the rest."""
+
+    def __init__(self, failing_paths, report=CLEAN_REVIEW):
+        self.failing_paths = set(failing_paths)
+        self.report = report
+        self.reviewed = []
+
+    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None):
+        if filename in self.failing_paths:
+            raise RuntimeError("model endpoint timed out")
+        self.reviewed.append(filename)
+        return self.report
+
+
+class ExplodingAnalysis(StaticAnalysis):
+    def analyze(self, file_path, content, diff=""):
+        raise RuntimeError("analyzer crashed")
+
+
+class TestFailureIsolation(unittest.TestCase):
+    """Regression for F-58.
+
+    An exception on one file propagated out of the workflow, so the composition
+    root exited 1 and every completed review was discarded — nothing was posted.
+    One flaky model call cost the whole run.
+    """
+
+    def _three_files(self):
+        return FakeForge([
+            FileChange("src/a.py", _significant_diff("a")),
+            FileChange("src/b.py", _significant_diff("b")),
+            FileChange("src/c.py", _significant_diff("c")),
+        ])
+
+    def test_the_other_files_are_still_reviewed(self):
+        forge = self._three_files()
+        reviewer = ExplodingReviewer(["src/b.py"])
+
+        _service(forge, reviewer).review(1, 2)
+
+        self.assertEqual(reviewer.reviewed, ["src/a.py", "src/c.py"])
+
+    def test_a_comment_is_still_posted(self):
+        forge = self._three_files()
+
+        _service(forge, ExplodingReviewer(["src/b.py"])).review(1, 2)
+
+        self.assertEqual(len(forge.published), 1)
+
+    def test_the_failed_file_is_named_in_the_comment(self):
+        forge = self._three_files()
+
+        _service(forge, ExplodingReviewer(["src/b.py"])).review(1, 2)
+
+        self.assertIn("Could not review", forge.published[0])
+        self.assertIn("src/b.py", forge.published[0])
+
+    def test_the_failure_is_recorded_on_the_outcome(self):
+        forge = self._three_files()
+
+        result = _service(forge, ExplodingReviewer(["src/b.py"])).review(1, 2)
+
+        self.assertTrue(result.outcome.has_failures)
+        self.assertEqual(result.outcome.failed_files[0][0], "src/b.py")
+
+    def test_a_failed_file_is_at_least_a_warning(self):
+        """The review has less evidence than it appears to."""
+        forge = self._three_files()
+
+        result = _service(forge, ExplodingReviewer(["src/b.py"])).review(1, 2)
+
+        self.assertEqual(result.outcome.result, ReviewGateResult.WARN)
+
+    def test_by_default_a_failure_does_not_fail_the_pipeline(self):
+        forge = self._three_files()
+
+        result = _service(forge, ExplodingReviewer(["src/b.py"])).review(1, 2)
+
+        self.assertEqual(result.exit_code, 0)
+
+    def test_policy_can_make_a_failure_fail_the_pipeline(self):
+        policy = ReviewPolicy()
+        policy.gate.fail_on_review_error = True
+        forge = self._three_files()
+
+        result = _service(forge, ExplodingReviewer(["src/b.py"]), policy).review(1, 2)
+
+        self.assertEqual(result.exit_code, 1)
+
+    def test_the_failed_file_counts_as_considered(self):
+        forge = self._three_files()
+
+        result = _service(forge, ExplodingReviewer(["src/b.py"])).review(1, 2)
+
+        self.assertEqual(result.outcome.files_considered, 3)
+
+    def test_a_crashing_analyzer_does_not_cost_the_model_review(self):
+        forge = FakeForge([FileChange("src/a.py", _significant_diff())])
+        reviewer = ScriptedReviewer()
+
+        result = _service(forge, reviewer, analysis=ExplodingAnalysis()).review(1, 2)
+
+        self.assertEqual(reviewer.reviewed, ["src/a.py"])
+        self.assertFalse(result.outcome.has_failures)
+
+    def test_every_file_failing_still_posts_a_comment(self):
+        forge = self._three_files()
+
+        result = _service(
+            forge, ExplodingReviewer(["src/a.py", "src/b.py", "src/c.py"])
+        ).review(1, 2)
+
+        self.assertEqual(len(forge.published), 1)
+        self.assertEqual(len(result.outcome.failed_files), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

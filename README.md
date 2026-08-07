@@ -53,9 +53,14 @@ refused if it lands outside — including through `..` and symlinks. The paths t
 agent asks for ultimately come from the diff, so anyone who can open a merge
 request could otherwise attempt to steer them.
 
-### 📈 5. Metrics
-Review duration and quality score are exported in Prometheus text format for
-GitLab's `metrics` report artifact.
+### 📈 5. Metrics and logging
+- The whole review is exported as OpenMetrics text for GitLab's `metrics`
+  report: files and lines analysed, findings per severity, triage decisions,
+  gate result, total and slowest duration — each with `# HELP` and `# TYPE`.
+- Diagnostics go through `logging`. `LOG_LEVEL` sets verbosity and
+  `LOG_FORMAT=json` emits one JSON object per record for an aggregator.
+- A file the reviewer cannot process is reported as *not reviewed* rather than
+  ending the run or passing silently.
 
 ### 🧠 6. Token-aware memory
 `SmartMemoryStrategy` keeps findings in priority buckets, never summarises
@@ -79,8 +84,9 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Policy file | ✅ Works | The bundled `review_policy.yaml` is the default, and its thresholds change what the analyzers report |
 | Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
 | Tool sandboxing | ✅ Works | Every file tool resolves against a workspace root and refuses paths outside it, including traversal and symlinks |
-| Metrics | ⚠️ Partial | Only the last analysed file is exported; security, performance and issue-count fields are always `0` (F-16, F-17) |
-| Logging | ⚠️ Open | Diagnostics are `print()` calls with hand-written prefixes; no levels, no structure (F-47) |
+| Metrics | ✅ Works | The whole review is aggregated and exported as valid OpenMetrics; every field is derived from something the review produced |
+| Logging | ✅ Works | Structured `logging` with `LOG_LEVEL` and an optional JSON format |
+| Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 
 Remaining items are scheduled in [Levels 3 and 4](docs/roadmap/README.md) of
@@ -128,6 +134,11 @@ uv sync
 | `CI_MERGE_REQUEST_IID` | no | Fallback for `--mr-iid` |
 | `GITLAB_CA_BUNDLE` | no | CA certificate bundle for an internal GitLab |
 | `GITLAB_SSL_VERIFY` | no | Set to `false` to disable certificate verification (not recommended) |
+| `LOG_LEVEL` | no | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
+| `LOG_FORMAT` | no | `text` (default) or `json` |
+| `LLM_TIMEOUT_SECONDS` | no | Request timeout for the model, default `120` |
+| `LLM_MAX_RETRIES` | no | Retries on timeout or 5xx, default `2` |
+| `LLM_TEMPERATURE` | no | Sampling temperature, default `0.3` |
 
 ```bash
 export GITLAB_URL="https://gitlab.example.com"
@@ -176,6 +187,7 @@ gate:
   blocking_severity: "critical"   # critical | high | medium | low | info
   quality_score_threshold: 60
   fail_pipeline_on_critical: true
+  fail_on_review_error: false     # a file the reviewer could not process
 ```
 
 Documentation, generated lock files, binary assets and vendored trees are
@@ -230,7 +242,7 @@ uv run pytest
 uv run pytest --cov          # with coverage
 ```
 
-350 tests. The domain and application layers sit at 88–100 % coverage; the
+412 tests. The domain and application layers sit at 88–100 % coverage; the
 review workflow runs entirely against in-memory fakes, with no network and no
 GitLab. Every behaviour change from Level 1 onwards is written test-first: the
 test that pins a fix is observed failing before the fix lands.

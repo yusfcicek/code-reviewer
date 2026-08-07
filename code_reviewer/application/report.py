@@ -27,6 +27,11 @@ def render_review_comment(
     else:
         parts.append("### ✅ Pipeline PASSED\n")
 
+    if outcome.failed_files:
+        parts.append("\n**Not reviewed**\n")
+        for path, reason in outcome.failed_files:
+            parts.append(f"- ⚠️ `{path}` — {reason}")
+
     warnings = outcome.warnings
     if warnings:
         parts.append("\n**Warnings**\n")

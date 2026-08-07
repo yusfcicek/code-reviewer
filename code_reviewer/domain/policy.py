@@ -119,6 +119,11 @@ class GatePolicy:
     
     fail_pipeline_on_critical: bool = True
     fail_pipeline_on_quality_below: int = 50
+
+    #: Whether a file the reviewer could not process fails the pipeline.
+    #: Defaults to False so a flaky model endpoint does not block merges, but
+    #: the failure is always reported in the comment (decision D-4).
+    fail_on_review_error: bool = False
     
     # Notification
     notify_on_critical: bool = True

@@ -24,6 +24,9 @@ from code_reviewer.domain.policy import (
     SecurityPolicy,
     TriagePolicy,
 )
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ReviewPolicyLoader:
@@ -119,7 +122,7 @@ class ReviewPolicyLoader:
     def _load_from_file(self, policy_path: str = None) -> Optional[Dict]:
         """YAML dosyasından policy yükler."""
         if policy_path and not os.path.exists(policy_path):
-            print(f"[CONFIG] Policy file not found: {policy_path}; falling back.")
+            logger.warning("Policy file not found; falling back", extra={"fields": {"path": policy_path}})
 
         for path in self._candidate_paths(policy_path):
             if not path or not os.path.exists(path):
@@ -128,18 +131,18 @@ class ReviewPolicyLoader:
                 with open(path, 'r', encoding='utf-8') as f:
                     data = yaml.safe_load(f)
             except Exception as e:
-                print(f"[CONFIG] Error loading {path}: {e}")
+                logger.warning("Could not read policy file", extra={"fields": {"path": path, "error": str(e)}})
                 continue
 
             if not isinstance(data, dict):
-                print(f"[CONFIG] Ignoring {path}: expected a YAML mapping.")
+                logger.warning("Ignoring policy file: expected a YAML mapping", extra={"fields": {"path": path}})
                 continue
 
             self.source = path
-            print(f"[CONFIG] Loaded policy from: {path}")
+            logger.info("Policy loaded", extra={"fields": {"source": path}})
             return data
 
-        print("[CONFIG] No policy file found; using built-in defaults.")
+        logger.info("No policy file found; using built-in defaults")
         return None
     
     def _load_from_env(self) -> Dict:
@@ -167,7 +170,7 @@ class ReviewPolicyLoader:
                 try:
                     overrides[section][key] = converter(value)
                 except (ValueError, TypeError):
-                    print(f"[CONFIG] Invalid value for {env_var}: {value}")
+                    logger.warning("Ignoring invalid environment override", extra={"fields": {"variable": env_var, "value": value}})
         
         return overrides
     
@@ -193,7 +196,7 @@ class ReviewPolicyLoader:
             values = overrides.get(section)
             if not isinstance(values, dict):
                 if values is not None:
-                    print(f"[CONFIG] Ignoring '{section}': expected a mapping, got {type(values).__name__}.")
+                    logger.warning("Ignoring policy section: expected a mapping", extra={"fields": {"section": section, "got": type(values).__name__}})
                 continue
 
             target = getattr(base, section)
@@ -201,7 +204,7 @@ class ReviewPolicyLoader:
                 if hasattr(target, key):
                     setattr(target, key, value)
                 else:
-                    print(f"[CONFIG] Ignoring unknown key '{section}.{key}'.")
+                    logger.warning("Ignoring unknown policy key", extra={"fields": {"key": f"{section}.{key}"}})
 
         custom_rules = overrides.get('custom_rules')
         if isinstance(custom_rules, dict):

@@ -9,7 +9,6 @@ Usage:
     ai-code-review --project-id <ID> --mr-iid <IID> [--policy <path>]
 """
 
-import logging
 import sys
 import warnings
 
@@ -24,14 +23,19 @@ from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 from code_reviewer.infrastructure.metrics.collector import MetricsCollector, ReviewMetrics
+from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
 from code_reviewer.infrastructure.tools import Workspace, set_workspace
 
 #: Where GitLab CI picks up the metrics report artifact.
 METRICS_PATH = "metrics.txt"
 
+logger = get_logger(__name__)
+
 
 def _quieten_dependencies() -> None:
     """Keeps third-party chatter out of the CI log."""
+    import logging
+
     for name in ("tiktoken", "langchain", "openai", "httpx"):
         logging.getLogger(name).setLevel(logging.ERROR)
     warnings.filterwarnings("ignore", message=".*model not found.*")
@@ -45,11 +49,12 @@ def _export_metrics(result, project_id, merge_request_iid) -> None:
             ReviewMetrics(
                 project_id=str(project_id),
                 mr_id=str(merge_request_iid),
-                files_analyzed=1,
+                file_path=metric.file_path,
                 lines_analyzed=metric.lines_analyzed,
                 triage_decisions=metric.triage_decisions,
                 gate_result=metric.gate_result,
-                quality_score=metric.quality_score or 0,
+                quality_score=metric.quality_score,
+                findings_by_severity=metric.findings_by_severity,
                 duration_ms=metric.duration_ms,
             )
         )
@@ -58,16 +63,19 @@ def _export_metrics(result, project_id, merge_request_iid) -> None:
 
 def run(args) -> int:
     """Builds the workflow for one run and returns its exit code."""
-    print(f"[INFO] Initializing agent for project {args.project_id}, MR !{args.mr_iid}...")
+    logger.info(
+        "Starting review",
+        extra={"fields": {"project": args.project_id, "merge_request": args.mr_iid}},
+    )
 
     policy = load_policy(args.policy)
-    print(f"[INFO] Review policy loaded (v{policy.version})")
+    logger.info("Policy in effect", extra={"fields": {"version": policy.version}})
 
     # Every file the agent can read is confined to the checkout it is
     # reviewing; the paths it asks for come from the diff (finding F-21).
     workspace = Workspace()
     set_workspace(workspace)
-    print(f"[INFO] Tools confined to {workspace.root}")
+    logger.info("Tools confined", extra={"fields": {"workspace": str(workspace.root)}})
 
     provider = LLMFactory.create_provider("vllm")
     memory = SmartMemoryStrategy(provider)
@@ -83,44 +91,46 @@ def run(args) -> int:
     result = service.review(args.project_id, args.mr_iid)
 
     if result.comment:
-        print("[INFO] Review posted to GitLab.")
+        logger.info(
+            "Review posted",
+            extra={"fields": {"files": len(result.metrics), "findings": len(result.findings)}},
+        )
     else:
-        print("[INFO] Nothing to review; no comment posted.")
+        logger.info("Nothing to review; no comment posted")
 
     _export_metrics(result, args.project_id, args.mr_iid)
-    print(f"[INFO] Metrics exported to {METRICS_PATH}.")
+    logger.info("Metrics exported", extra={"fields": {"path": METRICS_PATH}})
 
     if result.outcome.is_blocking:
-        print("[GATE] Blocking issues:")
         for issue in result.outcome.blocking_issues:
-            print(f"  - {issue}")
+            logger.error("Blocking issue", extra={"fields": {"issue": issue}})
         if not result.exit_code:
-            print("[GATE] Policy does not fail the pipeline on blocking issues.")
+            logger.warning("Policy does not fail the pipeline on blocking issues")
 
     return result.exit_code
 
 
 def main() -> None:
+    configure_logging()
     _quieten_dependencies()
     args = parse_args()
 
     if not args.project_id or not args.mr_iid:
-        print(
-            "Missing project ID or MR IID. Pass --project-id/--mr-iid or set "
-            "CI_PROJECT_ID/CI_MERGE_REQUEST_IID."
+        logger.error(
+            "Missing project ID or merge request IID. Pass --project-id/--mr-iid "
+            "or set CI_PROJECT_ID/CI_MERGE_REQUEST_IID."
         )
         sys.exit(2)
 
     try:
         sys.exit(run(args))
     except MissingCredentialsError as exc:
-        print(f"[ERROR] {exc}")
+        logger.error("Cannot reach the forge", extra={"fields": {"error": str(exc)}})
         sys.exit(2)
     except Exception as exc:
-        print(f"[ERROR] Critical failure: {exc}")
-        import traceback
-
-        traceback.print_exc()
+        logger.critical(
+            "Review run failed", extra={"fields": {"error": str(exc)}}, exc_info=True
+        )
         sys.exit(1)
 
 

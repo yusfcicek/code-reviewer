@@ -20,6 +20,10 @@ import json
 import re
 import textwrap
 
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 TOOL_CALL_FORMAT = (
     "<tool_call>\n"
@@ -342,7 +346,7 @@ class ReviewAgent:
             if "Error" not in deps:
                 # Log these imports as dependencies
                 self.memory_strategy.log_insight(f"ADD_MEMORY: [DEPENDENCY] {filename} DEPENDS ON:\n{deps}")
-                print(f"[INFO] Auto-Analyzed Forward Dependencies for {filename}")
+                logger.debug("Analysed forward dependencies", extra={"fields": {"path": filename}})
 
             # 2. Find reverse dependencies (who uses this file?)
             # Use basename (e.g., fibonacci.h or fibonacci)
@@ -351,10 +355,10 @@ class ReviewAgent:
             refs = DependencyAnalysisTools.find_references(base_name)
             if "Error" not in refs and "No references" not in refs:
                  self.memory_strategy.log_insight(f"ADD_MEMORY: [DEPENDENCY] ALIAS/FILES DEPENDING ON {base_name}:\n{refs}")
-                 print(f"[INFO] Auto-Analyzed Reverse Dependencies for {filename}")
+                 logger.debug("Analysed reverse dependencies", extra={"fields": {"path": filename}})
                  
         except Exception as e:
-            print(f"[WARNING] Auto-Dependency Analysis failed: {e}")
+            logger.warning("Dependency analysis failed", extra={"fields": {"path": filename, "error": str(e)}})
         # ----------------------------------------------
 
         # Load context once, after the automatic dependency analysis above has
@@ -376,21 +380,27 @@ class ReviewAgent:
         )
 
         # LOGGING TO STDOUT FOR CI VISIBILITY
-        print(
-            f"[INFO] Token Usage: {current_context_tokens} / {self.CONTEXT_WINDOW_TOKENS}. "
-            f"Buffer: ~{safe_files_buffer} files."
+        logger.debug(
+            "Token budget",
+            extra={
+                "fields": {
+                    "used": current_context_tokens,
+                    "window": self.CONTEXT_WINDOW_TOKENS,
+                    "files_buffer": safe_files_buffer,
+                }
+            },
         )
 
         if current_context_tokens > self.MEMORY_PRESSURE_TOKENS:
             warn_msg = "⚠️ CRITICAL WARNING: MEMORY IS FULL (>90k). YOU MUST TRIGGER 'Summarize_Memory' NOW."
             token_status_msg += f"\n{warn_msg}\n(Do not continue reading new files until you have summarized previous insights)."
-            print(f"[WARNING] {warn_msg}")
+            logger.warning("Memory pressure: instructing the model to summarise", extra={"fields": {"used": current_context_tokens}})
         
         user_input += token_status_msg
             
         # Run Agent
         try:
-            print(f"[INFO] Invoking AgentExecutor for {filename}...")
+            logger.info("Reviewing file", extra={"fields": {"path": filename}})
             result = self.agent_executor.invoke({
                 "input": user_input, 
                 "memory_context": context_str
@@ -404,7 +414,7 @@ class ReviewAgent:
                     if "ADD_MEMORY:" in line:
                          insight = line.split("ADD_MEMORY:", 1)[1].strip()
                          self.memory_strategy.log_insight(insight)
-                         print(f"[INFO] Agent stored new insight: {insight}")
+                         logger.debug("Insight stored", extra={"fields": {"insight": insight}})
             
             # Save interaction/summary
             self.memory_strategy.save_context(user_input, output)
@@ -412,5 +422,5 @@ class ReviewAgent:
             return output
             
         except Exception as e:
-            print(f"[ERROR] AgentExecutor failed: {e}")
+            logger.error("Review agent failed", extra={"fields": {"path": filename, "error": str(e)}}, exc_info=True)
             return f"Agent failed: {e}"

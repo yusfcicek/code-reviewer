@@ -1,5 +1,5 @@
 """Metrics collection and export."""
 
-from .collector import MetricsCollector, ReviewMetrics
+from .collector import MetricsCollector, ReviewAggregate, ReviewMetrics
 
-__all__ = ["MetricsCollector", "ReviewMetrics"]
+__all__ = ["MetricsCollector", "ReviewMetrics", "ReviewAggregate"]
