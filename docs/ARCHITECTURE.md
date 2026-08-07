@@ -47,7 +47,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 |---|---|
 | `analyzers/` | The five analyzers plus `StaticAnalysisSuite`, which runs them and translates their reports into `Finding`. |
 | `config/` | The YAML policy loader and the shipped `review_policy.yaml`. |
-| `forge/` | The GitLab client and `GitLabForge`, the `CodeForge` adapter. |
+| `forge/` | The GitLab client (`gitlab_client.py`) and `GitLabForge`, the `CodeForge` adapter. |
 | `llm/` | The vLLM provider, the review agent and token counting. |
 | `memory/` | `SmartMemoryStrategy`. |
 | `metrics/` | OpenMetrics aggregation and export. |

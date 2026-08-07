@@ -8,7 +8,7 @@ second forge means adding a sibling of this module and nothing else
 
 from code_reviewer.application.ports import CodeForge, FileChange, MergeRequestRef
 
-from .client import build_gitlab_client
+from .gitlab_client import build_gitlab_client
 
 
 class GitLabForge(CodeForge):
