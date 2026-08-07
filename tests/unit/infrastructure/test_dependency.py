@@ -12,7 +12,8 @@ classification has a specification.
 
 import unittest
 
-from code_reviewer.infrastructure.analyzers.dependency import DependencyTracker, DependencyType
+from code_reviewer.domain.finding import DependencyType
+from code_reviewer.infrastructure.analyzers.dependency import DependencyTracker
 
 
 class TestClassifyUsage(unittest.TestCase):
@@ -67,7 +68,7 @@ class TestRiskLevels(unittest.TestCase):
         tracker = DependencyTracker(".")
 
         def fake_usages(_symbol):
-            from code_reviewer.infrastructure.analyzers.dependency import AffectedCode
+            from code_reviewer.domain.finding import AffectedCode
 
             return [
                 AffectedCode(

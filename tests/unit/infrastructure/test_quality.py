@@ -4,9 +4,9 @@ import ast
 import textwrap
 import unittest
 
+from code_reviewer.domain.severity import Severity
 from code_reviewer.infrastructure.analyzers.quality import (
     IssueCategory,
-    IssueSeverity,
     QualityAnalyzer,
     check_code_quality,
 )
@@ -131,10 +131,12 @@ class TestDuplicates(unittest.TestCase):
 
 
 class TestSeverityOrdering(unittest.TestCase):
-    def test_severities_have_an_explicit_rank(self):
-        self.assertLess(IssueSeverity.HIGH.rank, IssueSeverity.MEDIUM.rank)
-        self.assertLess(IssueSeverity.MEDIUM.rank, IssueSeverity.LOW.rank)
-        self.assertLess(IssueSeverity.LOW.rank, IssueSeverity.INFO.rank)
+    def test_issues_carry_the_shared_domain_severity(self):
+        source = "try:\n    risky()\nexcept ValueError:\n    pass\n"
+
+        report = QualityAnalyzer().analyze(source, "m.py")
+
+        self.assertIsInstance(report.all_issues[0].severity, Severity)
 
     def test_report_lists_high_severity_issues_first(self):
         """Regression for F-07."""

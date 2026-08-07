@@ -10,7 +10,7 @@ reading the values the analyzers had already computed (findings F-28, F-32).
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import total_ordering
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from .severity import Severity
 
@@ -23,6 +23,17 @@ class FindingCategory(Enum):
     PERFORMANCE = "performance"
     SEMANTIC = "semantic"
     DEPENDENCY = "dependency"
+
+
+class DependencyType(Enum):
+    """How one piece of code depends on another."""
+
+    DIRECT_CALL = "direct_call"
+    INHERITANCE = "inheritance"
+    COMPOSITION = "composition"
+    IMPORT = "import"
+    TYPE_USAGE = "type_usage"
+    DATA_STRUCTURE = "data_structure"
 
 
 @total_ordering
@@ -96,7 +107,11 @@ class AffectedCode:
 
     file_path: str
     symbol_name: str
-    reason: str
+    reason: str = ""
+    #: How the affected code depends on what changed, when it is known.
+    dependency_type: Optional[DependencyType] = None
+    #: The source line where the dependency was observed.
+    context: str = ""
     preview: str = ""
     line_number: int = 0
 

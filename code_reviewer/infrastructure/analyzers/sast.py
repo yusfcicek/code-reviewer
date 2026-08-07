@@ -16,33 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Pattern, Tuple, Optional
 
-
-class Severity(Enum):
-    """Güvenlik bulgusu şiddeti."""
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    INFO = "info"
-
-    @property
-    def rank(self) -> int:
-        """Sıralama önceliği: 0 en şiddetli.
-
-        Bulgular eskiden ``severity.value`` ile sıralanıyordu; bu alfabetik bir
-        sıra üretir (critical < high < info < low < medium) ve ilk 15 bulguya
-        yapılan kısaltma ciddi bulguları önemsizlerin lehine atıyordu (F-07).
-        """
-        return _SEVERITY_RANK[self]
-
-
-_SEVERITY_RANK = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-    Severity.INFO: 4,
-}
+from code_reviewer.domain.severity import Severity
 
 
 class VulnerabilityType(Enum):
@@ -550,7 +524,7 @@ def run_sast_scan(content: str, file_path: str = "") -> str:
         output.append("\n### Security Findings:\n")
         
         # Önce critical ve high'ları göster
-        sorted_findings = sorted(report.findings, key=lambda x: x.severity.rank)
+        sorted_findings = sorted(report.findings, key=lambda finding: finding.severity)
         
         for finding in sorted_findings[:15]:  # Max 15 bulgu
             severity_icon = {

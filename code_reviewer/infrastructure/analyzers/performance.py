@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Set, Optional, Tuple
 
+from code_reviewer.domain.severity import Severity
+
 
 class PerformanceIssueType(Enum):
     """Performans sorunu tipleri."""
@@ -27,27 +29,6 @@ class PerformanceIssueType(Enum):
     BLOCKING_OPERATION = "blocking_operation"
     LARGE_MEMORY = "large_memory"
     RECURSIVE_RISK = "recursive_risk"
-
-
-class Severity(Enum):
-    """Önem derecesi."""
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-
-    @property
-    def rank(self) -> int:
-        """Sıralama önceliği: 0 en şiddetli (bkz. F-07)."""
-        return _SEVERITY_RANK[self]
-
-
-_SEVERITY_RANK = {
-    Severity.CRITICAL: 0,
-    Severity.HIGH: 1,
-    Severity.MEDIUM: 2,
-    Severity.LOW: 3,
-}
 
 
 @dataclass
@@ -624,7 +605,7 @@ def analyze_performance(content: str, file_path: str = "") -> str:
         output.append("\n### Performance Issues:\n")
         
         # Severity'ye göre sırala
-        sorted_issues = sorted(report.issues, key=lambda x: x.severity.rank)
+        sorted_issues = sorted(report.issues, key=lambda issue: issue.severity)
         
         for issue in sorted_issues[:15]:  # Max 15 issue
             severity_icon = {

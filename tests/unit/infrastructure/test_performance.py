@@ -9,10 +9,10 @@ severity bug as the other analyzers (F-07).
 import textwrap
 import unittest
 
+from code_reviewer.domain.severity import Severity
 from code_reviewer.infrastructure.analyzers.performance import (
     PerformanceAnalyzer,
     PerformanceIssueType,
-    Severity,
     analyze_performance,
 )
 
@@ -159,10 +159,10 @@ class TestResourceLeaks(unittest.TestCase):
 
 
 class TestSeverityOrdering(unittest.TestCase):
-    def test_severities_have_an_explicit_rank(self):
-        self.assertLess(Severity.CRITICAL.rank, Severity.HIGH.rank)
-        self.assertLess(Severity.HIGH.rank, Severity.MEDIUM.rank)
-        self.assertLess(Severity.MEDIUM.rank, Severity.LOW.rank)
+    def test_issues_carry_the_shared_domain_severity(self):
+        report = PerformanceAnalyzer().analyze('h = open("f")\n', "m.py")
+
+        self.assertIsInstance(report.issues[0].severity, Severity)
 
     def test_report_lists_high_severity_issues_before_low_ones(self):
         """Regression for F-07."""

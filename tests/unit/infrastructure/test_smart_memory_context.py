@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from code_reviewer.application.ports import LLMProvider
+from code_reviewer.domain.finding import AffectedCode
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 
 
@@ -83,7 +84,7 @@ class TestAffectedCode(unittest.TestCase):
         strategy = _strategy()
         strategy.add_affected_code("src/api.py", "handle", "reason", "x" * 500)
 
-        self.assertEqual(len(strategy.affected_codes[0].content_preview), 200)
+        self.assertEqual(len(strategy.affected_codes[0].preview), AffectedCode.MAX_PREVIEW_CHARS)
 
 
 class TestChunking(unittest.TestCase):

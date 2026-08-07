@@ -12,6 +12,7 @@ from typing import Any, Callable, List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from code_reviewer.application.ports import MemoryStrategy, LLMProvider
+from code_reviewer.domain.finding import AffectedCode
 from code_reviewer.infrastructure.llm.token_counter import HeuristicTokenCounter
 
 
@@ -31,16 +32,6 @@ class MemoryInsight:
     category: str = "GENERAL"
     source_file: str = ""
     tokens: int = 0
-
-
-@dataclass
-class AffectedCodeEntry:
-    """Git diff dışında etkilenen kod."""
-    file_path: str
-    symbol_name: str
-    reason: str  # Neden etkilendiği
-    content_preview: str = ""
-    line_number: int = 0
 
 
 class SmartMemoryStrategy(MemoryStrategy):
@@ -95,7 +86,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         self.low_insights: List[MemoryInsight] = []        # Summarized first
         
         # Affected code tracking (git diff dışı)
-        self.affected_codes: List[AffectedCodeEntry] = []
+        self.affected_codes: List[AffectedCode] = []
         
         # File chunks for large files
         self.file_chunks: Dict[str, List[str]] = {}
@@ -164,17 +155,16 @@ class SmartMemoryStrategy(MemoryStrategy):
             content_preview: İlgili kod parçası
             line_number: Satır numarası
         """
-        entry = AffectedCodeEntry(
+        entry = AffectedCode(
             file_path=file_path,
             symbol_name=symbol_name,
             reason=reason,
-            content_preview=content_preview[:200] if content_preview else "",
+            preview=content_preview,
             line_number=line_number
         )
         
         # Duplicate check
-        existing = [e for e in self.affected_codes 
-                   if e.file_path == file_path and e.symbol_name == symbol_name]
+        existing = [e for e in self.affected_codes if e.identity == entry.identity]
         if not existing:
             self.affected_codes.append(entry)
             
@@ -206,8 +196,8 @@ class SmartMemoryStrategy(MemoryStrategy):
             parts.append("\n## 🔗 AFFECTED CODE (Not in Git Diff)")
             for entry in self.affected_codes[:10]:
                 parts.append(f"- `{entry.file_path}:{entry.symbol_name}` - {entry.reason}")
-                if entry.content_preview:
-                    parts.append(f"  ```\n  {entry.content_preview}\n  ```")
+                if entry.preview:
+                    parts.append(f"  ```\n  {entry.preview}\n  ```")
         
         # Normal & low priority (if space available)
         remaining_tokens = self.max_tokens - self._estimate_context_tokens(parts)

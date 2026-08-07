@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
+
+from code_reviewer.domain.severity import Severity
 import hashlib
 
 
@@ -35,32 +37,11 @@ class IssueCategory(Enum):
     MAINTAINABILITY = "maintainability"
 
 
-class IssueSeverity(Enum):
-    """Sorun şiddeti."""
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    INFO = "info"
-
-    @property
-    def rank(self) -> int:
-        """Sıralama önceliği: 0 en şiddetli (bkz. F-07)."""
-        return _SEVERITY_RANK[self]
-
-
-_SEVERITY_RANK = {
-    IssueSeverity.HIGH: 0,
-    IssueSeverity.MEDIUM: 1,
-    IssueSeverity.LOW: 2,
-    IssueSeverity.INFO: 3,
-}
-
-
 @dataclass
 class QualityIssue:
     """Kod kalitesi sorunu."""
     category: IssueCategory
-    severity: IssueSeverity
+    severity: Severity
     line_number: int
     symbol_name: str
     description: str
@@ -208,7 +189,7 @@ class QualityAnalyzer:
         if method_count > self.MAX_CLASS_METHODS:
             issues.append(QualityIssue(
                 category=IssueCategory.SOLID_SRP,
-                severity=IssueSeverity.MEDIUM,
+                severity=Severity.MEDIUM,
                 line_number=class_node.lineno,
                 symbol_name=class_node.name,
                 description=f"Class '{class_node.name}' has {method_count} public methods (max: {self.MAX_CLASS_METHODS})",
@@ -228,7 +209,7 @@ class QualityAnalyzer:
             if instance_vars > 7:
                 issues.append(QualityIssue(
                     category=IssueCategory.SOLID_SRP,
-                    severity=IssueSeverity.MEDIUM,
+                    severity=Severity.MEDIUM,
                     line_number=class_node.lineno,
                     symbol_name=class_node.name,
                     description=f"Class '{class_node.name}' has {instance_vars} instance variables",
@@ -248,7 +229,7 @@ class QualityAnalyzer:
             if line_count > self.MAX_FUNCTION_LINES:
                 issues.append(QualityIssue(
                     category=IssueCategory.SOLID_SRP,
-                    severity=IssueSeverity.MEDIUM,
+                    severity=Severity.MEDIUM,
                     line_number=func_node.lineno,
                     symbol_name=func_node.name,
                     description=f"Function '{func_node.name}' is {line_count} lines (max: {self.MAX_FUNCTION_LINES})",
@@ -261,7 +242,7 @@ class QualityAnalyzer:
         if complexity > self.MAX_CYCLOMATIC_COMPLEXITY:
             issues.append(QualityIssue(
                 category=IssueCategory.MAINTAINABILITY,
-                severity=IssueSeverity.HIGH,
+                severity=Severity.HIGH,
                 line_number=func_node.lineno,
                 symbol_name=func_node.name,
                 description=f"Function '{func_node.name}' has high cyclomatic complexity: {complexity}",
@@ -285,7 +266,7 @@ class QualityAnalyzer:
                             if stmt.func.id[0].isupper() and stmt.func.id not in ['Type', 'Dict', 'List', 'Set', 'Optional']:
                                 issues.append(QualityIssue(
                                     category=IssueCategory.SOLID_DIP,
-                                    severity=IssueSeverity.LOW,
+                                    severity=Severity.LOW,
                                     line_number=stmt.lineno if hasattr(stmt, 'lineno') else class_node.lineno,
                                     symbol_name=class_node.name,
                                     description=f"Class '{class_node.name}' instantiates concrete class '{stmt.func.id}' in __init__",
@@ -310,7 +291,7 @@ class QualityAnalyzer:
         if len(abstract_methods) > 7:
             issues.append(QualityIssue(
                 category=IssueCategory.SOLID_ISP,
-                severity=IssueSeverity.MEDIUM,
+                severity=Severity.MEDIUM,
                 line_number=class_node.lineno,
                 symbol_name=class_node.name,
                 description=f"Interface '{class_node.name}' has {len(abstract_methods)} abstract methods",
@@ -424,7 +405,7 @@ class QualityAnalyzer:
                 if param_count > self.MAX_FUNCTION_PARAMS:
                     issues.append(QualityIssue(
                         category=IssueCategory.TESTABILITY,
-                        severity=IssueSeverity.MEDIUM,
+                        severity=Severity.MEDIUM,
                         line_number=node.lineno,
                         symbol_name=node.name,
                         description=f"Function '{node.name}' has {param_count} parameters",
@@ -438,7 +419,7 @@ class QualityAnalyzer:
                 if globals_used:
                     issues.append(QualityIssue(
                         category=IssueCategory.TESTABILITY,
-                        severity=IssueSeverity.MEDIUM,
+                        severity=Severity.MEDIUM,
                         line_number=node.lineno,
                         symbol_name=node.name,
                         description=f"Function '{node.name}' uses global variables: {', '.join(globals_used)}",
@@ -452,7 +433,7 @@ class QualityAnalyzer:
                 if self._is_singleton(node):
                     issues.append(QualityIssue(
                         category=IssueCategory.TESTABILITY,
-                        severity=IssueSeverity.LOW,
+                        severity=Severity.LOW,
                         line_number=node.lineno,
                         symbol_name=node.name,
                         description=f"Class '{node.name}' appears to be a Singleton",
@@ -501,7 +482,7 @@ class QualityAnalyzer:
                         report.empty_catches += 1
                         report.issues.append(QualityIssue(
                             category=IssueCategory.ERROR_HANDLING,
-                            severity=IssueSeverity.HIGH,
+                            severity=Severity.HIGH,
                             line_number=handler.lineno,
                             symbol_name="except",
                             description="Empty except block silently swallows errors",
@@ -514,7 +495,7 @@ class QualityAnalyzer:
                         report.generic_exceptions += 1
                         report.issues.append(QualityIssue(
                             category=IssueCategory.ERROR_HANDLING,
-                            severity=IssueSeverity.MEDIUM,
+                            severity=Severity.MEDIUM,
                             line_number=handler.lineno,
                             symbol_name="except",
                             description="Bare 'except:' catches all exceptions including KeyboardInterrupt",
@@ -525,7 +506,7 @@ class QualityAnalyzer:
                         report.generic_exceptions += 1
                         report.issues.append(QualityIssue(
                             category=IssueCategory.ERROR_HANDLING,
-                            severity=IssueSeverity.LOW,
+                            severity=Severity.LOW,
                             line_number=handler.lineno,
                             symbol_name="except Exception",
                             description="Catching generic 'Exception' may hide bugs",
@@ -539,7 +520,7 @@ class QualityAnalyzer:
                         report.missing_finally += 1
                         report.issues.append(QualityIssue(
                             category=IssueCategory.ERROR_HANDLING,
-                            severity=IssueSeverity.MEDIUM,
+                            severity=Severity.MEDIUM,
                             line_number=node.lineno,
                             symbol_name="try",
                             description="Try block with resource management but no finally clause",
@@ -596,7 +577,7 @@ class QualityAnalyzer:
             if len(dup.locations) > 1:
                 issues.append(QualityIssue(
                     category=IssueCategory.DRY,
-                    severity=IssueSeverity.MEDIUM,
+                    severity=Severity.MEDIUM,
                     line_number=dup.locations[0][0],
                     symbol_name="duplicate",
                     description=f"Duplicate code block found at {len(dup.locations)} locations",
@@ -612,11 +593,11 @@ class QualityAnalyzer:
         
         # Issue severity penalties
         for issue in report.all_issues:
-            if issue.severity == IssueSeverity.HIGH:
+            if issue.severity == Severity.HIGH:
                 score -= 10
-            elif issue.severity == IssueSeverity.MEDIUM:
+            elif issue.severity == Severity.MEDIUM:
                 score -= 5
-            elif issue.severity == IssueSeverity.LOW:
+            elif issue.severity == Severity.LOW:
                 score -= 2
         
         return max(0, score)
@@ -694,14 +675,14 @@ def check_code_quality(content: str, file_path: str = "") -> str:
         output.append("\n### Quality Issues:\n")
         
         # Severity'ye göre sırala
-        sorted_issues = sorted(report.all_issues, key=lambda x: x.severity.rank)
+        sorted_issues = sorted(report.all_issues, key=lambda issue: issue.severity)
         
         for issue in sorted_issues[:15]:  # Max 15 issue
             severity_icon = {
-                IssueSeverity.HIGH: "🔴",
-                IssueSeverity.MEDIUM: "🟡",
-                IssueSeverity.LOW: "🟢",
-                IssueSeverity.INFO: "ℹ️"
+                Severity.HIGH: "🔴",
+                Severity.MEDIUM: "🟡",
+                Severity.LOW: "🟢",
+                Severity.INFO: "ℹ️"
             }
             
             output.append(f"#### {severity_icon.get(issue.severity, '')} Line {issue.line_number}: {issue.category.value}")

@@ -10,10 +10,9 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from code_reviewer.domain.finding import AffectedCode, DependencyType
 from code_reviewer.infrastructure.analyzers.dependency import (
-    AffectedCode,
     DependencyTracker,
-    DependencyType,
     find_ripple_effects,
 )
 
@@ -105,8 +104,8 @@ class TestRippleEffects(unittest.TestCase):
 
         def usages(symbol):
             if symbol == "Target":
-                return [AffectedCode("a.py", "caller", 3, DependencyType.DIRECT_CALL)]
-            return [AffectedCode("b.py", "outer_caller", 9, DependencyType.DIRECT_CALL)]
+                return [AffectedCode("a.py", "caller", line_number=3, dependency_type=DependencyType.DIRECT_CALL)]
+            return [AffectedCode("b.py", "outer_caller", line_number=9, dependency_type=DependencyType.DIRECT_CALL)]
 
         tracker._find_all_usages = usages
         affected = tracker.find_ripple_effects("Target")
@@ -126,8 +125,8 @@ class TestImpactSummary(unittest.TestCase):
     def test_summary_breaks_usages_down_by_type(self):
         tracker = DependencyTracker(".")
         tracker._find_all_usages = lambda _symbol: [
-            AffectedCode("a.py", "fn", 1, DependencyType.DIRECT_CALL),
-            AffectedCode("b.py", "fn", 2, DependencyType.IMPORT),
+            AffectedCode("a.py", "fn", line_number=1, dependency_type=DependencyType.DIRECT_CALL),
+            AffectedCode("b.py", "fn", line_number=2, dependency_type=DependencyType.IMPORT),
         ]
 
         rendered = tracker.get_affected_by_struct_change("Target")

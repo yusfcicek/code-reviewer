@@ -8,9 +8,9 @@ could not exclude anything, so safe calls were reported alongside unsafe ones
 
 import unittest
 
+from code_reviewer.domain.severity import Severity
 from code_reviewer.infrastructure.analyzers.sast import (
     SASTAnalyzer,
-    Severity,
     VulnerabilityType,
     run_sast_scan,
 )
@@ -117,11 +117,10 @@ class TestRiskScore(unittest.TestCase):
 
 
 class TestSeverityOrdering(unittest.TestCase):
-    def test_severities_have_an_explicit_rank(self):
-        self.assertLess(Severity.CRITICAL.rank, Severity.HIGH.rank)
-        self.assertLess(Severity.HIGH.rank, Severity.MEDIUM.rank)
-        self.assertLess(Severity.MEDIUM.rank, Severity.LOW.rank)
-        self.assertLess(Severity.LOW.rank, Severity.INFO.rank)
+    def test_findings_carry_the_shared_domain_severity(self):
+        report = SASTAnalyzer().analyze("result = eval(payload)\n", "app.py")
+
+        self.assertIsInstance(report.findings[0].severity, Severity)
 
     def test_report_lists_critical_findings_before_low_ones(self):
         """Regression for F-07.

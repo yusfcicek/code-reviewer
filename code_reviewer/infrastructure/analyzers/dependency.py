@@ -13,26 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Set, Optional, Tuple
 
-
-class DependencyType(Enum):
-    """Bağımlılık tipi."""
-    DIRECT_CALL = "direct_call"           # Fonksiyon çağrısı
-    INHERITANCE = "inheritance"            # Sınıf kalıtımı
-    COMPOSITION = "composition"            # Sınıf içinde kullanım
-    IMPORT = "import"                      # Import ifadesi
-    TYPE_USAGE = "type_usage"              # Type annotation
-    DATA_STRUCTURE = "data_structure"      # Veri yapısı kullanımı
-
-
-@dataclass
-class AffectedCode:
-    """Etkilenen kod parçası."""
-    file_path: str
-    symbol_name: str
-    line_number: int
-    dependency_type: DependencyType
-    context: str = ""  # Kullanım bağlamı
-    reason: str = ""   # Neden etkilendiğinin açıklaması
+from code_reviewer.domain.finding import AffectedCode, DependencyType
 
 
 @dataclass
