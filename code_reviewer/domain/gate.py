@@ -66,7 +66,12 @@ class ReviewGate:
         security_score = 100  # Default
         sast_fail = False
         
-        if "SAST Scan Result: FAIL" in review_markdown:
+        # The prompt asks the model for `- **SAST Scan Result**: FAIL - <level>`,
+        # but the check looked for the literal `SAST Scan Result: FAIL` without
+        # the emphasis markers, so it never matched anything the agent actually
+        # produced (finding F-57). Matching is now tolerant of the markup and of
+        # the bracket style the template shows.
+        if re.search(r"SAST\s+Scan\s+Result\**\s*:\s*\**\s*\[?\s*FAIL", review_markdown, re.IGNORECASE):
             sast_fail = True
             reasons.append("SAST Scan Failed")
             security_score = 0  # Fail ise 0 kabul ediyoruz

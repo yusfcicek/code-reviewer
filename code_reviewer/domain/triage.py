@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Set, Optional, Tuple
 
+from .policy import ReviewPolicy
+
 
 class ReviewDecision(Enum):
     """Review kararı seviyeleri."""
@@ -30,65 +32,6 @@ class TriageResult:
     details: Dict = field(default_factory=dict)
 
 
-@dataclass
-class TriageConfig:
-    """Triage yapılandırması."""
-    # Skip patterns (regex)
-    skip_patterns: List[str] = field(default_factory=lambda: [
-        r'\.md$',
-        r'\.txt$',
-        r'\.rst$',
-        r'README',
-        r'CHANGELOG',
-        r'LICENSE',
-        r'\.gitignore$',
-        r'\.gitattributes$',
-        r'\.editorconfig$',
-        r'\.dockerignore$',
-        r'\.(json|yaml|yml|toml)$',
-        r'Makefile$',
-        r'Dockerfile$',
-        r'requirements.*\.txt$',
-        r'package(-lock)?\.json$',
-        r'poetry\.lock$',
-        r'go\.(mod|sum)$',
-    ])
-    
-    # Auto-approve eşikleri
-    max_lines_for_auto: int = 10
-    allow_only_comments: bool = True
-    allow_only_formatting: bool = True
-    allow_test_files: bool = True
-    
-    # Quick scan eşikleri
-    max_lines_for_quick: int = 50
-    
-    # Critical patterns (her zaman FULL_REVIEW veya CRITICAL)
-    critical_patterns: List[str] = field(default_factory=lambda: [
-        r'password',
-        r'secret',
-        r'api[_-]?key',
-        r'token',
-        r'credential',
-        r'auth',
-        r'\.execute\s*\(',
-        r'os\.system',
-        r'subprocess',
-        r'eval\s*\(',
-        r'exec\s*\(',
-        r'pickle\.',
-        r'shell\s*=\s*True',
-    ])
-    
-    # Public API değişiklik pattern'leri (CRITICAL)
-    api_change_patterns: List[str] = field(default_factory=lambda: [
-        r'^-\s*def\s+\w+\s*\(',      # Fonksiyon kaldırıldı
-        r'^-\s*class\s+\w+',          # Sınıf kaldırıldı
-        r'^-\s*@api\.',               # API decorator kaldırıldı
-        r'BREAKING',                   # Breaking change comment
-    ])
-
-
 class ReviewTriage:
     """
     Değişikliğin önemine göre review seviyesi belirler.
@@ -103,7 +46,7 @@ class ReviewTriage:
     7. Default -> FULL_REVIEW
     """
     
-    def __init__(self, policy=None):
+    def __init__(self, policy: Optional[ReviewPolicy] = None):
         # Avoid circular import, accept object with matching interface
         self.policy = policy
         self._compile_patterns()
@@ -415,14 +358,18 @@ class ReviewTriage:
         return '\n'.join(summary)
 
 
-def triage_changes(changes: List[Dict], config: TriageConfig = None) -> Tuple[List[Dict], List[Dict], str]:
+def triage_changes(changes: List[Dict], policy: Optional[ReviewPolicy] = None) -> Tuple[List[Dict], List[Dict], str]:
     """
     Convenience function - değişiklikleri triage eder.
-    
+
+    Eskiden bir ``TriageConfig`` alıyordu; ``ReviewTriage`` ise
+    ``policy.triage``/``policy.security`` arıyordu, dolayısıyla verilen config
+    sessizce yok sayılıp iki sabit pattern'e düşülüyordu (F-18, F-30).
+
     Returns:
         Tuple[needs_review, auto_approved, summary]
     """
-    triage = ReviewTriage(config)
+    triage = ReviewTriage(policy)
     results = triage.batch_decide(changes)
     
     needs_review = []

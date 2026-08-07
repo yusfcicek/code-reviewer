@@ -342,9 +342,6 @@ class SmartMemoryStrategy(MemoryStrategy):
         # Check for memory triggers
         self.summarize_if_needed()
     
-    def get_memory_object(self) -> Any:
-        return None  # Bu strateji LangChain memory kullanmıyor
-    
     def _update_token_count(self):
         """Toplam token kullanımını günceller."""
         total = 0

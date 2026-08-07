@@ -55,6 +55,33 @@ class TestReviewGate(unittest.TestCase):
         self.assertEqual(evaluation.exit_code, 1)
         self.assertTrue(evaluation.blocking_issues)
 
+    def test_sast_failure_is_recognised_in_the_format_the_agent_emits(self):
+        """Regression for F-57.
+
+        The prompt asks for `- **SAST Scan Result**: FAIL - Critical`, but the
+        gate looked for the literal `SAST Scan Result: FAIL` without the
+        emphasis markers, so a failed scan was never noticed. It only appeared
+        to work because failing reports also carry a critical risk assessment.
+        """
+        report = """
+## 🔒 Security Analysis
+- **SAST Scan Result**: FAIL - Critical
+## 🔗 Impact Analysis
+- **Risk Assessment**: Low - see above
+## 📊 Code Quality
+- **SOLID Compliance**: 95/100
+"""
+
+        evaluation = self.gate.evaluate(report)
+
+        self.assertEqual(evaluation.result, ReviewGateResult.FAIL)
+        self.assertIn("SAST Scan Failed", evaluation.reasons)
+
+    def test_sast_pass_is_not_read_as_a_failure(self):
+        evaluation = self.gate.evaluate(PASSING_REPORT)
+
+        self.assertNotIn("SAST Scan Failed", evaluation.reasons)
+
     def test_result_is_an_enum_not_a_string(self):
         """Regression for F-01.
 

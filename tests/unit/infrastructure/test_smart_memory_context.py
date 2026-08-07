@@ -139,8 +139,10 @@ class TestStats(unittest.TestCase):
 
         self.assertEqual(strategy.summarization_count, 1)
 
-    def test_memory_object_is_none_because_no_framework_memory_is_used(self):
-        self.assertIsNone(_strategy().get_memory_object())
+    def test_the_strategy_exposes_no_framework_object(self):
+        """The port used to require get_memory_object(), which handed callers
+        a LangChain type through the abstraction meant to hide it (F-26)."""
+        self.assertFalse(hasattr(_strategy(), "get_memory_object"))
 
 
 if __name__ == "__main__":
