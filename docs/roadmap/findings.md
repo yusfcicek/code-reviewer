@@ -114,7 +114,7 @@ Severity legend:
 | 1 — Correctness | F-01, F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-10, F-11, F-12, F-13, F-14, F-15, F-19, F-20, F-36, F-37, F-55, F-56 | ✅ Resolved |
 | 2 — DDD layering | F-24, F-25, F-26, F-27, F-28, F-29, F-30, F-33, F-34, F-38, F-57 | ✅ Resolved |
 | 3 — Analyzer accuracy & policy | F-21, F-22, F-23, F-31, F-32 | ✅ Resolved |
-| 4 — Observability & resilience | F-16, F-17, F-47, F-58, F-59 | 📋 Open |
+| 4 — Observability & resilience | F-16, F-17, F-47, F-58, F-59 | ✅ Resolved |
 | 5 — CI/CD & quality gates | F-39 *(partial from L0)*, F-44, F-45, F-48 | 📋 Open |
 | 6 — Documentation & productisation | F-46, F-54 | 📋 Open |
 
