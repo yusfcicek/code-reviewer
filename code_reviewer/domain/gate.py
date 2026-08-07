@@ -145,9 +145,7 @@ class ReviewGate:
             if severity.is_at_least(threshold):
                 continue  # already blocking, no need to warn as well
             if counts[severity]:
-                reasons.append(
-                    f"[analysis] {counts[severity]} {severity.value} finding(s) reported"
-                )
+                reasons.append(f"[analysis] {counts[severity]} {severity.value} finding(s) reported")
 
         quality_score = self.score_from_findings(findings)
         scores["quality"] = quality_score
@@ -188,9 +186,7 @@ class ReviewGate:
         # The prompt asks for `- **SAST Scan Result**: FAIL - <level>`; matching
         # is tolerant of the emphasis markers and brackets the template shows
         # (finding F-57).
-        if re.search(
-            r"SAST\s+Scan\s+Result\**\s*:\s*\**\s*\[?\s*FAIL", review_markdown, re.IGNORECASE
-        ):
+        if re.search(r"SAST\s+Scan\s+Result\**\s*:\s*\**\s*\[?\s*FAIL", review_markdown, re.IGNORECASE):
             reasons.append("[review] SAST Scan Failed")
             if not have_findings:
                 prose_blocks = True

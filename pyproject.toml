@@ -72,7 +72,11 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-line-length = 100
+# 110 rather than 88 or 100: the analyzers' findings carry a written
+# description and a remediation on one line each, and breaking those f-strings
+# across continuations makes the rule tables harder to scan than the length
+# does. Code that needs more than 110 columns is still flagged.
+line-length = 110
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -94,6 +98,11 @@ ignore = [
     "RUF001",
     "RUF002",
     "RUF003",
+    # Nested `if isinstance(node, X)` / `if hasattr(node, "y")` in AST walks
+    # narrows the node type step by step. Collapsing the pair into one
+    # condition hides which check is the type guard and which is the
+    # behavioural test, so this rule makes the analyzers harder to read.
+    "SIM102",
 ]
 
 [tool.ruff.lint.per-file-ignores]

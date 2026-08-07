@@ -15,16 +15,16 @@ from code_reviewer.infrastructure.metrics.collector import MetricsCollector, Rev
 
 
 def _metric(path="src/app.py", decision="full", gate="pass", **kwargs):
-    defaults = dict(
-        project_id="7",
-        mr_id="12",
-        file_path=path,
-        lines_analyzed=40,
-        triage_decisions={decision: 1},
-        gate_result=gate,
-        quality_score=90,
-        duration_ms=120,
-    )
+    defaults = {
+        "project_id": "7",
+        "mr_id": "12",
+        "file_path": path,
+        "lines_analyzed": 40,
+        "triage_decisions": {decision: 1},
+        "gate_result": gate,
+        "quality_score": 90,
+        "duration_ms": 120,
+    }
     defaults.update(kwargs)
     return ReviewMetrics(**defaults)
 
@@ -65,9 +65,7 @@ class TestAggregate(unittest.TestCase):
         self.assertEqual(aggregate.findings_by_severity["low"], 2)
 
     def test_the_worst_gate_result_wins(self):
-        aggregate = _collector(
-            _metric(gate="pass"), _metric(gate="fail"), _metric(gate="warn")
-        ).aggregate()
+        aggregate = _collector(_metric(gate="pass"), _metric(gate="fail"), _metric(gate="warn")).aggregate()
 
         self.assertEqual(aggregate.gate_result, "fail")
 

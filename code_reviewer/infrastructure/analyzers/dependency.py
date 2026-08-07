@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from code_reviewer.domain.finding import AffectedCode, DependencyType
 
@@ -47,10 +48,19 @@ class DependencyTracker:
     """
 
     # Aranacak dosya uzantıları
-    SUPPORTED_EXTENSIONS = {".py", ".cpp", ".cc", ".h", ".hpp", ".c", ".js", ".ts"}
+    SUPPORTED_EXTENSIONS: ClassVar[set[str]] = {
+        ".py",
+        ".cpp",
+        ".cc",
+        ".h",
+        ".hpp",
+        ".c",
+        ".js",
+        ".ts",
+    }
 
     # Dışlanacak dizinler
-    EXCLUDED_DIRS = {
+    EXCLUDED_DIRS: ClassVar[set[str]] = {
         "build",
         ".git",
         "__pycache__",
@@ -82,7 +92,7 @@ class DependencyTracker:
         # Tüm referansları bul
         affected = self._find_all_usages(struct_name)
         report.affected_codes = affected
-        report.total_affected_files = len(set(a.file_path for a in affected))
+        report.total_affected_files = len({a.file_path for a in affected})
 
         # Risk seviyesi belirle
         if report.total_affected_files > 10:
@@ -99,7 +109,7 @@ class DependencyTracker:
 
         return report
 
-    def find_ripple_effects(self, changed_symbol: str, file_path: str = None) -> list[AffectedCode]:
+    def find_ripple_effects(self, changed_symbol: str, file_path: str | None = None) -> list[AffectedCode]:
         """
         Değişikliğin dalga etkisini hesaplar.
 
@@ -167,7 +177,8 @@ class DependencyTracker:
                 output.append(f"\n**{fp}**:")
                 for code in codes[:5]:  # Her dosyadan max 5 referans
                     output.append(
-                        f"  - Line {code.line_number}: `{code.symbol_name or 'usage'}` ({code.dependency_type.value})"
+                        f"  - Line {code.line_number}: "
+                        f"`{code.symbol_name or 'usage'}` ({code.dependency_type.value})"
                     )
                     if code.context:
                         output.append(f"    ```{code.context[:100]}...```")
@@ -255,9 +266,7 @@ class DependencyTracker:
             return DependencyType.DIRECT_CALL
 
         # Type annotation: `name: Target` in a variable, parameter or return.
-        if re.search(rf":\s*[^=]*\b{symbol}\b", context) or re.search(
-            rf"->\s*[^:]*\b{symbol}\b", context
-        ):
+        if re.search(rf":\s*[^=]*\b{symbol}\b", context) or re.search(rf"->\s*[^:]*\b{symbol}\b", context):
             return DependencyType.TYPE_USAGE
 
         return DependencyType.DATA_STRUCTURE
@@ -269,7 +278,9 @@ class DependencyTracker:
                 content = self._read_file_cached(file_path)
                 if content:
                     return self._find_python_function(content, target_line)
-        except:
+        except (OSError, SyntaxError, ValueError):
+            # An unreadable or unparseable file means "no containing function",
+            # not a failed review.
             pass
 
         return ""
@@ -285,7 +296,8 @@ class DependencyTracker:
                         if node.lineno <= target_line <= (node.end_lineno or node.lineno + 100):
                             return node.name
 
-        except:
+        except SyntaxError:
+            # Half-finished code on a branch is normal; report nothing.
             pass
 
         return ""
@@ -300,7 +312,7 @@ class DependencyTracker:
                 content = f.read()
                 self._file_cache[file_path] = content
                 return content
-        except:
+        except OSError:
             return None
 
     def _build_graph_recursive(
@@ -363,7 +375,7 @@ class DependencyTracker:
                                     callees.append(child.func.attr)
                         break
 
-        except:
+        except SyntaxError:
             pass
 
         return list(set(callees))

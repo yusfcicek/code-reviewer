@@ -126,9 +126,7 @@ class TestFetchFile(unittest.TestCase):
 
         forge.fetch_file(reference, "src/app.py")
 
-        client.projects.get.return_value.files.get.assert_called_with(
-            file_path="src/app.py", ref="abc123"
-        )
+        client.projects.get.return_value.files.get.assert_called_with(file_path="src/app.py", ref="abc123")
 
     def test_an_unreadable_file_reads_as_none_rather_than_raising(self):
         forge = GitLabForge(client=_client(raises=True))

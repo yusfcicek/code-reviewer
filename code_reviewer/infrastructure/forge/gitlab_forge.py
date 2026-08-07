@@ -81,8 +81,6 @@ class GitLabForge(CodeForge):
     def _merge_request(self, reference: MergeRequestRef):
         merge_request = self._merge_requests.get(self._key(reference))
         if merge_request is None:
-            merge_request = self._project(reference).mergerequests.get(
-                int(reference.merge_request_id)
-            )
+            merge_request = self._project(reference).mergerequests.get(int(reference.merge_request_id))
             self._merge_requests[self._key(reference)] = merge_request
         return merge_request

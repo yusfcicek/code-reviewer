@@ -74,9 +74,7 @@ class TestReviewAgent(unittest.TestCase):
         self.mock_memory.log_insight.assert_any_call("[RISK] Risk found")
 
     def test_auto_dependency_imports(self):
-        with patch(
-            "code_reviewer.infrastructure.tools.definitions.DependencyAnalysisTools"
-        ) as mock_tools:
+        with patch("code_reviewer.infrastructure.tools.definitions.DependencyAnalysisTools") as mock_tools:
             mock_tools.get_file_imports.return_value = ["import os", "import sys"]
             mock_tools.find_references.return_value = "No references"
 

@@ -12,6 +12,7 @@ relative to the working directory (finding F-04).
 import os
 from importlib import resources
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
 
@@ -40,7 +41,7 @@ class ReviewPolicyLoader:
     """
 
     #: Working-directory candidates, in order.
-    DEFAULT_POLICY_PATHS = [
+    DEFAULT_POLICY_PATHS: ClassVar[list[str]] = [
         "review_policy.yaml",
         ".review_policy.yaml",
         ".agent/review_policy.yaml",
@@ -58,7 +59,7 @@ class ReviewPolicyLoader:
         #: Where the loaded policy came from, for diagnostics.
         self.source: str | None = None
 
-    def load(self, policy_path: str = None) -> ReviewPolicy:
+    def load(self, policy_path: str | None = None) -> ReviewPolicy:
         """
         Policy'yi yükler. Önce dosya, sonra env var'lar kontrol edilir.
 
@@ -93,7 +94,7 @@ class ReviewPolicyLoader:
         except (ModuleNotFoundError, FileNotFoundError, TypeError):
             return None
 
-    def _candidate_paths(self, policy_path: str = None) -> list[str]:
+    def _candidate_paths(self, policy_path: str | None = None) -> list[str]:
         """Ordered candidates: explicit, working directory, then packaged.
 
         An explicit path that does not exist falls through rather than
@@ -113,12 +114,10 @@ class ReviewPolicyLoader:
 
         return candidates
 
-    def _load_from_file(self, policy_path: str = None) -> dict | None:
+    def _load_from_file(self, policy_path: str | None = None) -> dict | None:
         """YAML dosyasından policy yükler."""
         if policy_path and not os.path.exists(policy_path):
-            logger.warning(
-                "Policy file not found; falling back", extra={"fields": {"path": policy_path}}
-            )
+            logger.warning("Policy file not found; falling back", extra={"fields": {"path": policy_path}})
 
         for path in self._candidate_paths(policy_path):
             if not path or not os.path.exists(path):
@@ -265,7 +264,7 @@ class ReviewPolicyLoader:
         return yaml.dump(data, default_flow_style=False, allow_unicode=True)
 
 
-def load_policy(policy_path: str = None) -> ReviewPolicy:
+def load_policy(policy_path: str | None = None) -> ReviewPolicy:
     """Convenience function - policy yükler."""
     return ReviewPolicyLoader().load(policy_path)
 

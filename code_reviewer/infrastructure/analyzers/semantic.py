@@ -8,6 +8,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import ClassVar
 
 
 class ChangeType(Enum):
@@ -94,7 +95,7 @@ class SemanticChangeAnalyzer:
 
     # Bir değişikliğin hata düzeltmesi olduğunu gösteren kelimeler. Kelime
     # sınırlarıyla yazılır: `prefix` bir `fix` değildir (F-13).
-    BUGFIX_MARKERS = [
+    BUGFIX_MARKERS: ClassVar[list[str]] = [
         r"\bfix(es|ed|ing)?\b",
         r"\bhotfix\b",
         r"\bbug\b",
@@ -105,11 +106,11 @@ class SemanticChangeAnalyzer:
     ]
 
     # Public API işaretleyicileri
-    PYTHON_PUBLIC_INDICATORS = {"def ", "class ", "async def "}
-    CPP_PUBLIC_INDICATORS = {"public:", "struct ", "class ", "extern "}
+    PYTHON_PUBLIC_INDICATORS: ClassVar[set[str]] = {"def ", "class ", "async def "}
+    CPP_PUBLIC_INDICATORS: ClassVar[set[str]] = {"public:", "struct ", "class ", "extern "}
 
     # Breaking change pattern'leri
-    BREAKING_PATTERNS = {
+    BREAKING_PATTERNS: ClassVar[dict[str, list[str]]] = {
         "python": [
             r"def\s+(\w+)\s*\([^)]*\)",  # Fonksiyon imzası
             r"class\s+(\w+)",  # Sınıf tanımı
@@ -126,7 +127,7 @@ class SemanticChangeAnalyzer:
         self._cached_asts: dict[str, ast.AST] = {}
 
     def analyze_diff(
-        self, diff: str, full_content: str = None, file_path: str = ""
+        self, diff: str, full_content: str | None = None, file_path: str = ""
     ) -> SemanticAnalysis:
         """
         Git diff'i analiz eder ve semantik analiz sonucu döner.
@@ -142,7 +143,7 @@ class SemanticChangeAnalyzer:
         analysis = SemanticAnalysis(file_path=file_path, change_type=ChangeType.UNKNOWN)
 
         # Diff'i parçala
-        added_lines, removed_lines, context_lines = self._parse_diff(diff)
+        added_lines, removed_lines, _context_lines = self._parse_diff(diff)
 
         # Değişen sembolleri tespit et
         analysis.changed_symbols = self._extract_changed_symbols(
@@ -155,15 +156,11 @@ class SemanticChangeAnalyzer:
         )
 
         # Breaking change kontrolü
-        analysis.breaking_changes = self._detect_breaking_changes(
-            analysis.changed_symbols, removed_lines
-        )
+        analysis.breaking_changes = self._detect_breaking_changes(analysis.changed_symbols, removed_lines)
 
         # Bütünlük kontrolü
         if full_content:
-            analysis.integrity_issues = self._check_integrity(
-                analysis.changed_symbols, full_content
-            )
+            analysis.integrity_issues = self._check_integrity(analysis.changed_symbols, full_content)
 
         # Risk skoru hesapla
         analysis.risk_score = self._calculate_risk_score(analysis)
@@ -224,7 +221,7 @@ class SemanticChangeAnalyzer:
         all_changed_text = "\n".join(added_lines + removed_lines)
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.name in all_changed_text:
                     sig = self._get_function_signature(node)
                     symbols.append(
@@ -238,17 +235,16 @@ class SemanticChangeAnalyzer:
                         )
                     )
 
-            elif isinstance(node, ast.ClassDef):
-                if node.name in all_changed_text:
-                    symbols.append(
-                        ChangedSymbol(
-                            name=node.name,
-                            symbol_type=SymbolType.CLASS,
-                            line_start=node.lineno,
-                            line_end=node.end_lineno or node.lineno,
-                            is_public=not node.name.startswith("_"),
-                        )
+            elif isinstance(node, ast.ClassDef) and node.name in all_changed_text:
+                symbols.append(
+                    ChangedSymbol(
+                        name=node.name,
+                        symbol_type=SymbolType.CLASS,
+                        line_start=node.lineno,
+                        line_end=node.end_lineno or node.lineno,
+                        is_public=not node.name.startswith("_"),
                     )
+                )
 
         return symbols
 
@@ -387,7 +383,10 @@ class SemanticChangeAnalyzer:
                     breaking_changes.append(
                         BreakingChange(
                             symbol=symbol,
-                            reason=f"Function signature changed from '{symbol.old_signature}' to '{symbol.new_signature}'",
+                            reason=(
+                                f"Function signature changed from "
+                                f"'{symbol.old_signature}' to '{symbol.new_signature}'"
+                            ),
                             impact_level="high",
                         )
                     )
@@ -399,7 +398,10 @@ class SemanticChangeAnalyzer:
                         breaking_changes.append(
                             BreakingChange(
                                 symbol=symbol,
-                                reason=f"Public {symbol.symbol_type.value} '{symbol.name}' was removed or renamed",
+                                reason=(
+                                    f"Public {symbol.symbol_type.value} "
+                                    f"'{symbol.name}' was removed or renamed"
+                                ),
                                 impact_level="high",
                             )
                         )
@@ -490,7 +492,7 @@ class SemanticChangeAnalyzer:
         return "\n".join(parts)
 
 
-def analyze_semantic_changes(diff: str, full_content: str = None, file_path: str = "") -> str:
+def analyze_semantic_changes(diff: str, full_content: str | None = None, file_path: str = "") -> str:
     """
     Tool wrapper - Semantik değişiklik analizi yapar.
 

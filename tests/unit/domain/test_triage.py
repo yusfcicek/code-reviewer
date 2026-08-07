@@ -79,9 +79,7 @@ class TestSecurityEscalation(unittest.TestCase):
 
     def test_secret_in_unchanged_context_does_not_escalate(self):
         """Regression for F-09."""
-        diff = (
-            '@@ -1,4 +1,4 @@\n password = "hunter22"\n-timeout = 10\n+timeout = 30\n done = True\n'
-        )
+        diff = '@@ -1,4 +1,4 @@\n password = "hunter22"\n-timeout = 10\n+timeout = 30\n done = True\n'
 
         result = self.triage.decide(diff, "src/app.py")
 

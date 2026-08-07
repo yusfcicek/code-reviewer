@@ -84,7 +84,7 @@ class ReviewTriage:
         ]
         self._api_patterns = [re.compile(p, re.MULTILINE) for p in self.api_change_patterns]
 
-    def decide(self, diff: str, file_path: str, full_content: str = None) -> TriageResult:
+    def decide(self, diff: str, file_path: str, full_content: str | None = None) -> TriageResult:
         """
         Hangi seviye review gerektiğine karar verir.
 
@@ -203,10 +203,7 @@ class ReviewTriage:
 
     def _should_skip_file(self, file_path: str) -> bool:
         """Dosya skip edilmeli mi?"""
-        for pattern in self._skip_patterns:
-            if pattern.search(file_path):
-                return True
-        return False
+        return any(pattern.search(file_path) for pattern in self._skip_patterns)
 
     def _parse_diff_lines(self, diff: str) -> tuple[list[str], list[str]]:
         """Diff'ten eklenen ve çıkarılan satırları ayırır."""

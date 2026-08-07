@@ -133,9 +133,7 @@ def configure_logging(stream: TextIO | None = None) -> logging.Logger:
         and _resolve_level(raw_level) == DEFAULT_LEVEL
         and raw_level.strip().upper() not in ("INFO",)
     ):
-        logger.warning(
-            "Unrecognised LOG_LEVEL; using INFO", extra={"fields": {"requested": raw_level}}
-        )
+        logger.warning("Unrecognised LOG_LEVEL; using INFO", extra={"fields": {"requested": raw_level}})
 
     return logger
 

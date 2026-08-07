@@ -105,9 +105,7 @@ class TestRippleEffects(unittest.TestCase):
         def usages(symbol):
             if symbol == "Target":
                 return [
-                    AffectedCode(
-                        "a.py", "caller", line_number=3, dependency_type=DependencyType.DIRECT_CALL
-                    )
+                    AffectedCode("a.py", "caller", line_number=3, dependency_type=DependencyType.DIRECT_CALL)
                 ]
             return [
                 AffectedCode(

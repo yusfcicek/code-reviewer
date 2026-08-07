@@ -218,9 +218,7 @@ class TestPolicyDrivenThresholds(unittest.TestCase):
         source = f"def classify(value):\n{branches}\n    return None\n"
 
         strict = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=3)).analyze(source, "m.py")
-        lenient = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=50)).analyze(
-            source, "m.py"
-        )
+        lenient = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=50)).analyze(source, "m.py")
 
         self.assertIn(IssueCategory.MAINTAINABILITY, _categories(strict))
         self.assertNotIn(IssueCategory.MAINTAINABILITY, _categories(lenient))

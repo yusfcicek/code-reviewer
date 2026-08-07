@@ -52,18 +52,14 @@ class TestReviewOutcome(unittest.TestCase):
 
     def test_warnings_do_not_block(self):
         outcome = ReviewOutcome()
-        outcome.record(
-            "a.py", _evaluation(ReviewGateResult.WARN, reasons=["Breaking Changes Detected"])
-        )
+        outcome.record("a.py", _evaluation(ReviewGateResult.WARN, reasons=["Breaking Changes Detected"]))
 
         self.assertEqual(outcome.result, ReviewGateResult.WARN)
         self.assertFalse(outcome.is_blocking)
 
     def test_blocking_issues_are_attributed_to_their_file(self):
         outcome = ReviewOutcome()
-        outcome.record(
-            "src/db.py", _evaluation(ReviewGateResult.FAIL, blocking=["SAST Scan Failed"])
-        )
+        outcome.record("src/db.py", _evaluation(ReviewGateResult.FAIL, blocking=["SAST Scan Failed"]))
 
         self.assertEqual(outcome.blocking_issues, ["src/db.py: SAST Scan Failed"])
 

@@ -37,9 +37,7 @@ class TestDeserialisationRules(unittest.TestCase):
 
     def test_explicit_safe_loader_is_not_reported(self):
         """Regression for F-06."""
-        report = self.analyzer.analyze(
-            "data = yaml.load(handle, Loader=yaml.SafeLoader)\n", "config.py"
-        )
+        report = self.analyzer.analyze("data = yaml.load(handle, Loader=yaml.SafeLoader)\n", "config.py")
 
         self.assertNotIn(VulnerabilityType.INSECURE_DESERIALIZATION, _types(report))
 
@@ -56,19 +54,13 @@ class TestInjectionRules(unittest.TestCase):
     def test_eval_is_critical(self):
         report = self.analyzer.analyze("result = eval(user_input)\n", "app.py")
 
-        findings = [
-            f
-            for f in report.findings
-            if f.vulnerability_type is VulnerabilityType.COMMAND_INJECTION
-        ]
+        findings = [f for f in report.findings if f.vulnerability_type is VulnerabilityType.COMMAND_INJECTION]
         self.assertTrue(findings)
         self.assertEqual(findings[0].severity, Severity.CRITICAL)
         self.assertEqual(findings[0].cwe_id, "CWE-95")
 
     def test_string_concatenated_sql_is_reported(self):
-        report = self.analyzer.analyze(
-            'cursor.execute("SELECT * FROM t WHERE id=" + user_id)\n', "db.py"
-        )
+        report = self.analyzer.analyze('cursor.execute("SELECT * FROM t WHERE id=" + user_id)\n', "db.py")
 
         self.assertIn(VulnerabilityType.SQL_INJECTION, _types(report))
 
@@ -87,9 +79,7 @@ class TestSecretRules(unittest.TestCase):
     def test_hardcoded_password_is_reported_with_its_line(self):
         report = SASTAnalyzer().analyze('\n\npassword = "hunter22"\n', "settings.py")
 
-        findings = [
-            f for f in report.findings if f.vulnerability_type is VulnerabilityType.HARDCODED_SECRET
-        ]
+        findings = [f for f in report.findings if f.vulnerability_type is VulnerabilityType.HARDCODED_SECRET]
         self.assertTrue(findings)
         self.assertEqual(findings[0].line_number, 3)
 

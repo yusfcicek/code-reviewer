@@ -87,8 +87,7 @@ class ReviewOutcome:
             for reason in evaluation.reasons
         ]
         failures = [
-            f"{file_path}: could not be reviewed — {reason}"
-            for file_path, reason in self.failed_files
+            f"{file_path}: could not be reviewed — {reason}" for file_path, reason in self.failed_files
         ]
         return gate_warnings + failures
 

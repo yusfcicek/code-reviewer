@@ -58,8 +58,7 @@ def resolve_ssl_verify() -> bool | str:
         return True
 
     warnings.warn(
-        f"GITLAB_SSL_VERIFY={raw!r} is not a recognised boolean; "
-        "keeping certificate verification enabled.",
+        f"GITLAB_SSL_VERIFY={raw!r} is not a recognised boolean; keeping certificate verification enabled.",
         UserWarning,
         stacklevel=2,
     )

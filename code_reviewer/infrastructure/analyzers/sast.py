@@ -14,6 +14,7 @@ Güvenlik açıkları için statik kod analizi yapar:
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import ClassVar
 
 from code_reviewer.domain.severity import Severity
 
@@ -81,7 +82,7 @@ class SASTAnalyzer:
     """
 
     # Python güvenlik pattern'leri
-    PYTHON_PATTERNS: dict[VulnerabilityType, list[tuple[str, Severity, str, str, str]]] = {
+    PYTHON_PATTERNS: ClassVar[dict[VulnerabilityType, list[tuple[str, Severity, str, str, str]]]] = {
         VulnerabilityType.SQL_INJECTION: [
             (
                 r"execute\s*\([^)]*\+",
@@ -363,7 +364,7 @@ class SASTAnalyzer:
     }
 
     # C/C++ güvenlik pattern'leri
-    CPP_PATTERNS: dict[VulnerabilityType, list[tuple[str, Severity, str, str, str]]] = {
+    CPP_PATTERNS: ClassVar[dict[VulnerabilityType, list[tuple[str, Severity, str, str, str]]]] = {
         VulnerabilityType.COMMAND_INJECTION: [
             (
                 r"system\s*\(",
@@ -491,13 +492,9 @@ class SASTAnalyzer:
         stripped = line.strip()
 
         if lang == "python":
-            return (
-                stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''")
-            )
+            return stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''")
         elif lang in ["cpp", "javascript"]:
-            return (
-                stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*")
-            )
+            return stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*")
 
         return False
 
@@ -616,7 +613,7 @@ class SASTAnalyzer:
             parts.append(f"  - 🟢 Low: {risk.low_count}")
 
         # Vulnerability types
-        types_found = set(f.vulnerability_type.value for f in report.findings)
+        types_found = {f.vulnerability_type.value for f in report.findings}
         parts.append(f"\n**Vulnerability Types**: {', '.join(types_found)}")
 
         return "\n".join(parts)
@@ -655,7 +652,8 @@ def run_sast_scan(content: str, file_path: str = "") -> str:
             }
 
             output.append(
-                f"#### {severity_icon.get(finding.severity, '')} Line {finding.line_number}: {finding.vulnerability_type.value}"
+                f"#### {severity_icon.get(finding.severity, '')} "
+                f"Line {finding.line_number}: {finding.vulnerability_type.value}"
             )
             output.append(f"**Severity**: {finding.severity.value} | **CWE**: {finding.cwe_id}")
             output.append(f"```\n{finding.line_content}\n```")

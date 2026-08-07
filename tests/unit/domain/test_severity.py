@@ -33,7 +33,7 @@ class TestOrdering(unittest.TestCase):
 
     def test_comparison_with_a_non_severity_is_not_supported(self):
         with self.assertRaises(TypeError):
-            Severity.HIGH < 3
+            _ = Severity.HIGH < 3
 
 
 class TestValues(unittest.TestCase):

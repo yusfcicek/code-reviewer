@@ -13,6 +13,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import ClassVar
 
 from code_reviewer.domain.policy import PerformancePolicy
 from code_reviewer.domain.severity import Severity
@@ -103,7 +104,7 @@ class PerformanceAnalyzer:
     """
 
     # Kaynak yönetimi gerektiren fonksiyonlar
-    RESOURCE_OPENERS = {
+    RESOURCE_OPENERS: ClassVar[dict[str, str]] = {
         "open": "file",
         "connect": "connection",
         "socket": "socket",
@@ -116,10 +117,10 @@ class PerformanceAnalyzer:
     }
 
     # Kaynak temizleyicileri
-    RESOURCE_CLOSERS = {"close", "release", "disconnect", "shutdown"}
+    RESOURCE_CLOSERS: ClassVar[set[str]] = {"close", "release", "disconnect", "shutdown"}
 
     # Database/API çağrıları
-    DB_QUERY_PATTERNS = [
+    DB_QUERY_PATTERNS: ClassVar[list[str]] = [
         r"\.execute\s*\(",
         r"\.query\s*\(",
         r"\.find\s*\(",
@@ -132,7 +133,7 @@ class PerformanceAnalyzer:
     ]
 
     # Büyük bellek kullanımı pattern'leri
-    LARGE_MEMORY_PATTERNS = [
+    LARGE_MEMORY_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r"\.readlines\s*\(\)", "reads entire file into memory"),
         (r"list\s*\([^)]*range\s*\([^)]*\)", "creates full list from range"),
         (r"\*\s*\d{4,}", "large allocation"),
@@ -250,9 +251,7 @@ class PerformanceAnalyzer:
             report.issues.append(
                 PerformanceIssue(
                     issue_type=PerformanceIssueType.HIGH_COMPLEXITY,
-                    severity=Severity.HIGH
-                    if max_depth > self.max_nested_loops
-                    else Severity.MEDIUM,
+                    severity=Severity.HIGH if max_depth > self.max_nested_loops else Severity.MEDIUM,
                     line_number=func_node.lineno,
                     symbol_name=func_node.name,
                     description=f"Function has {max_depth} levels of nested loops",
@@ -316,10 +315,10 @@ class PerformanceAnalyzer:
 
         for node in ast.walk(tree):
             # open() without context manager
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(node.value, ast.Call):
-                        self._check_resource_assignment(node, risks)
+            # One assignment produces one risk. Iterating the targets meant
+            # `handle = backup = open(path)` reported the same leak twice.
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                self._check_resource_assignment(node, risks)
 
             # Direct call without assignment (potential leak)
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
@@ -368,21 +367,19 @@ class PerformanceAnalyzer:
 
         for node in ast.walk(tree):
             # Kaynak açma
-            if isinstance(node, ast.Assign):
-                if isinstance(node.value, ast.Call):
-                    func_name = self._get_call_name(node.value)
-                    if func_name in self.RESOURCE_OPENERS:
-                        for target in node.targets:
-                            if isinstance(target, ast.Name):
-                                opened_resources[target.id] = node.lineno
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                func_name = self._get_call_name(node.value)
+                if func_name in self.RESOURCE_OPENERS:
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            opened_resources[target.id] = node.lineno
 
             # Kaynak kapatma
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Attribute):
-                    if node.func.attr in self.RESOURCE_CLOSERS:
-                        if isinstance(node.func.value, ast.Name):
-                            var_name = node.func.value.id
-                            opened_resources.pop(var_name, None)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in self.RESOURCE_CLOSERS:
+                    if isinstance(node.func.value, ast.Name):
+                        var_name = node.func.value.id
+                        opened_resources.pop(var_name, None)
 
         # Kapatılmamış kaynaklar
         for var_name, line_no in opened_resources.items():
@@ -416,24 +413,23 @@ class PerformanceAnalyzer:
 
                 # Loop içinde DB/API çağrısı var mı?
                 for child in ast.walk(node):
-                    if isinstance(child, ast.Call):
-                        call_name = self._get_call_name(child)
-                        if hasattr(child, "lineno"):
-                            call_line_content = (
-                                lines[child.lineno - 1] if child.lineno <= len(lines) else ""
-                            )
+                    if isinstance(child, ast.Call) and hasattr(child, "lineno"):
+                        call_line_content = lines[child.lineno - 1] if child.lineno <= len(lines) else ""
 
-                            for pattern in self.DB_QUERY_PATTERNS:
-                                if re.search(pattern, call_line_content):
-                                    patterns.append(
-                                        NPlusOnePattern(
-                                            loop_line=loop_line,
-                                            query_line=child.lineno,
-                                            description=f"Database/API call inside loop at line {child.lineno}",
-                                            suggestion="Batch the queries: fetch all data before the loop or use eager loading",
-                                        )
+                        for pattern in self.DB_QUERY_PATTERNS:
+                            if re.search(pattern, call_line_content):
+                                patterns.append(
+                                    NPlusOnePattern(
+                                        loop_line=loop_line,
+                                        query_line=child.lineno,
+                                        description=(f"Database/API call inside loop at line {child.lineno}"),
+                                        suggestion=(
+                                            "Batch the queries: fetch all data before the "
+                                            "loop or use eager loading"
+                                        ),
                                     )
-                                    break
+                                )
+                                break
 
         return patterns
 
@@ -471,10 +467,9 @@ class PerformanceAnalyzer:
                         line_number=child.lineno,
                         symbol_name=name,
                         description=(
-                            f"String concatenation with += inside a loop "
-                            f"(line {child.lineno}) is O(n²)"
+                            f"String concatenation with += inside a loop (line {child.lineno}) is O(n²)"
                         ),
-                        suggestion="Collect the parts in a list and ''.join(...) once, or use io.StringIO",
+                        suggestion=("Collect the parts in a list and ''.join(...) once, or use io.StringIO"),
                     )
                 )
 
@@ -629,9 +624,7 @@ class PerformanceAnalyzer:
         return "\n".join(parts)
 
 
-def analyze_performance(
-    content: str, file_path: str = "", policy: PerformancePolicy | None = None
-) -> str:
+def analyze_performance(content: str, file_path: str = "", policy: PerformancePolicy | None = None) -> str:
     """
     Tool wrapper - Performans analizi yapar.
 
@@ -663,7 +656,8 @@ def analyze_performance(
             }
 
             output.append(
-                f"#### {severity_icon.get(issue.severity, '')} Line {issue.line_number}: {issue.issue_type.value}"
+                f"#### {severity_icon.get(issue.severity, '')} "
+                f"Line {issue.line_number}: {issue.issue_type.value}"
             )
             if issue.complexity:
                 output.append(f"**Complexity**: {issue.complexity}")

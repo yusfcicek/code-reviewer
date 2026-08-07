@@ -11,6 +11,7 @@ Token-aware, priority-based memory yönetimi:
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 from code_reviewer.application.ports import LLMProvider, MemoryStrategy
 from code_reviewer.domain.finding import AffectedCode
@@ -57,7 +58,7 @@ class SmartMemoryStrategy(MemoryStrategy):
     CRITICAL_RESERVED = 10000  # Kritik bilgiler için rezerv
 
     # Kategori -> Priority mapping
-    CATEGORY_PRIORITIES = {
+    CATEGORY_PRIORITIES: ClassVar[dict[str, InsightPriority]] = {
         "SECURITY": InsightPriority.CRITICAL,
         "BREAKING": InsightPriority.CRITICAL,
         "CRITICAL": InsightPriority.CRITICAL,
@@ -74,7 +75,7 @@ class SmartMemoryStrategy(MemoryStrategy):
     def __init__(
         self,
         llm_provider: LLMProvider,
-        max_tokens: int = None,
+        max_tokens: int | None = None,
         token_counter: Callable[[str], int] | None = None,
     ):
         # The provider is kept so a future summarisation step can ask the model
@@ -109,16 +110,15 @@ class SmartMemoryStrategy(MemoryStrategy):
         Format: [CATEGORY] message
         Örnek: [SECURITY] SQL injection found in user_input.py
         """
-        # Parse category from insight
+        # Parse category from insight. The full text is stored, tag included,
+        # because the tag is what makes the context readable in the prompt.
         category = "GENERAL"
-        content = insight
 
         import re
 
         match = re.match(r"\[(\w+)\]\s*(.*)", insight)
         if match:
             category = match.group(1).upper()
-            content = match.group(2)
 
         # Determine priority
         priority = self.CATEGORY_PRIORITIES.get(category, InsightPriority.NORMAL)
@@ -127,9 +127,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         tokens = self.count_tokens(insight)
 
         # Create insight object
-        memory_insight = MemoryInsight(
-            content=insight, priority=priority, category=category, tokens=tokens
-        )
+        memory_insight = MemoryInsight(content=insight, priority=priority, category=category, tokens=tokens)
 
         # Store in appropriate list
         if priority == InsightPriority.CRITICAL:
@@ -212,11 +210,10 @@ class SmartMemoryStrategy(MemoryStrategy):
         # Normal & low priority (if space available)
         remaining_tokens = self.max_tokens - self._estimate_context_tokens(parts)
 
-        if remaining_tokens > 5000:
-            if self.normal_insights:
-                parts.append("\n## 📋 NORMAL PRIORITY")
-                for insight in self.normal_insights[:15]:
-                    parts.append(f"- {insight.content}")
+        if remaining_tokens > 5000 and self.normal_insights:
+            parts.append("\n## 📋 NORMAL PRIORITY")
+            for insight in self.normal_insights[:15]:
+                parts.append(f"- {insight.content}")
 
         # Summary buffer if exists
         if self.summary_buffer:
@@ -258,11 +255,7 @@ class SmartMemoryStrategy(MemoryStrategy):
 
         # Then NORMAL priority if still over threshold
         self._update_token_count()
-        if (
-            self.total_tokens_used > threshold
-            and self.normal_insights
-            and len(self.normal_insights) > 5
-        ):
+        if self.total_tokens_used > threshold and self.normal_insights and len(self.normal_insights) > 5:
             summary = self._create_summary(self.normal_insights)
             self.summary_buffer += f"\n### Normal Priority Summary:\n{summary}\n"
             self.normal_insights = self.normal_insights[-3:]  # Keep last 3
@@ -299,7 +292,7 @@ class SmartMemoryStrategy(MemoryStrategy):
         # For now, just compress by removing details
         lines = content.split("\n")
         if len(lines) > 10:
-            summary_lines = lines[:3] + ["...[summarized]..."] + lines[-3:]
+            summary_lines = [*lines[:3], "...[summarized]...", *lines[-3:]]
             return "\n".join(summary_lines)
 
         return content

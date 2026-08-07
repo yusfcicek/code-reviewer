@@ -502,9 +502,7 @@ class TestFailureIsolation(unittest.TestCase):
     def test_every_file_failing_still_posts_a_comment(self):
         forge = self._three_files()
 
-        result = _service(forge, ExplodingReviewer(["src/a.py", "src/b.py", "src/c.py"])).review(
-            1, 2
-        )
+        result = _service(forge, ExplodingReviewer(["src/a.py", "src/b.py", "src/c.py"])).review(1, 2)
 
         self.assertEqual(len(forge.published), 1)
         self.assertEqual(len(result.outcome.failed_files), 3)

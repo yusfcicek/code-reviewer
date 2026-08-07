@@ -40,14 +40,11 @@ def render_review_comment(
 
     if findings:
         counts = Finding.count_by_severity(findings)
-        breakdown = ", ".join(
-            f"{count} {severity.value}" for severity, count in counts.items() if count
-        )
+        breakdown = ", ".join(f"{count} {severity.value}" for severity, count in counts.items() if count)
         parts.append(f"\n**Static analysis**: {len(findings)} finding(s) — {breakdown}\n")
 
     parts.append(
-        f"\n**Policy v{policy_version}** | "
-        f"**Files considered**: {outcome.files_considered}\n\n---\n"
+        f"\n**Policy v{policy_version}** | **Files considered**: {outcome.files_considered}\n\n---\n"
     )
     parts.extend(sections)
 

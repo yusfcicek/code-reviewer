@@ -138,9 +138,7 @@ class QualityAnalyzer:
         self.max_cyclomatic_complexity = (
             policy.max_cyclomatic_complexity if policy else self.MAX_CYCLOMATIC_COMPLEXITY
         )
-        self.min_duplicate_lines = (
-            policy.min_duplicate_lines if policy else self.MIN_DUPLICATE_LINES
-        )
+        self.min_duplicate_lines = policy.min_duplicate_lines if policy else self.MIN_DUPLICATE_LINES
         self.max_function_params = self.MAX_FUNCTION_PARAMS
         self.enforce_srp = policy.enforce_srp if policy else True
         self.enforce_dip = policy.enforce_dip if policy else True
@@ -209,8 +207,7 @@ class QualityAnalyzer:
         method_count = sum(
             1
             for item in class_node.body
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and not item.name.startswith("_")
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and not item.name.startswith("_")
         )
 
         if method_count > self.max_class_methods:
@@ -220,8 +217,13 @@ class QualityAnalyzer:
                     severity=Severity.MEDIUM,
                     line_number=class_node.lineno,
                     symbol_name=class_node.name,
-                    description=f"Class '{class_node.name}' has {method_count} public methods (max: {self.max_class_methods})",
-                    suggestion="Consider splitting into multiple smaller classes with focused responsibilities",
+                    description=(
+                        f"Class '{class_node.name}' has {method_count} public methods (max: "
+                        f"{self.max_class_methods})"
+                    ),
+                    suggestion=(
+                        "Consider splitting into multiple smaller classes with focused responsibilities"
+                    ),
                     metrics={"method_count": method_count},
                 )
             )
@@ -243,7 +245,10 @@ class QualityAnalyzer:
                         line_number=class_node.lineno,
                         symbol_name=class_node.name,
                         description=f"Class '{class_node.name}' has {instance_vars} instance variables",
-                        suggestion="Many instance variables may indicate mixed responsibilities. Consider composition.",
+                        suggestion=(
+                            "Many instance variables may indicate mixed responsibilities. "
+                            "Consider composition."
+                        ),
                         metrics={"instance_vars": instance_vars},
                     )
                 )
@@ -264,7 +269,10 @@ class QualityAnalyzer:
                         severity=Severity.MEDIUM,
                         line_number=func_node.lineno,
                         symbol_name=func_node.name,
-                        description=f"Function '{func_node.name}' is {line_count} lines (max: {self.max_function_lines})",
+                        description=(
+                            f"Function '{func_node.name}' is {line_count} lines (max: "
+                            f"{self.max_function_lines})"
+                        ),
                         suggestion="Break down into smaller, focused functions",
                         metrics={"line_count": line_count},
                     )
@@ -313,8 +321,14 @@ class QualityAnalyzer:
                                         if hasattr(stmt, "lineno")
                                         else class_node.lineno,
                                         symbol_name=class_node.name,
-                                        description=f"Class '{class_node.name}' instantiates concrete class '{stmt.func.id}' in __init__",
-                                        suggestion="Consider dependency injection - pass the dependency as a constructor parameter",
+                                        description=(
+                                            f"Class '{class_node.name}' instantiates concrete "
+                                            f"class '{stmt.func.id}' in __init__"
+                                        ),
+                                        suggestion=(
+                                            "Consider dependency injection - pass the dependency "
+                                            "as a constructor parameter"
+                                        ),
                                         metrics={"concrete_class": stmt.func.id},
                                     )
                                 )
@@ -340,7 +354,9 @@ class QualityAnalyzer:
                     severity=Severity.MEDIUM,
                     line_number=class_node.lineno,
                     symbol_name=class_node.name,
-                    description=f"Interface '{class_node.name}' has {len(abstract_methods)} abstract methods",
+                    description=(
+                        f"Interface '{class_node.name}' has {len(abstract_methods)} abstract methods"
+                    ),
                     suggestion="Consider splitting into smaller, more focused interfaces",
                     metrics={"abstract_method_count": len(abstract_methods)},
                 )
@@ -382,9 +398,7 @@ class QualityAnalyzer:
         complexity = 1  # Base complexity
 
         for node in ast.walk(func_node):
-            if isinstance(node, (ast.If, ast.While, ast.For, ast.AsyncFor)) or isinstance(
-                node, ast.ExceptHandler
-            ):
+            if isinstance(node, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.ExceptHandler)):
                 complexity += 1
             elif isinstance(node, ast.BoolOp):
                 complexity += len(node.values) - 1
@@ -474,7 +488,9 @@ class QualityAnalyzer:
                             severity=Severity.MEDIUM,
                             line_number=node.lineno,
                             symbol_name=node.name,
-                            description=f"Function '{node.name}' uses global variables: {', '.join(globals_used)}",
+                            description=(
+                                f"Function '{node.name}' uses global variables: {', '.join(globals_used)}"
+                            ),
                             suggestion="Pass globals as parameters to improve testability",
                             metrics={"globals": globals_used},
                         )
@@ -491,7 +507,7 @@ class QualityAnalyzer:
                             line_number=node.lineno,
                             symbol_name=node.name,
                             description=f"Class '{node.name}' appears to be a Singleton",
-                            suggestion="Consider using dependency injection instead for better testability",
+                            suggestion=("Consider using dependency injection instead for better testability"),
                             metrics={},
                         )
                     )
@@ -540,7 +556,9 @@ class QualityAnalyzer:
                                 line_number=handler.lineno,
                                 symbol_name="except",
                                 description="Empty except block silently swallows errors",
-                                suggestion="At minimum, log the error. Consider re-raising or handling properly.",
+                                suggestion=(
+                                    "At minimum, log the error. Consider re-raising or handling properly."
+                                ),
                                 metrics={},
                             )
                         )
@@ -554,8 +572,12 @@ class QualityAnalyzer:
                                 severity=Severity.MEDIUM,
                                 line_number=handler.lineno,
                                 symbol_name="except",
-                                description="Bare 'except:' catches all exceptions including KeyboardInterrupt",
-                                suggestion="Specify expected exception types: except (ValueError, TypeError):",
+                                description=(
+                                    "Bare 'except:' catches all exceptions including KeyboardInterrupt"
+                                ),
+                                suggestion=(
+                                    "Specify expected exception types: except (ValueError, TypeError):"
+                                ),
                                 metrics={},
                             )
                         )
@@ -574,20 +596,21 @@ class QualityAnalyzer:
                         )
 
                 # Finally eksik (resource management varsa)
-                if not node.finalbody:
-                    if self._has_resource_management(node):
-                        report.missing_finally += 1
-                        report.issues.append(
-                            QualityIssue(
-                                category=IssueCategory.ERROR_HANDLING,
-                                severity=Severity.MEDIUM,
-                                line_number=node.lineno,
-                                symbol_name="try",
-                                description="Try block with resource management but no finally clause",
-                                suggestion="Add finally block for cleanup or use context manager (with statement)",
-                                metrics={},
-                            )
+                if not node.finalbody and self._has_resource_management(node):
+                    report.missing_finally += 1
+                    report.issues.append(
+                        QualityIssue(
+                            category=IssueCategory.ERROR_HANDLING,
+                            severity=Severity.MEDIUM,
+                            line_number=node.lineno,
+                            symbol_name="try",
+                            description="Try block with resource management but no finally clause",
+                            suggestion=(
+                                "Add finally block for cleanup or use context manager (with statement)"
+                            ),
+                            metrics={},
                         )
+                    )
 
         return report
 
@@ -717,9 +740,7 @@ class QualityAnalyzer:
         return "\n".join(parts)
 
 
-def check_code_quality(
-    content: str, file_path: str = "", policy: QualityPolicy | None = None
-) -> str:
+def check_code_quality(content: str, file_path: str = "", policy: QualityPolicy | None = None) -> str:
     """
     Tool wrapper - Kod kalitesi analizi yapar.
 
@@ -751,7 +772,8 @@ def check_code_quality(
             }
 
             output.append(
-                f"#### {severity_icon.get(issue.severity, '')} Line {issue.line_number}: {issue.category.value}"
+                f"#### {severity_icon.get(issue.severity, '')} "
+                f"Line {issue.line_number}: {issue.category.value}"
             )
             output.append(f"**Symbol**: `{issue.symbol_name}`")
             output.append(f"**Issue**: {issue.description}")

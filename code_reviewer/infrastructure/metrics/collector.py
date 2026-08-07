@@ -113,18 +113,14 @@ class MetricsCollector:
             aggregate.slowest_file_ms = max(aggregate.slowest_file_ms, metric.duration_ms)
 
             for decision, count in metric.triage_decisions.items():
-                aggregate.triage_decisions[decision] = (
-                    aggregate.triage_decisions.get(decision, 0) + count
-                )
+                aggregate.triage_decisions[decision] = aggregate.triage_decisions.get(decision, 0) + count
 
             for severity, count in metric.findings_by_severity.items():
                 aggregate.findings_by_severity[severity] = (
                     aggregate.findings_by_severity.get(severity, 0) + count
                 )
 
-            if _GATE_SEVERITY.get(metric.gate_result, 0) > _GATE_SEVERITY.get(
-                aggregate.gate_result, 0
-            ):
+            if _GATE_SEVERITY.get(metric.gate_result, 0) > _GATE_SEVERITY.get(aggregate.gate_result, 0):
                 aggregate.gate_result = metric.gate_result
 
             if metric.quality_score is not None:

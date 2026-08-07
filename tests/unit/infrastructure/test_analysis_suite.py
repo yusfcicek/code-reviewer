@@ -38,20 +38,20 @@ class TestSecurityFindings(unittest.TestCase):
     def test_security_findings_carry_their_location(self):
         findings = self.suite.analyze("src/app.py", VULNERABLE)
 
-        security = [f for f in findings if f.category is FindingCategory.SECURITY][0]
+        security = next(f for f in findings if f.category is FindingCategory.SECURITY)
         self.assertEqual(security.file_path, "src/app.py")
         self.assertEqual(security.line_number, 2)
 
     def test_security_findings_carry_the_cwe(self):
         findings = self.suite.analyze("src/app.py", VULNERABLE)
 
-        security = [f for f in findings if f.category is FindingCategory.SECURITY][0]
+        security = next(f for f in findings if f.category is FindingCategory.SECURITY)
         self.assertTrue(security.cwe_id.startswith("CWE-"))
 
     def test_security_findings_carry_a_remediation(self):
         findings = self.suite.analyze("src/app.py", VULNERABLE)
 
-        security = [f for f in findings if f.category is FindingCategory.SECURITY][0]
+        security = next(f for f in findings if f.category is FindingCategory.SECURITY)
         self.assertTrue(security.remediation)
 
 
@@ -118,9 +118,7 @@ class TestCleanAndBrokenInput(unittest.TestCase):
         self.assertEqual(StaticAnalysisSuite().analyze("src/empty.py", ""), [])
 
     def test_a_non_python_file_is_still_scanned_for_secrets(self):
-        findings = StaticAnalysisSuite().analyze(
-            "config/app.yml", 'api_key = "AKIAIOSFODNN7EXAMPLE"\n'
-        )
+        findings = StaticAnalysisSuite().analyze("config/app.yml", 'api_key = "AKIAIOSFODNN7EXAMPLE"\n')
 
         self.assertIn(FindingCategory.SECURITY, _categories(findings))
 

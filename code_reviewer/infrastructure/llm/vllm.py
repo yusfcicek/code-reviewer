@@ -41,14 +41,10 @@ def _positive_float(name: str, default: float) -> float:
     try:
         value = float(raw)
     except ValueError:
-        logger.warning(
-            "Ignoring non-numeric setting", extra={"fields": {"variable": name, "value": raw}}
-        )
+        logger.warning("Ignoring non-numeric setting", extra={"fields": {"variable": name, "value": raw}})
         return default
     if value <= 0:
-        logger.warning(
-            "Ignoring non-positive setting", extra={"fields": {"variable": name, "value": raw}}
-        )
+        logger.warning("Ignoring non-positive setting", extra={"fields": {"variable": name, "value": raw}})
         return default
     return value
 
@@ -61,14 +57,10 @@ def _non_negative_int(name: str, default: int) -> int:
     try:
         value = int(raw)
     except ValueError:
-        logger.warning(
-            "Ignoring non-numeric setting", extra={"fields": {"variable": name, "value": raw}}
-        )
+        logger.warning("Ignoring non-numeric setting", extra={"fields": {"variable": name, "value": raw}})
         return default
     if value < 0:
-        logger.warning(
-            "Ignoring negative setting", extra={"fields": {"variable": name, "value": raw}}
-        )
+        logger.warning("Ignoring negative setting", extra={"fields": {"variable": name, "value": raw}})
         return default
     return value
 

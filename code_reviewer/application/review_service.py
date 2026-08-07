@@ -26,9 +26,7 @@ from .report import render_review_comment
 logger = logging.getLogger(__name__)
 
 #: Triage decisions that call for the model rather than a rule.
-NEEDS_REVIEWER = frozenset(
-    {ReviewDecision.QUICK_SCAN, ReviewDecision.FULL_REVIEW, ReviewDecision.CRITICAL}
-)
+NEEDS_REVIEWER = frozenset({ReviewDecision.QUICK_SCAN, ReviewDecision.FULL_REVIEW, ReviewDecision.CRITICAL})
 
 
 @dataclass
@@ -86,9 +84,7 @@ class ReviewService:
     def review(self, project_id: int, merge_request_iid: int) -> ReviewResult:
         """Runs the full workflow and returns what happened."""
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
-        changes = [
-            change for change in self._forge.fetch_changes(reference) if not change.is_deleted
-        ]
+        changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
 
         outcome = ReviewOutcome()
         result = ReviewResult(outcome=outcome)
@@ -105,9 +101,7 @@ class ReviewService:
             # exception discarded every review completed so far and posted
             # nothing (finding F-58).
             try:
-                section, metric, findings = self._review_one(
-                    reference, change, sibling_paths, outcome
-                )
+                section, metric, findings = self._review_one(reference, change, sibling_paths, outcome)
             except Exception as exc:
                 logger.error(
                     "Could not review file",
@@ -128,9 +122,7 @@ class ReviewService:
             result.findings.extend(findings or [])
 
         if sections:
-            result.comment = render_review_comment(
-                self._policy.version, outcome, sections, result.findings
-            )
+            result.comment = render_review_comment(self._policy.version, outcome, sections, result.findings)
             self._forge.publish_comment(reference, result.comment)
 
         result.exit_code = outcome.exit_code(self._policy)

@@ -84,7 +84,7 @@ class TestDomainIsPure(unittest.TestCase):
     def test_domain_does_not_import_other_layers(self):
         for path, tree in _modules("domain"):
             with self.subTest(module=path.name):
-                forbidden = [l for l in _imported_layers(tree) if l != "domain"]
+                forbidden = [layer for layer in _imported_layers(tree) if layer != "domain"]
                 self.assertEqual(forbidden, [], f"{path} imports {forbidden}")
 
     def test_domain_does_not_import_frameworks(self):
@@ -110,9 +110,7 @@ class TestApplicationDependsOnlyDownwards(unittest.TestCase):
     def test_application_does_not_import_infrastructure(self):
         for path, tree in _modules("application"):
             with self.subTest(module=path.name):
-                self.assertNotIn(
-                    "infrastructure", _imported_layers(tree), f"{path} imports infrastructure"
-                )
+                self.assertNotIn("infrastructure", _imported_layers(tree), f"{path} imports infrastructure")
 
     def test_application_does_not_import_frameworks(self):
         for path, tree in _modules("application"):
