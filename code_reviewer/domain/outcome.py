@@ -109,9 +109,9 @@ class ReviewOutcome:
 
     def worst_quality_score(self) -> int | None:
         """Lowest reported quality score, or ``None`` if none was reported."""
-        scores = [
-            evaluation.scores.get("quality")
-            for _, evaluation in self.evaluations
-            if evaluation.scores.get("quality") is not None
-        ]
+        scores: list[int] = []
+        for _, evaluation in self.evaluations:
+            score = evaluation.scores.get("quality")
+            if score is not None:
+                scores.append(score)
         return min(scores) if scores else None

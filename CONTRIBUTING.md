@@ -4,8 +4,22 @@
 
 ```bash
 uv sync
-uv run pytest
+uv run pre-commit install     # runs ruff on commit
 ```
+
+Before pushing, run what CI runs:
+
+```bash
+uv run ruff check code_reviewer tests
+uv run ruff format --check code_reviewer tests conftest.py
+uv run mypy
+uv run pytest --cov
+```
+
+`pytest` on its own skips coverage so that running a single test file is fast;
+`--cov` applies the floor in `[tool.coverage.report]`, which CI enforces. The
+floor ratchets: raise it when coverage rises, never lower it to make a red
+build green.
 
 `uv sync` installs the project in editable mode, so `uv run ai-code-review` and
 `import openhands.agent…` both work without any `sys.path` juggling.
