@@ -4,6 +4,7 @@ import ast
 import textwrap
 import unittest
 
+from code_reviewer.domain.policy import QualityPolicy
 from code_reviewer.domain.severity import Severity
 from code_reviewer.infrastructure.analyzers.quality import (
     IssueCategory,
@@ -171,6 +172,84 @@ class TestScore(unittest.TestCase):
         report = QualityAnalyzer().analyze(f"{block}\n// gap\n{block}\n", "main.cpp")
 
         self.assertIn(IssueCategory.DRY, _categories(report))
+
+
+class TestPolicyDrivenThresholds(unittest.TestCase):
+    """Regression for F-31.
+
+    QualityPolicy existed, was loaded from YAML, and was then ignored in
+    favour of class constants — so configuring a threshold changed nothing.
+    """
+
+    def _class_with(self, method_count):
+        methods = "\n".join(f"    def method_{i}(self): pass" for i in range(method_count))
+        return f"class Wide:\n{methods}\n"
+
+    def test_default_policy_reports_a_wide_class(self):
+        report = QualityAnalyzer(QualityPolicy()).analyze(self._class_with(20), "m.py")
+
+        self.assertIn(IssueCategory.SOLID_SRP, _categories(report))
+
+    def test_raising_the_method_limit_silences_it(self):
+        policy = QualityPolicy(max_class_methods=30)
+
+        report = QualityAnalyzer(policy).analyze(self._class_with(20), "m.py")
+
+        self.assertNotIn(IssueCategory.SOLID_SRP, _categories(report))
+
+    def test_lowering_the_method_limit_reports_a_narrow_class(self):
+        policy = QualityPolicy(max_class_methods=1)
+        source = "class Narrow:\n    def one(self): pass\n    def two(self): pass\n"
+
+        report = QualityAnalyzer(policy).analyze(source, "m.py")
+
+        self.assertIn(IssueCategory.SOLID_SRP, _categories(report))
+
+    def test_function_length_limit_is_configurable(self):
+        body = "\n".join(f"    step_{i} = {i}" for i in range(30))
+        source = f"def long_one():\n{body}\n"
+
+        strict = QualityAnalyzer(QualityPolicy(max_function_lines=10)).analyze(source, "m.py")
+        lenient = QualityAnalyzer(QualityPolicy(max_function_lines=200)).analyze(source, "m.py")
+
+        self.assertIn(IssueCategory.SOLID_SRP, _categories(strict))
+        self.assertNotIn(IssueCategory.SOLID_SRP, _categories(lenient))
+
+    def test_complexity_limit_is_configurable(self):
+        branches = "\n".join(f"    if value == {i}: return {i}" for i in range(8))
+        source = f"def classify(value):\n{branches}\n    return None\n"
+
+        strict = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=3)).analyze(source, "m.py")
+        lenient = QualityAnalyzer(QualityPolicy(max_cyclomatic_complexity=50)).analyze(source, "m.py")
+
+        self.assertIn(IssueCategory.MAINTAINABILITY, _categories(strict))
+        self.assertNotIn(IssueCategory.MAINTAINABILITY, _categories(lenient))
+
+    def test_duplicate_block_size_is_configurable(self):
+        block = "\n".join(f"value_{i} = compute({i})" for i in range(4))
+        source = f"{block}\nprint('gap')\n{block}\n"
+
+        strict = QualityAnalyzer(QualityPolicy(min_duplicate_lines=3)).analyze(source, "m.py")
+        lenient = QualityAnalyzer(QualityPolicy(min_duplicate_lines=20)).analyze(source, "m.py")
+
+        self.assertIn(IssueCategory.DRY, _categories(strict))
+        self.assertNotIn(IssueCategory.DRY, _categories(lenient))
+
+    def test_srp_enforcement_can_be_switched_off(self):
+        policy = QualityPolicy(max_class_methods=1, enforce_srp=False)
+
+        report = QualityAnalyzer(policy).analyze(self._class_with(20), "m.py")
+
+        self.assertNotIn(IssueCategory.SOLID_SRP, _categories(report))
+
+    def test_dip_enforcement_can_be_switched_off(self):
+        source = "class Holder:\n    def __init__(self):\n        self.dep = Service()\n"
+
+        enabled = QualityAnalyzer(QualityPolicy()).analyze(source, "m.py")
+        disabled = QualityAnalyzer(QualityPolicy(enforce_dip=False)).analyze(source, "m.py")
+
+        self.assertIn(IssueCategory.SOLID_DIP, _categories(enabled))
+        self.assertNotIn(IssueCategory.SOLID_DIP, _categories(disabled))
 
 
 if __name__ == "__main__":

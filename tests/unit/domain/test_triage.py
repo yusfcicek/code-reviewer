@@ -26,6 +26,45 @@ class TestSkipRules(unittest.TestCase):
 
         self.assertIsNot(result.decision, ReviewDecision.SKIP)
 
+    def test_generated_lock_files_are_skipped(self):
+        """They are enormous and contain nothing a human would act on."""
+        for path in ("uv.lock", "package-lock.json", "go.sum", "frontend/yarn.lock"):
+            with self.subTest(path=path):
+                result = self.triage.decide("+ dependency line\n", path)
+
+                self.assertIs(result.decision, ReviewDecision.SKIP)
+
+    def test_deployment_configuration_is_reviewed(self):
+        """Regression for F-22.
+
+        Earlier defaults skipped every .yaml, .json and Dockerfile — precisely
+        where a privilege escalation, a changed base image or a swapped
+        dependency hides.
+        """
+        for path in (
+            "Dockerfile",
+            ".gitlab-ci.yml",
+            ".github/workflows/deploy.yml",
+            "k8s/deployment.yaml",
+            "infra/main.tf",
+            "pyproject.toml",
+            "package.json",
+        ):
+            with self.subTest(path=path):
+                result = self.triage.decide("+ configuration line\n", path)
+
+                self.assertIsNot(result.decision, ReviewDecision.SKIP)
+
+    def test_binary_assets_are_skipped(self):
+        result = self.triage.decide("+ binary\n", "assets/logo.png")
+
+        self.assertIs(result.decision, ReviewDecision.SKIP)
+
+    def test_vendored_code_is_skipped(self):
+        result = self.triage.decide("+ vendored\n", "vendor/lib/thing.go")
+
+        self.assertIs(result.decision, ReviewDecision.SKIP)
+
 
 class TestSecurityEscalation(unittest.TestCase):
     def setUp(self):

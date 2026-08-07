@@ -9,6 +9,7 @@ severity bug as the other analyzers (F-07).
 import textwrap
 import unittest
 
+from code_reviewer.domain.policy import PerformancePolicy
 from code_reviewer.domain.severity import Severity
 from code_reviewer.infrastructure.analyzers.performance import (
     PerformanceAnalyzer,
@@ -196,6 +197,64 @@ class TestScore(unittest.TestCase):
         report = PerformanceAnalyzer().analyze(source, "m.py")
 
         self.assertGreaterEqual(report.performance_score, 0)
+
+
+class TestPolicyDrivenThresholds(unittest.TestCase):
+    """Regression for F-31.
+
+    PerformancePolicy was loaded from YAML and then ignored: the analyzer
+    always used its own constants, so switching a rule family off did nothing.
+    """
+
+    NESTED_THREE_DEEP = textwrap.dedent(
+        """
+        def triple(items):
+            for a in items:
+                for b in items:
+                    for c in items:
+                        print(a, b, c)
+        """
+    )
+
+    def test_default_policy_reports_nested_loops(self):
+        report = PerformanceAnalyzer(PerformancePolicy()).analyze(self.NESTED_THREE_DEEP, "m.py")
+
+        self.assertIn(PerformanceIssueType.HIGH_COMPLEXITY, _issue_types(report))
+
+    def test_raising_the_nesting_limit_silences_it(self):
+        policy = PerformancePolicy(max_nested_loops=5)
+
+        report = PerformanceAnalyzer(policy).analyze(self.NESTED_THREE_DEEP, "m.py")
+
+        self.assertNotIn(PerformanceIssueType.HIGH_COMPLEXITY, _issue_types(report))
+
+    def test_complexity_alerts_can_be_switched_off(self):
+        policy = PerformancePolicy(alert_on_n_squared=False)
+
+        report = PerformanceAnalyzer(policy).analyze(self.NESTED_THREE_DEEP, "m.py")
+
+        self.assertNotIn(PerformanceIssueType.HIGH_COMPLEXITY, _issue_types(report))
+
+    def test_n_plus_one_alerts_can_be_switched_off(self):
+        source = textwrap.dedent(
+            """
+            def load(ids, session):
+                for identifier in ids:
+                    session.query(identifier)
+            """
+        )
+        policy = PerformancePolicy(alert_on_n_plus_one=False)
+
+        report = PerformanceAnalyzer(policy).analyze(source, "m.py")
+
+        self.assertEqual(report.n_plus_one_patterns, [])
+
+    def test_memory_leak_alerts_can_be_switched_off(self):
+        policy = PerformancePolicy(alert_on_memory_leak=False)
+
+        report = PerformanceAnalyzer(policy).analyze('h = open("f")\n', "m.py")
+
+        self.assertEqual(report.memory_leak_risks, [])
 
 
 if __name__ == "__main__":
