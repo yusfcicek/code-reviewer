@@ -29,7 +29,7 @@ Every level follows the same three-step rhythm:
 |---|---|---|
 | [0](level-0/spec.md) | Foundation & documentation truth | ✅ Done |
 | [1](level-1/spec.md) | Correctness — fix behaviour that silently does nothing | ✅ Done |
-| 2 | DDD layering — domain, application, infrastructure | 📋 Planned |
+| [2](level-2/spec.md) | DDD layering — domain, application, infrastructure | ✅ Done |
 | 3 | Analyzer accuracy & policy enforcement | 📋 Planned |
 | 4 | Observability & resilience | 📋 Planned |
 | 5 | CI/CD & quality gates | 📋 Planned |

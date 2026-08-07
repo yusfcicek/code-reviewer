@@ -4,14 +4,13 @@ The package under test is imported from the repository root, which
 ``[tool.pytest.ini_options] pythonpath = ["."]`` in ``pyproject.toml`` puts on
 ``sys.path``. No path manipulation is needed here.
 
-Known hazard (finding F-37): ``tests/unit/test_agent_core.py`` replaces several
-``langchain`` modules in ``sys.modules`` at import time so that
-``openhands.agent.core.agent`` can be imported without the real framework.
-Because ``sys.modules`` is process-global, those stubs stay in place for every
-test collected afterwards, which makes results depend on collection order.
+Test layout mirrors the package layout:
 
-This is a defect, not a design. It is scheduled for Level 1, where the agent's
-construction is inverted so the framework can be injected instead of stubbed.
-Until then, do not add tests that rely on the real ``langchain`` package being
-importable in the same process.
+    tests/unit/domain/          pure rules, no doubles needed
+    tests/unit/application/     the workflow, driven by in-memory fakes
+    tests/unit/infrastructure/  analyzers, adapters and loaders
+    tests/integration/          several components wired together, still offline
+
+``tests/unit/test_architecture.py`` asserts the dependency direction between the
+layers; it fails loudly if an import starts pointing the wrong way.
 """

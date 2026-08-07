@@ -9,7 +9,7 @@ strings when invoked by CI (finding F-15).
 import unittest
 from unittest.mock import patch
 
-from openhands.agent.cli import parse_args
+from code_reviewer.cli import parse_args
 
 
 class TestParseArgs(unittest.TestCase):
