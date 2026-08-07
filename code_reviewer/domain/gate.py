@@ -1,4 +1,4 @@
-"""Review Gate - CI Pipeline Kontrol Mekanizması.
+"""The review gate: turning a review into a pipeline decision.
 
 Turns one file's review into a `PASS` / `WARN` / `FAIL` decision.
 
@@ -36,10 +36,11 @@ class ReviewGateResult(Enum):
 
 @dataclass
 class GateEvaluation:
-    """Gate değerlendirme sonucu.
+    """One file's verdict, with everything that produced it.
 
-    ``scores`` değerleri ``None`` olabilir: ne bulgulardan ne de rapordan
-    hesaplanabildiyse skor *bilinmiyor* demektir, sıfır değil (bkz. F-10).
+    A value in ``scores`` may be ``None``: when neither the findings nor the
+    report yielded a number, the score is *unknown*, which is not zero
+    (finding F-10).
     """
 
     result: ReviewGateResult
@@ -53,11 +54,11 @@ class GateEvaluation:
 
 class ReviewGate:
     """
-    Review sonucunu değerlendiren mekanizma.
+    Evaluates one file's review.
 
-    Kontrol edilen kriterler:
-    - Analyzer bulguları (şiddet eşiğine göre bloklayıcı)
-    - Kod kalite skoru (bulgulardan hesaplanır, yoksa rapordan okunur)
+    What it looks at:
+    - analyzer findings, blocking at or above the policy's severity threshold
+    - the quality score, computed from findings or, failing that, parsed
     - SAST Scan Result (Pass/Fail)
     - Security Risk Level (Critical/High)
     - Breaking Changes
@@ -72,17 +73,17 @@ class ReviewGate:
         findings: Sequence[Finding] | None = None,
     ) -> GateEvaluation:
         """
-        Bir dosyanın review sonucunu değerlendirir.
+        Evaluates one file's review.
 
         Args:
-            review_markdown: Agent'ın ürettiği markdown raporu
-            findings: Statik analiz bulguları. ``None`` analiz çalışmadı
-                demektir; boş liste çalıştı ve temiz çıktı demektir. Analiz
-                çalıştıysa bloklama kararı bulgulardan alınır ve rapor metni
-                yalnızca uyarı üretir.
+            review_markdown: The report the model produced.
+            findings: Static analysis findings. ``None`` means no analysis ran;
+                an empty list means it ran and found nothing. When analysis ran,
+                the blocking decision comes from the findings and the report
+                text can only warn.
 
         Returns:
-            GateEvaluation: Değerlendirme sonucu
+            GateEvaluation: the verdict and its reasons.
         """
         # `None` means no analysis ran; `[]` means it ran and found nothing.
         # The difference matters: a clean analysis is evidence, and the prose
@@ -110,7 +111,7 @@ class ReviewGate:
             exit_code = 1
         elif reasons:
             result = ReviewGateResult.WARN
-            exit_code = 0  # Warning pipeline'ı kırmaz
+            exit_code = 0  # a warning does not break the pipeline
 
         return GateEvaluation(
             result=result,

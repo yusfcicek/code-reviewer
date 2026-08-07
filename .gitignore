@@ -40,8 +40,9 @@ htmlcov/
 metrics.txt
 review_metrics.json
 
-# Editors / OS
+# Editors / OS / tooling state
 .idea/
 .vscode/
+.claude/
 *.swp
 .DS_Store

@@ -9,7 +9,7 @@ pattern as HIGH severity, CWE-295 (finding F-20).
 import unittest
 from unittest.mock import patch
 
-from code_reviewer.infrastructure.forge.client import (
+from code_reviewer.infrastructure.forge.gitlab_client import (
     MissingCredentialsError,
     build_gitlab_client,
 )
@@ -25,7 +25,7 @@ class TestBuildGitLabClient(unittest.TestCase):
     def _build(self, **overrides):
         env = {**self.env, **overrides}
         with patch.dict("os.environ", env, clear=True):
-            with patch("code_reviewer.infrastructure.forge.client.gitlab.Gitlab") as gitlab_cls:
+            with patch("code_reviewer.infrastructure.forge.gitlab_client.gitlab.Gitlab") as gitlab_cls:
                 build_gitlab_client()
         return gitlab_cls.call_args
 
@@ -48,7 +48,7 @@ class TestBuildGitLabClient(unittest.TestCase):
     def test_disabling_verification_warns(self):
         env = {**self.env, "GITLAB_SSL_VERIFY": "false"}
         with patch.dict("os.environ", env, clear=True):
-            with patch("code_reviewer.infrastructure.forge.client.gitlab.Gitlab"):
+            with patch("code_reviewer.infrastructure.forge.gitlab_client.gitlab.Gitlab"):
                 with self.assertWarns(UserWarning):
                     build_gitlab_client()
 

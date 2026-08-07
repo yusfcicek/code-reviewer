@@ -1,12 +1,9 @@
-"""
-Performance Analyzer - Performans ve Kaynak Kullanım Analizi.
+"""Complexity and resource use.
 
-Big-O kompleksite analizi ve potansiyel performans sorunlarını tespit eder:
-- O(n²) ve daha kötü kompleksite tespiti
-- Memory leak pattern'leri
-- N+1 query pattern
-- Gereksiz bellek kopyaları
-- Resource leak kontrolü
+The performance problems that survive review are rarely subtle: a loop inside a
+loop over the same collection, a query inside a loop, a file opened and never
+closed. This analyzer looks for those shapes in the AST, where they are visible,
+rather than in the text, where they are not.
 """
 
 import ast
@@ -20,7 +17,7 @@ from code_reviewer.domain.severity import Severity
 
 
 class PerformanceIssueType(Enum):
-    """Performans sorunu tipleri."""
+    """The kinds of performance problem this analyzer recognises."""
 
     HIGH_COMPLEXITY = "high_complexity"
     MEMORY_LEAK = "memory_leak"
@@ -35,7 +32,7 @@ class PerformanceIssueType(Enum):
 
 @dataclass
 class PerformanceIssue:
-    """Performans sorunu."""
+    """One performance problem, at one line."""
 
     issue_type: PerformanceIssueType
     severity: Severity
@@ -49,7 +46,7 @@ class PerformanceIssue:
 
 @dataclass
 class ComplexityReport:
-    """Kompleksite raporu."""
+    """One function's estimated complexity."""
 
     function_name: str
     estimated_complexity: str
@@ -60,7 +57,7 @@ class ComplexityReport:
 
 @dataclass
 class MemoryLeakRisk:
-    """Memory leak riski."""
+    """A resource that may never be released."""
 
     line_number: int
     resource_type: str  # "file", "connection", "socket", etc.
@@ -70,7 +67,7 @@ class MemoryLeakRisk:
 
 @dataclass
 class NPlusOnePattern:
-    """N+1 query pattern."""
+    """A query issued once per loop iteration."""
 
     loop_line: int
     query_line: int
@@ -80,7 +77,7 @@ class NPlusOnePattern:
 
 @dataclass
 class PerformanceReport:
-    """Performans analiz raporu."""
+    """Everything the performance scan found in one file."""
 
     file_path: str
     issues: list[PerformanceIssue] = field(default_factory=list)
@@ -93,17 +90,16 @@ class PerformanceReport:
 
 class PerformanceAnalyzer:
     """
-    Big-O kompleksite ve memory leak analizi.
+    Estimates complexity and finds resource problems.
 
-    Analiz kapsamı:
-    - Nested loop tespiti (O(n²), O(n³))
-    - Recursive çağrı analizi
-    - Büyük veri üzerinde iterasyon
-    - Kapatılmayan resource'lar
-    - N+1 query pattern'leri
+    - nested loops, reported as O(n²) and worse
+    - recursion, which may want memoisation
+    - iteration that materialises more than it needs
+    - resources opened without a context manager or a close
+    - queries inside loops
     """
 
-    # Kaynak yönetimi gerektiren fonksiyonlar
+    # Calls that acquire something which must be released
     RESOURCE_OPENERS: ClassVar[dict[str, str]] = {
         "open": "file",
         "connect": "connection",
@@ -116,10 +112,10 @@ class PerformanceAnalyzer:
         "pool.connection": "pool_connection",
     }
 
-    # Kaynak temizleyicileri
+    # ...and the calls that release it
     RESOURCE_CLOSERS: ClassVar[set[str]] = {"close", "release", "disconnect", "shutdown"}
 
-    # Database/API çağrıları
+    # Calls that cross a process boundary
     DB_QUERY_PATTERNS: ClassVar[list[str]] = [
         r"\.execute\s*\(",
         r"\.query\s*\(",
@@ -132,7 +128,7 @@ class PerformanceAnalyzer:
         r"\.select\s*\(",
     ]
 
-    # Büyük bellek kullanımı pattern'leri
+    # Patterns that materialise more than they need to
     LARGE_MEMORY_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         (r"\.readlines\s*\(\)", "reads entire file into memory"),
         (r"list\s*\([^)]*range\s*\([^)]*\)", "creates full list from range"),
@@ -157,30 +153,30 @@ class PerformanceAnalyzer:
 
     def analyze(self, content: str, file_path: str = "") -> PerformanceReport:
         """
-        Kapsamlı performans analizi yapar.
+        Analyses one file.
 
         Args:
-            content: Dosya içeriği
-            file_path: Dosya yolu
+            content: The file's text.
+            file_path: Used to decide whether an AST pass is possible.
 
         Returns:
-            PerformanceReport: Analiz sonucu
+            PerformanceReport: the issues found, with a score and a summary.
         """
         report = PerformanceReport(file_path=file_path)
 
-        # Python için AST analizi
+        # An AST makes loop nesting and resource lifetimes visible
         if file_path.endswith(".py"):
             try:
                 tree = ast.parse(content)
 
-                # Complexity analizi
+                # Loop nesting and recursion
                 report.complexity_reports = self._analyze_complexity(tree)
 
-                # Memory leak riskleri
+                # Resources opened and not released
                 if self.alert_on_memory_leak:
                     report.memory_leak_risks = self._detect_memory_leaks(tree)
 
-                # N+1 pattern
+                # Queries inside loops
                 if self.alert_on_n_plus_one:
                     report.n_plus_one_patterns = self._detect_n_plus_one(tree, content)
 
@@ -190,22 +186,22 @@ class PerformanceAnalyzer:
             except SyntaxError:
                 pass
 
-        # Regex tabanlı analizler (tüm diller)
+        # Text patterns, for anything the AST pass could not cover
         report.issues.extend(self._analyze_patterns(content))
 
-        # Issues'ları topla
+        # Fold every sub-report into one issue list
         report.issues.extend(self._collect_issues(report))
 
-        # Performans skoru
+        # Reduce it to a score
         report.performance_score = self._calculate_score(report)
 
-        # Özet
+        # ...and a summary
         report.summary = self._generate_summary(report)
 
         return report
 
     def _analyze_complexity(self, tree: ast.AST) -> list[ComplexityReport]:
-        """Fonksiyon kompleksitelerini analiz eder."""
+        """Estimates the complexity of every function in the module."""
         reports = []
 
         for node in ast.walk(tree):
@@ -217,17 +213,17 @@ class PerformanceAnalyzer:
         return reports
 
     def _analyze_function_complexity(self, func_node: ast.FunctionDef) -> ComplexityReport:
-        """Tek fonksiyonun kompleksitesini analiz eder."""
+        """Estimates one function's complexity from its loops and recursion."""
         max_depth = 0
         is_recursive = False
 
-        # Nested loop derinliği
+        # How deeply do loops nest?
         max_depth = self._find_max_loop_depth(func_node)
 
-        # Recursive çağrı kontrolü
+        # Does it call itself?
         is_recursive = self._is_recursive(func_node)
 
-        # Tahmini kompleksite
+        # A rough class, useful for a reviewer rather than a proof
         if is_recursive:
             complexity = "O(2^n) or O(n!) - recursive, needs analysis"
         elif max_depth >= 3:
@@ -246,7 +242,7 @@ class PerformanceAnalyzer:
             recursive=is_recursive,
         )
 
-        # Uyarılar ekle
+        # Report what the estimate implies
         if self.alert_on_n_squared and max_depth >= self.max_nested_loops:
             report.issues.append(
                 PerformanceIssue(
@@ -278,7 +274,7 @@ class PerformanceAnalyzer:
         return report
 
     def _find_max_loop_depth(self, node: ast.AST, current_depth: int = 0) -> int:
-        """Maximum nested loop derinliğini bulur."""
+        """The deepest loop nesting anywhere under this node."""
         max_depth = current_depth
 
         for child in ast.iter_child_nodes(node):
@@ -286,7 +282,7 @@ class PerformanceAnalyzer:
                 child_depth = self._find_max_loop_depth(child, current_depth + 1)
                 max_depth = max(max_depth, child_depth)
             elif isinstance(child, ast.comprehension):
-                # List/dict comprehension da döngü sayılır
+                # A comprehension is a loop too
                 child_depth = self._find_max_loop_depth(child, current_depth + 1)
                 max_depth = max(max_depth, child_depth)
             else:
@@ -296,7 +292,7 @@ class PerformanceAnalyzer:
         return max_depth
 
     def _is_recursive(self, func_node: ast.FunctionDef) -> bool:
-        """Fonksiyonun recursive olup olmadığını kontrol eder."""
+        """True when the function calls itself."""
         func_name = func_node.name
 
         for node in ast.walk(func_node):
@@ -310,7 +306,7 @@ class PerformanceAnalyzer:
         return False
 
     def _detect_memory_leaks(self, tree: ast.AST) -> list[MemoryLeakRisk]:
-        """Memory leak risklerini tespit eder."""
+        """Finds resources that may never be released."""
         risks = []
 
         for node in ast.walk(tree):
@@ -340,7 +336,7 @@ class PerformanceAnalyzer:
         return risks
 
     def _check_resource_assignment(self, node: ast.Assign, risks: list[MemoryLeakRisk]):
-        """Kaynak atamasını kontrol eder."""
+        """Flags a resource acquired outside a context manager."""
         call = node.value
         if not isinstance(call, ast.Call):
             return
@@ -348,7 +344,7 @@ class PerformanceAnalyzer:
         func_name = self._get_call_name(call)
 
         if func_name in self.RESOURCE_OPENERS:
-            # with statement içinde mi kontrol et
+            # Inside a `with`, cleanup is guaranteed
             parent = getattr(node, "_parent", None)
             if not isinstance(parent, ast.With):
                 risks.append(
@@ -361,12 +357,12 @@ class PerformanceAnalyzer:
                 )
 
     def _check_unclosed_resources(self, tree: ast.AST) -> list[MemoryLeakRisk]:
-        """Kapatılmamış kaynakları tespit eder."""
+        """Finds resources assigned to a name and never closed."""
         risks = []
         opened_resources: dict[str, int] = {}  # var_name -> line_number
 
         for node in ast.walk(tree):
-            # Kaynak açma
+            # Acquired here...
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
                 func_name = self._get_call_name(node.value)
                 if func_name in self.RESOURCE_OPENERS:
@@ -374,14 +370,14 @@ class PerformanceAnalyzer:
                         if isinstance(target, ast.Name):
                             opened_resources[target.id] = node.lineno
 
-            # Kaynak kapatma
+            # ...released here
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 if node.func.attr in self.RESOURCE_CLOSERS:
                     if isinstance(node.func.value, ast.Name):
                         var_name = node.func.value.id
                         opened_resources.pop(var_name, None)
 
-        # Kapatılmamış kaynaklar
+        # Whatever is left was never released
         for var_name, line_no in opened_resources.items():
             risks.append(
                 MemoryLeakRisk(
@@ -395,7 +391,7 @@ class PerformanceAnalyzer:
         return risks
 
     def _get_call_name(self, call: ast.Call) -> str:
-        """Çağrı adını döner."""
+        """The name of the function being called, however it is referenced."""
         if isinstance(call.func, ast.Name):
             return call.func.id
         elif isinstance(call.func, ast.Attribute):
@@ -403,7 +399,7 @@ class PerformanceAnalyzer:
         return ""
 
     def _detect_n_plus_one(self, tree: ast.AST, content: str) -> list[NPlusOnePattern]:
-        """N+1 query pattern'lerini tespit eder."""
+        """Finds queries issued once per loop iteration."""
         patterns = []
         lines = content.split("\n")
 
@@ -411,7 +407,7 @@ class PerformanceAnalyzer:
             if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
                 loop_line = node.lineno
 
-                # Loop içinde DB/API çağrısı var mı?
+                # Does anything inside this loop cross a process boundary?
                 for child in ast.walk(node):
                     if isinstance(child, ast.Call) and hasattr(child, "lineno"):
                         call_line_content = lines[child.lineno - 1] if child.lineno <= len(lines) else ""
@@ -485,7 +481,7 @@ class PerformanceAnalyzer:
         return False
 
     def _analyze_patterns(self, content: str) -> list[PerformanceIssue]:
-        """Regex tabanlı performans pattern'lerini analiz eder."""
+        """Text-level patterns, for what the AST pass cannot see."""
         issues = []
         lines = content.split("\n")
 
@@ -525,7 +521,7 @@ class PerformanceAnalyzer:
         return issues
 
     def _collect_issues(self, report: PerformanceReport) -> list[PerformanceIssue]:
-        """Tüm performans sorunlarını toplar."""
+        """Folds every sub-report into one issue list."""
         issues = []
 
         # Complexity issues
@@ -561,7 +557,7 @@ class PerformanceAnalyzer:
         return issues
 
     def _calculate_score(self, report: PerformanceReport) -> int:
-        """Performans skoru hesaplar."""
+        """Reduces the issues to a score out of 100."""
         score = 100
 
         severity_penalties = {
@@ -577,7 +573,7 @@ class PerformanceAnalyzer:
         return max(0, score)
 
     def _generate_summary(self, report: PerformanceReport) -> str:
-        """Performans özeti oluşturur."""
+        """A short summary a reviewer reads before the issue list."""
         parts = []
 
         score = report.performance_score
@@ -596,7 +592,7 @@ class PerformanceAnalyzer:
 
         parts.append(f"{emoji} **Performance Score**: {score}/100 ({grade})")
 
-        # Complexity summary
+        # Functions worth looking at first
         high_complexity = [r for r in report.complexity_reports if r.nested_loops >= 2]
         if high_complexity:
             parts.append(f"\n⚠️ **High Complexity Functions**: {len(high_complexity)}")
@@ -626,14 +622,14 @@ class PerformanceAnalyzer:
 
 def analyze_performance(content: str, file_path: str = "", policy: PerformancePolicy | None = None) -> str:
     """
-    Tool wrapper - Performans analizi yapar.
+    Runs the analysis and renders it as markdown, for the agent's tool call.
 
     Args:
-        content: Dosya içeriği
-        file_path: Dosya yolu
+        content: The file's text.
+        file_path: Used to decide whether an AST pass is possible.
 
     Returns:
-        Formatlanmış performans raporu
+        The report as markdown.
     """
     analyzer = PerformanceAnalyzer(policy)
     report = analyzer.analyze(content, file_path)
@@ -644,7 +640,7 @@ def analyze_performance(content: str, file_path: str = "", policy: PerformancePo
     if report.issues:
         output.append("\n### Performance Issues:\n")
 
-        # Severity'ye göre sırala
+        # Most severe first: the truncation below must not drop them
         sorted_issues = sorted(report.issues, key=lambda issue: issue.severity)
 
         for issue in sorted_issues[:15]:  # Max 15 issue

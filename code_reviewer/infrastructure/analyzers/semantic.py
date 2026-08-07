@@ -1,7 +1,9 @@
-"""
-Semantic Change Analyzer - AST tabanlı değişiklik analizi.
+"""What a change *means*, rather than what it touches.
 
-Bu modül Git diff'lerini semantik birimlere ayrıştırır ve değişiklik tipini tespit eder.
+A diff shows lines. This analyzer parses it into symbols — functions, classes,
+structs — and classifies the change: a refactor, a feature, a bug fix or a
+break. That classification is what lets the review say "this removes a public
+method" rather than "this deletes eight lines".
 """
 
 import ast
@@ -12,19 +14,19 @@ from typing import ClassVar
 
 
 class ChangeType(Enum):
-    """Değişiklik tipi kategorileri."""
+    """What kind of change a diff represents."""
 
-    REFACTOR = "refactor"  # Davranış değişmeden yapısal değişiklik
+    REFACTOR = "refactor"  # structure moved, behaviour unchanged
     FEATURE = "feature"  # Yeni fonksiyonellik
-    BUGFIX = "bugfix"  # Hata düzeltmesi
-    BREAKING_CHANGE = "breaking"  # API/interface değişikliği
+    BUGFIX = "bugfix"  # a defect corrected
+    BREAKING_CHANGE = "breaking"  # callers must change too
     DOCUMENTATION = "docs"  # Sadece yorum/docstring
     STYLE = "style"  # Whitespace, formatting
     UNKNOWN = "unknown"
 
 
 class SymbolType(Enum):
-    """Kod sembolü tipleri."""
+    """The kinds of symbol a change can touch."""
 
     FUNCTION = "function"
     CLASS = "class"
@@ -38,7 +40,7 @@ class SymbolType(Enum):
 
 @dataclass
 class ChangedSymbol:
-    """Değişen bir kod sembolünü temsil eder."""
+    """One symbol the change touched."""
 
     name: str
     symbol_type: SymbolType
@@ -52,7 +54,7 @@ class ChangedSymbol:
 
 @dataclass
 class BreakingChange:
-    """Breaking change detayları."""
+    """A change that requires callers to be updated."""
 
     symbol: ChangedSymbol
     reason: str
@@ -62,7 +64,7 @@ class BreakingChange:
 
 @dataclass
 class IntegrityIssue:
-    """Kod bütünlüğü sorunu."""
+    """A sign the change may be incomplete."""
 
     issue_type: str  # "incomplete_refactor", "missing_update", "orphaned_code"
     description: str
@@ -72,7 +74,7 @@ class IntegrityIssue:
 
 @dataclass
 class SemanticAnalysis:
-    """Semantik analiz sonucu."""
+    """What the analyzer concluded about one diff."""
 
     file_path: str
     change_type: ChangeType
@@ -85,39 +87,45 @@ class SemanticAnalysis:
 
 class SemanticChangeAnalyzer:
     """
-    Git diff'lerini semantik birimlere ayrıştırır ve analiz eder.
+    Parses a diff into symbols and classifies what happened to them.
 
-    Özellikler:
-    - Değişen fonksiyonlar, sınıflar, veri yapıları tespit edilir
-    - Değişiklik tipi: REFACTOR, FEATURE, BUGFIX, BREAKING_CHANGE
-    - Bütünlük kontrolü: Eksik değişiklikler varsa uyarı
+    - identifies the functions, classes and data structures that moved
+    - classifies the change as REFACTOR, FEATURE, BUGFIX or BREAKING_CHANGE
+    - flags signs that the change is incomplete
     """
 
-    # Bir değişikliğin hata düzeltmesi olduğunu gösteren kelimeler. Kelime
-    # sınırlarıyla yazılır: `prefix` bir `fix` değildir (F-13).
+    # Words that mark a change as a bug fix, written with word boundaries:
+    # `prefix` is not a `fix` (finding F-13).
+    #
+    # These are patterns matched against the code under review, not prose in
+    # this project, so the list is deliberately multilingual: the reviewed
+    # repository's comments may be in any language its team writes in. Turkish
+    # is included because that is the first deployment target.
     BUGFIX_MARKERS: ClassVar[list[str]] = [
         r"\bfix(es|ed|ing)?\b",
         r"\bhotfix\b",
         r"\bbug\b",
         r"\bregression\b",
         r"\bworkaround\b",
+        r"\bcorrect(s|ed|ion)?\b",
+        # Turkish equivalents of defect and to-correct
         r"\bhata\b",
-        r"\bdüzelt(me|ildi)?\b",
+        r"\bd\u00fczelt(me|ildi)?\b",
     ]
 
-    # Public API işaretleyicileri
+    # Markers of a public declaration, per language
     PYTHON_PUBLIC_INDICATORS: ClassVar[set[str]] = {"def ", "class ", "async def "}
     CPP_PUBLIC_INDICATORS: ClassVar[set[str]] = {"public:", "struct ", "class ", "extern "}
 
     # Breaking change pattern'leri
     BREAKING_PATTERNS: ClassVar[dict[str, list[str]]] = {
         "python": [
-            r"def\s+(\w+)\s*\([^)]*\)",  # Fonksiyon imzası
-            r"class\s+(\w+)",  # Sınıf tanımı
-            r"(\w+)\s*:\s*\w+",  # Type annotation değişikliği
+            r"def\s+(\w+)\s*\([^)]*\)",  # function signature
+            r"class\s+(\w+)",  # class definition
+            r"(\w+)\s*:\s*\w+",  # type annotation
         ],
         "cpp": [
-            r"(?:struct|class)\s+(\w+)",  # Struct/class tanımı
+            r"(?:struct|class)\s+(\w+)",  # struct or class definition
             r"(?:void|int|bool|auto)\s+(\w+)\s*\([^)]*\)",  # Fonksiyon
             r"#define\s+(\w+)",  # Macro
         ],
@@ -130,48 +138,49 @@ class SemanticChangeAnalyzer:
         self, diff: str, full_content: str | None = None, file_path: str = ""
     ) -> SemanticAnalysis:
         """
-        Git diff'i analiz eder ve semantik analiz sonucu döner.
+        Analyses one diff.
 
         Args:
-            diff: Git diff içeriği
-            full_content: Dosyanın tam içeriği (opsiyonel)
-            file_path: Dosya yolu
+            diff: The unified diff for this file.
+            full_content: The file at the reviewed commit, when it could be read.
+                Without it, the analysis falls back to regex over the diff.
+            file_path: Used to pick the language.
 
         Returns:
             SemanticAnalysis: Analiz sonucu
         """
         analysis = SemanticAnalysis(file_path=file_path, change_type=ChangeType.UNKNOWN)
 
-        # Diff'i parçala
+        # Split the diff into added, removed and context lines
         added_lines, removed_lines, _context_lines = self._parse_diff(diff)
 
-        # Değişen sembolleri tespit et
+        # Identify what the change touched
         analysis.changed_symbols = self._extract_changed_symbols(
             added_lines, removed_lines, full_content, file_path
         )
 
-        # Değişiklik tipini belirle
+        # Classify it
         analysis.change_type = self._classify_change_type(
             added_lines, removed_lines, analysis.changed_symbols
         )
 
-        # Breaking change kontrolü
+        # Look for changes that callers must follow
         analysis.breaking_changes = self._detect_breaking_changes(analysis.changed_symbols, removed_lines)
 
-        # Bütünlük kontrolü
+        # ...and for signs the change is only half done
         if full_content:
             analysis.integrity_issues = self._check_integrity(analysis.changed_symbols, full_content)
 
-        # Risk skoru hesapla
+        # Reduce all of that to one number
         analysis.risk_score = self._calculate_risk_score(analysis)
 
-        # Özet oluştur
+        # ...and one paragraph
         analysis.summary = self._generate_summary(analysis)
 
         return analysis
 
     def _parse_diff(self, diff: str) -> tuple[list[str], list[str], list[str]]:
-        """Diff'i eklenen, çıkarılan ve context satırlarına ayırır."""
+        """Splits a diff into its added, removed and unchanged lines."""
         added = []
         removed = []
         context = []
@@ -189,10 +198,10 @@ class SemanticChangeAnalyzer:
     def _extract_changed_symbols(
         self, added_lines: list[str], removed_lines: list[str], full_content: str, file_path: str
     ) -> list[ChangedSymbol]:
-        """Değişen sembolleri çıkarır."""
+        """Collects the symbols the change touched, AST first, regex second."""
         symbols = []
 
-        # Python dosyaları için AST kullan
+        # An AST is precise; use it whenever the file parses
         if file_path.endswith(".py") and full_content:
             try:
                 tree = ast.parse(full_content)
@@ -200,10 +209,10 @@ class SemanticChangeAnalyzer:
             except SyntaxError:
                 pass
 
-        # Regex tabanlı genel analiz
+        # Regex catches other languages, and Python that no longer parses
         symbols.extend(self._extract_symbols_regex(added_lines, removed_lines, file_path))
 
-        # Duplicate'leri kaldır
+        # One entry per symbol name
         seen = set()
         unique_symbols = []
         for sym in symbols:
@@ -216,7 +225,7 @@ class SemanticChangeAnalyzer:
     def _extract_python_symbols(
         self, tree: ast.AST, added_lines: list[str], removed_lines: list[str]
     ) -> list[ChangedSymbol]:
-        """Python AST'den değişen sembolleri çıkarır."""
+        """Collects touched symbols from a parsed Python module."""
         symbols = []
         all_changed_text = "\n".join(added_lines + removed_lines)
 
@@ -249,7 +258,7 @@ class SemanticChangeAnalyzer:
         return symbols
 
     def _get_function_signature(self, node: ast.FunctionDef) -> str:
-        """Fonksiyon imzasını string olarak döner."""
+        """Renders a function signature, for comparing before and after."""
         args = []
         for arg in node.args.args:
             arg_str = arg.arg
@@ -266,11 +275,11 @@ class SemanticChangeAnalyzer:
     def _extract_symbols_regex(
         self, added_lines: list[str], removed_lines: list[str], file_path: str
     ) -> list[ChangedSymbol]:
-        """Regex kullanarak sembolleri çıkarır (dil-agnostik)."""
+        """Collects symbols by pattern, for languages without an AST here."""
         symbols = []
         all_lines = added_lines + removed_lines
 
-        # Fonksiyon tanımları
+        # Function definitions
         func_pattern = r"(?:def|void|int|bool|auto|function)\s+(\w+)\s*\("
         for line in all_lines:
             match = re.search(func_pattern, line)
@@ -283,7 +292,7 @@ class SemanticChangeAnalyzer:
                     )
                 )
 
-        # Sınıf/struct tanımları
+        # Class and struct definitions
         class_pattern = r"(?:class|struct)\s+(\w+)"
         for line in all_lines:
             match = re.search(class_pattern, line)
@@ -301,17 +310,17 @@ class SemanticChangeAnalyzer:
     def _classify_change_type(
         self, added_lines: list[str], removed_lines: list[str], changed_symbols: list[ChangedSymbol]
     ) -> ChangeType:
-        """Değişiklik tipini sınıflandırır."""
+        """Classifies the change, most specific category first."""
         added_text = "\n".join(added_lines).lower()
         removed_text = "\n".join(removed_lines).lower()
 
-        # Hiç eklenen veya çıkarılan satır yoksa sınıflandıracak bir şey yok.
-        # Bu kontrol olmadan `_is_only_style` iki boş listeyi karşılaştırıp
-        # eşit buluyor ve değişiklik STYLE olarak etiketleniyordu (F-12).
+        # Nothing added and nothing removed means nothing to classify.
+        # Without this guard `_is_only_style` compared two empty lists, found
+        # them equal, and labelled the change STYLE (finding F-12).
         if not added_lines and not removed_lines:
             return ChangeType.UNKNOWN
 
-        # Sadece yorum/docstring değişikliği
+        # Comments and docstrings only
         if self._is_only_documentation(added_lines, removed_lines):
             return ChangeType.DOCUMENTATION
 
@@ -319,38 +328,38 @@ class SemanticChangeAnalyzer:
         if self._is_only_style(added_lines, removed_lines):
             return ChangeType.STYLE
 
-        # Bugfix işaretleri. Kelime sınırı olmadan `prefix`, `debug` ve
-        # `error_handler` gibi sıradan tanımlayıcılar da eşleşiyordu (F-13).
+        # Bug-fix markers. Without word boundaries, ordinary identifiers like
+        # `prefix`, `debug` and `error_handler` matched too (finding F-13).
         if any(
             re.search(pattern, added_text) or re.search(pattern, removed_text)
             for pattern in self.BUGFIX_MARKERS
         ):
             return ChangeType.BUGFIX
 
-        # Breaking change: public API değişti
+        # A public signature that moved is a break
         public_changes = [s for s in changed_symbols if s.is_public]
         if public_changes and removed_lines:
-            # İmza değişikliği var mı?
+            # ...but only when we can see both signatures
             for sym in public_changes:
                 if sym.old_signature and sym.new_signature:
                     if sym.old_signature != sym.new_signature:
                         return ChangeType.BREAKING_CHANGE
 
-        # Yeni fonksiyon/sınıf eklendi
+        # Mostly additions, including a new definition: a feature
         new_definitions = len(added_lines) > len(removed_lines) * 1.5
         if new_definitions and any(
             s.symbol_type in [SymbolType.FUNCTION, SymbolType.CLASS] for s in changed_symbols
         ):
             return ChangeType.FEATURE
 
-        # Varsayılan: Refactor
+        # Something moved both ways without a clearer signal
         if removed_lines and added_lines:
             return ChangeType.REFACTOR
 
         return ChangeType.UNKNOWN
 
     def _is_only_documentation(self, added: list[str], removed: list[str]) -> bool:
-        """Sadece dokümantasyon değişikliği mi kontrol eder."""
+        """True when every changed line is a comment, docstring or blank."""
         doc_patterns = [r"^\s*#", r'^\s*"""', r"^\s*'''", r"^\s*//", r"^\s*/\*", r"^\s*\*"]
 
         for line in added + removed:
@@ -360,8 +369,8 @@ class SemanticChangeAnalyzer:
         return True
 
     def _is_only_style(self, added: list[str], removed: list[str]) -> bool:
-        """Sadece stil/formatting değişikliği mi kontrol eder."""
-        # Whitespace'i kaldırarak karşılaştır
+        """True when the change only moves whitespace around."""
+        # Compare with whitespace stripped and order ignored
         added_normalized = [re.sub(r"\s+", "", line) for line in added]
         removed_normalized = [re.sub(r"\s+", "", line) for line in removed]
 
@@ -370,14 +379,14 @@ class SemanticChangeAnalyzer:
     def _detect_breaking_changes(
         self, changed_symbols: list[ChangedSymbol], removed_lines: list[str]
     ) -> list[BreakingChange]:
-        """Breaking change'leri tespit eder."""
+        """Finds the changes that require callers to be updated."""
         breaking_changes = []
 
         for symbol in changed_symbols:
             if not symbol.is_public:
                 continue
 
-            # Fonksiyon imzası değişti
+            # The signature changed
             if symbol.old_signature and symbol.new_signature:
                 if symbol.old_signature != symbol.new_signature:
                     breaking_changes.append(
@@ -391,7 +400,7 @@ class SemanticChangeAnalyzer:
                         )
                     )
 
-            # Fonksiyon/sınıf kaldırıldı
+            # ...or the symbol went away entirely
             if symbol.symbol_type in [SymbolType.FUNCTION, SymbolType.CLASS]:
                 for line in removed_lines:
                     if f"def {symbol.name}" in line or f"class {symbol.name}" in line:
@@ -412,20 +421,20 @@ class SemanticChangeAnalyzer:
     def _check_integrity(
         self, changed_symbols: list[ChangedSymbol], full_content: str
     ) -> list[IntegrityIssue]:
-        """Kod bütünlüğünü kontrol eder."""
+        """Looks for signs the change was left half done."""
         issues = []
 
-        # Değişen sembollerin referanslarını kontrol et
+        # How often does each touched symbol appear in this file?
         for symbol in changed_symbols:
-            # Kullanım sayısını bul
+            # One occurrence means the definition and nothing else
             usage_count = len(re.findall(rf"\b{symbol.name}\b", full_content))
 
-            # Sembol tanımlanmış ama bu dosyada bir daha geçmiyorsa.
+            # Defined here and referenced nowhere else in this file.
             #
-            # Analiz yalnızca tek bir dosyayı görüyor, dolayısıyla başka bir
-            # modülden çağrılıp çağrılmadığını bilemez. Eski metin bunu
-            # "never called" diye kesin bir iddiaya çeviriyordu (F-14);
-            # ripple analizi için `find_references` aracı kullanılmalıdır.
+            # The analyzer sees one file, so it cannot know whether another
+            # module calls it. The wording used to claim "never called", which
+            # is more than the evidence supports (finding F-14); confirming it
+            # needs the `find_references` tool.
             if usage_count == 1 and symbol.symbol_type == SymbolType.FUNCTION:
                 issues.append(
                     IntegrityIssue(
@@ -448,7 +457,7 @@ class SemanticChangeAnalyzer:
         """Risk skoru hesaplar (0-100)."""
         score = 0
 
-        # Change type bazlı skor
+        # Base score from what kind of change this is
         type_scores = {
             ChangeType.DOCUMENTATION: 5,
             ChangeType.STYLE: 5,
@@ -460,20 +469,20 @@ class SemanticChangeAnalyzer:
         }
         score += type_scores.get(analysis.change_type, 50)
 
-        # Breaking change'ler için ek puan
+        # Each break adds to it
         score += len(analysis.breaking_changes) * 10
 
-        # Integrity issue'lar için ek puan
+        # ...as does each sign of incompleteness
         score += len(analysis.integrity_issues) * 5
 
-        # Public sembol değişiklikleri
+        # ...and each public symbol touched
         public_changes = sum(1 for s in analysis.changed_symbols if s.is_public)
         score += public_changes * 5
 
         return min(100, score)
 
     def _generate_summary(self, analysis: SemanticAnalysis) -> str:
-        """Analiz özeti oluşturur."""
+        """A short summary of what the analysis concluded."""
         parts = []
 
         parts.append(f"**Change Type**: {analysis.change_type.value.upper()}")
@@ -494,15 +503,15 @@ class SemanticChangeAnalyzer:
 
 def analyze_semantic_changes(diff: str, full_content: str | None = None, file_path: str = "") -> str:
     """
-    Tool wrapper - Semantik değişiklik analizi yapar.
+    Runs the analysis and renders it as markdown, for the agent's tool call.
 
     Args:
-        diff: Git diff içeriği
-        full_content: Dosyanın tam içeriği
-        file_path: Dosya yolu
+        diff: The unified diff for this file.
+        full_content: The file at the reviewed commit, when it could be read.
+        file_path: Used to pick the language.
 
     Returns:
-        Analiz sonucu (string formatında)
+        The analysis as markdown.
     """
     analyzer = SemanticChangeAnalyzer()
     result = analyzer.analyze_diff(diff, full_content, file_path)

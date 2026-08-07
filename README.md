@@ -5,11 +5,11 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: alpha, under active repair.** This repository was imported as a
-> working prototype and is being brought up to production quality in staged
-> levels. Capabilities that are still incomplete are listed explicitly under
-> [Current status](#-current-status) rather than hidden. See
-> [`docs/roadmap/`](docs/roadmap/README.md) for the full inventory and plan.
+> **Status: 2.0.0.** Rebuilt from an imported prototype across seven levels of
+> work. 59 defects were found and recorded, 58 fixed, one deferred with its
+> reason. 433 tests at 87 % coverage; lint, formatting, types and tests all
+> gate on CI. What each level did, and what it found, is in
+> [`docs/roadmap/`](docs/roadmap/README.md).
 
 ---
 
@@ -260,7 +260,7 @@ CI runs exactly these four checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-423 tests, 87 % coverage with an enforced floor of 85 %. The domain and
+433 tests, 87 % coverage with an enforced floor of 85 %. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
 GitLab. Every behaviour change from Level 1 onwards is written test-first: the
@@ -307,6 +307,17 @@ single mock. `tests/unit/test_architecture.py` parses every module's imports and
 fails if that direction is ever reversed.
 
 ---
+
+## 📚 Documentation
+
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
+| [docs/adr/](docs/adr/README.md) | Eight decision records: what was decided, why, and what it costs |
+| [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory and the seven levels of work it produced |
+| [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
+| [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branching, commits, the TDD expectation, the design rules |
 
 ## 🤝 Contributing
 

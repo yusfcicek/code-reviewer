@@ -17,7 +17,7 @@ from code_reviewer.cli import parse_args
 from code_reviewer.domain.triage import ReviewTriage
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.config.loader import load_policy
-from code_reviewer.infrastructure.forge.client import MissingCredentialsError
+from code_reviewer.infrastructure.forge.gitlab_client import MissingCredentialsError
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory

@@ -1,14 +1,10 @@
-"""
-SAST Analyzer - Statik Uygulama Güvenlik Testi.
+"""Static application security testing.
 
-Güvenlik açıkları için statik kod analizi yapar:
-- SQL Injection
-- XSS (Cross-Site Scripting)
-- Command Injection
-- Hardcoded Secrets
-- Path Traversal
-- Insecure Random
-- Missing Input Validation
+Pattern-based detection of the vulnerability classes that appear in review
+most often: SQL injection, cross-site scripting, command injection, path
+traversal, hardcoded secrets, insecure randomness, unsafe deserialisation and
+weak cryptography. Each rule carries a CWE reference and a remediation, because
+a finding nobody can act on is noise.
 """
 
 import re
@@ -20,7 +16,7 @@ from code_reviewer.domain.severity import Severity
 
 
 class VulnerabilityType(Enum):
-    """Güvenlik açığı tipleri."""
+    """The classes of vulnerability this analyzer recognises."""
 
     SQL_INJECTION = "sql_injection"
     XSS = "xss"
@@ -39,7 +35,7 @@ class VulnerabilityType(Enum):
 
 @dataclass
 class SecurityFinding:
-    """Güvenlik bulgusu."""
+    """One security problem, at one line."""
 
     vulnerability_type: VulnerabilityType
     severity: Severity
@@ -53,7 +49,7 @@ class SecurityFinding:
 
 @dataclass
 class RiskScore:
-    """Risk skoru."""
+    """A file's security risk, reduced to a score and a level."""
 
     total_score: int  # 0-100
     critical_count: int
@@ -65,7 +61,7 @@ class RiskScore:
 
 @dataclass
 class SASTReport:
-    """SAST analiz raporu."""
+    """Everything the security scan found in one file."""
 
     file_path: str
     findings: list[SecurityFinding] = field(default_factory=list)
@@ -76,12 +72,13 @@ class SASTReport:
 
 class SASTAnalyzer:
     """
-    Güvenlik açıkları için statik kod analizi.
+    Scans source for known-dangerous patterns.
 
-    OWASP Top 10 ve CWE tabanlı güvenlik kontrolleri yapar.
+    Findings are mapped to CWE identifiers and OWASP Top 10 categories, so a
+    team can route them into whatever they already use for security work.
     """
 
-    # Python güvenlik pattern'leri
+    # Python rules
     PYTHON_PATTERNS: ClassVar[dict[VulnerabilityType, list[tuple[str, Severity, str, str, str]]]] = {
         VulnerabilityType.SQL_INJECTION: [
             (
@@ -363,7 +360,7 @@ class SASTAnalyzer:
         ],
     }
 
-    # C/C++ güvenlik pattern'leri
+    # C and C++ rules
     CPP_PATTERNS: ClassVar[dict[VulnerabilityType, list[tuple[str, Severity, str, str, str]]]] = {
         VulnerabilityType.COMMAND_INJECTION: [
             (
@@ -429,7 +426,7 @@ class SASTAnalyzer:
         self._compile_patterns()
 
     def _compile_patterns(self):
-        """Pattern'leri regex olarak compile eder."""
+        """Compiles every rule once, at construction."""
         self._compiled_patterns["python"] = {}
         for vuln_type, patterns in self.PYTHON_PATTERNS.items():
             self._compiled_patterns["python"][vuln_type] = [
@@ -444,41 +441,41 @@ class SASTAnalyzer:
 
     def analyze(self, content: str, file_path: str = "") -> SASTReport:
         """
-        Kod içeriğini güvenlik açıkları için analiz eder.
+        Scans one file.
 
         Args:
-            content: Dosya içeriği
-            file_path: Dosya yolu
+            content: The file's text.
+            file_path: Used to pick the rule set and to locate findings.
 
         Returns:
-            SASTReport: Güvenlik analiz raporu
+            SASTReport: the findings, a risk score and a summary.
         """
         report = SASTReport(file_path=file_path)
 
         # Dil tespiti
         lang = self._detect_language(file_path)
 
-        # Satır satır analiz
+        # Rules are line-oriented: a finding names the line it was found on.
         lines = content.split("\n")
         for line_num, line in enumerate(lines, 1):
-            # Yorum satırlarını atla
+            # A commented-out call is not a call
             if self._is_comment(line, lang):
                 continue
 
-            # Pattern'leri kontrol et
+            # Match every rule for this language
             findings = self._check_line(line, line_num, lang)
             report.findings.extend(findings)
 
-        # Risk skoru hesapla
+        # Reduce the findings to one score
         report.risk_score = self.calculate_risk_score(report.findings)
 
-        # Özet oluştur
+        # ...and one paragraph a reviewer can read first
         report.summary = self._generate_summary(report)
 
         return report
 
     def _detect_language(self, file_path: str) -> str:
-        """Dosya uzantısından dil tespit eder."""
+        """Picks a rule set from the file extension."""
         if file_path.endswith(".py"):
             return "python"
         elif file_path.endswith((".cpp", ".cc", ".c", ".h", ".hpp")):
@@ -488,7 +485,7 @@ class SASTAnalyzer:
         return "python"  # Default
 
     def _is_comment(self, line: str, lang: str) -> bool:
-        """Satırın yorum olup olmadığını kontrol eder."""
+        """True when the line is a comment in this language."""
         stripped = line.strip()
 
         if lang == "python":
@@ -499,7 +496,7 @@ class SASTAnalyzer:
         return False
 
     def _check_line(self, line: str, line_num: int, lang: str) -> list[SecurityFinding]:
-        """Tek satırı tüm pattern'lerle kontrol eder."""
+        """Matches one line against every rule for its language."""
         findings = []
 
         patterns = self._compiled_patterns.get(lang, self._compiled_patterns["python"])
@@ -523,7 +520,7 @@ class SASTAnalyzer:
         return findings
 
     def _get_owasp_category(self, vuln_type: VulnerabilityType) -> str:
-        """OWASP Top 10 kategorisini döner."""
+        """The OWASP Top 10 category a vulnerability class belongs to."""
         owasp_mapping = {
             VulnerabilityType.SQL_INJECTION: "A03:2021 - Injection",
             VulnerabilityType.XSS: "A03:2021 - Injection",
@@ -540,13 +537,10 @@ class SASTAnalyzer:
 
     def calculate_risk_score(self, findings: list[SecurityFinding]) -> RiskScore:
         """
-        Bulgulara göre risk skoru hesaplar.
+        Reduces findings to a score and a risk level.
 
-        Scoring:
-        - Critical: 25 puan
-        - High: 15 puan
-        - Medium: 5 puan
-        - Low: 2 puan
+        Weights come from the shared Severity type, so a critical finding costs
+        the same here as it does at the gate.
         """
         severity_weights = {
             Severity.CRITICAL: 25,
@@ -563,7 +557,7 @@ class SASTAnalyzer:
             counts[finding.severity] += 1
             total += severity_weights.get(finding.severity, 0)
 
-        # Risk seviyesi
+        # Any critical finding makes the file critical, whatever the total
         if total >= 100 or counts[Severity.CRITICAL] > 0:
             risk_level = "critical"
         elif total >= 50 or counts[Severity.HIGH] >= 3:
@@ -585,7 +579,7 @@ class SASTAnalyzer:
         )
 
     def _generate_summary(self, report: SASTReport) -> str:
-        """SAST rapor özeti oluşturur."""
+        """A short summary a reviewer reads before the finding list."""
         parts = []
 
         if not report.findings:
@@ -594,7 +588,7 @@ class SASTAnalyzer:
 
         risk = report.risk_score
 
-        # Risk seviyesi emoji
+        # Any critical finding makes the file critical, whatever the total emoji
         risk_emoji = {"critical": "🚨", "high": "⚠️", "medium": "⚡", "low": "ℹ️", "safe": "✅"}
 
         parts.append(
@@ -621,14 +615,14 @@ class SASTAnalyzer:
 
 def run_sast_scan(content: str, file_path: str = "") -> str:
     """
-    Tool wrapper - SAST güvenlik taraması yapar.
+    Runs a scan and renders it as markdown, for the agent's tool call.
 
     Args:
-        content: Dosya içeriği
-        file_path: Dosya yolu
+        content: The file's text.
+        file_path: Used to pick the rule set and to locate findings.
 
     Returns:
-        Formatlanmış güvenlik raporu
+        The report as markdown.
     """
     analyzer = SASTAnalyzer()
     report = analyzer.analyze(content, file_path)
@@ -639,7 +633,7 @@ def run_sast_scan(content: str, file_path: str = "") -> str:
     if report.findings:
         output.append("\n### Security Findings:\n")
 
-        # Önce critical ve high'ları göster
+        # Most severe first: the truncation below must not drop them
         sorted_findings = sorted(report.findings, key=lambda finding: finding.severity)
 
         for finding in sorted_findings[:15]:  # Max 15 bulgu
