@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+
+concurrency:
+  # A new push to the same ref supersedes the run in flight.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, types and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # Each check runs even if an earlier one failed, so one push produces the
+      # whole list of problems rather than the first one.
+      - name: Lint
+        if: '!cancelled()'
+        run: uv run ruff check code_reviewer tests
+
+      - name: Formatting
+        if: '!cancelled()'
+        run: uv run ruff format --check code_reviewer tests conftest.py
+
+      - name: Types
+        if: '!cancelled()'
+        run: uv run mypy
+
+      - name: Tests
+        if: '!cancelled()'
+        run: uv run pytest --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage
+        if: '!cancelled()'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore

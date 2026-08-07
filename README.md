@@ -1,38 +1,102 @@
 # Enterprise AI Code Review Agent
 **Codebase-Aware Impact Architect**
 
-This project creates a sophisticated, enterprise-grade AI Code Review Agent designed to integrate seamlessly into CI/CD pipelines (GitLab CI/CD). Unlike standard AI reviewers, this agent understands the *semantic impact* of changes, tracks dependencies beyond the git diff, enforces configurable policies, and intelligently decides when to review to optimize costs and efficiency.
+An AI code review agent for CI/CD pipelines. It triages a merge request before
+spending tokens on it, runs static analyzers over the changed files, asks an LLM
+for an architectural review, and turns the result into a pipeline decision.
+
+> **Status: 2.0.0.** Rebuilt from an imported prototype across seven levels of
+> work. 59 defects were found and recorded, 58 fixed, one deferred with its
+> reason. 433 tests at 87 % coverage; lint, formatting, types and tests all
+> gate on CI. What each level did, and what it found, is in
+> [`docs/roadmap/`](docs/roadmap/README.md).
 
 ---
 
-## 🚀 Key Features
+## 🚀 Capabilities
 
 ### 🧠 1. Smart Review Triage
-Avoids unnecessary LLM costs by intelligently categorizing changes:
-- **SKIP**: Automatically skips trivial files (docs, configs).
-- **AUTO_APPROVE**: Approves non-functional changes (comments, whitespace).
-- **CRITICAL**: Forces review for security-sensitive patterns (secrets, API keys) or Public API changes.
-- **SMART SCAN**: Selects between `QUICK_SCAN` and `FULL_REVIEW` based on complexity and line count.
+Classifies each changed file before any LLM call:
+- **SKIP** — file types excluded by policy (docs, lock files).
+- **AUTO_APPROVE** — comment-only, whitespace-only, or minimal non-logic changes.
+- **CRITICAL** — security-sensitive patterns or public API removals.
+- **QUICK_SCAN / FULL_REVIEW** — chosen by the size of the change.
 
-### 🔍 2. Advanced Analysis Capabilities
-- **Semantic Change Analysis**: Uses AST to detect `REFACTOR`, `FEATURE`, `BUGFIX`, and `BREAKING_CHANGE`. Verify if a change is complete or breaks code integrity.
-- **Dependency Impact Tracking**: Identifies code affected by data structure changes *even if not in the git diff* (Ripple Effect Analysis).
-- **SAST (Static Application Security Testing)**: Built-in scanner for SQL Injection, XSS, Command Injection, and Hardcoded Secrets.
-- **Code Quality & Performance**: Checks for SOLID principles, O(n²) complexity, memory leaks, and N+1 query patterns.
+### 🔍 2. Static analyzers
+- **Semantic change analysis** — AST-based classification into `REFACTOR`,
+  `FEATURE`, `BUGFIX`, `BREAKING_CHANGE`, with a risk score.
+- **Dependency impact tracking** — forward imports and reverse references, plus
+  a two-level ripple-effect trace, so code outside the diff is considered.
+- **SAST** — SQL injection, XSS, command injection, path traversal, hardcoded
+  secrets, weak crypto and insecure deserialisation, mapped to CWE and OWASP
+  Top 10.
+- **Code quality** — SOLID violations, cyclomatic complexity, duplicate blocks,
+  testability and error-handling analysis.
+- **Performance** — nested-loop complexity, recursion, N+1 query patterns and
+  unclosed resources.
 
-### 🛡️ 3. Enterprise Policy & Gates
-- **Configurable Policies**: Define rules in `review_policy.yaml` (e.g., block on critical security issues, set quality thresholds).
-- **Review Gate**: Automatically evaluates the agent's review report to `PASS`, `WARN`, or `FAIL` the CI pipeline.
-- **Metrics**: Exports detailed review metrics (scores, duration, issues) to Prometheus or GitLab OpenMetrics.
+### 🛡️ 3. Policy and gate
+- Rules are declared in `review_policy.yaml` — skip patterns, banned patterns,
+  secret patterns, quality thresholds and pipeline behaviour. Thresholds are
+  enforced: raising `max_class_methods` changes what is reported.
+- Every reviewed file is analysed **unconditionally**, not only when the model
+  asks for it, and the findings drive the decision.
+- The **review gate** turns findings and the review report into `PASS`, `WARN`
+  or `FAIL`. Findings block; the model's prose warns. Each reason names its
+  source, so an analyzer's verdict is distinguishable from the model's opinion.
+- `gate.blocking_severity` sets how severe a finding has to be to fail a
+  pipeline. It defaults to `critical`.
 
-### 🧠 4. Cognitive Memory Management
-- **SmartMemoryStrategy**: Token-aware memory that prioritizes Critical/Security insights and automatically summarizes older context while preserving vital information.
+### 🔒 4. Confinement
+Every file the agent reads is resolved against the checkout under review and
+refused if it lands outside — including through `..` and symlinks. The paths the
+agent asks for ultimately come from the diff, so anyone who can open a merge
+request could otherwise attempt to steer them.
+
+### 📈 5. Metrics and logging
+- The whole review is exported as OpenMetrics text for GitLab's `metrics`
+  report: files and lines analysed, findings per severity, triage decisions,
+  gate result, total and slowest duration — each with `# HELP` and `# TYPE`.
+- Diagnostics go through `logging`. `LOG_LEVEL` sets verbosity and
+  `LOG_FORMAT=json` emits one JSON object per record for an aggregator.
+- A file the reviewer cannot process is reported as *not reviewed* rather than
+  ending the run or passing silently.
+
+### 🧠 6. Token-aware memory
+`SmartMemoryStrategy` keeps findings in priority buckets, never summarises
+`SECURITY` or `BREAKING` insights, and compresses lower-priority context first.
 
 ---
 
-## 📸 Example Output
+## 📋 Current status
 
-Below is an example of the AI Review Report generated by the agent in a GitLab Merge Request:
+Honest accounting of the gap between the list above and the code, with the
+finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
+
+| Capability | State | Detail |
+|---|---|---|
+| Smart triage | ✅ Works | Security patterns are matched against added lines only, so unchanged context no longer escalates a file |
+| Semantic / SAST / quality / performance analyzers | ✅ Work | Exposed as agent tools and covered by tests at 83–93 % |
+| Dependency impact tracking | ✅ Works | Run automatically for every reviewed file |
+| Review gate | ✅ Works | A failing gate blocks the run and exits non-zero when the policy asks for it |
+| Agent tool loop | ✅ Works | Tool catalogue and scratchpad both use the Hermes dialect the parser reads; exercised end to end against a scripted model |
+| Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
+| Policy file | ✅ Works | The bundled `review_policy.yaml` is the default, and its thresholds change what the analyzers report |
+| Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
+| Tool sandboxing | ✅ Works | Every file tool resolves against a workspace root and refuses paths outside it, including traversal and symlinks |
+| Metrics | ✅ Works | The whole review is aggregated and exported as valid OpenMetrics; every field is derived from something the review produced |
+| Logging | ✅ Works | Structured `logging` with `LOG_LEVEL` and an optional JSON format |
+| Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
+| TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
+
+Remaining items are scheduled in [Levels 3 and 4](docs/roadmap/README.md) of
+the roadmap.
+
+---
+
+## 📸 Example output
+
+Example of the report the agent posts on a GitLab merge request:
 
 ![AI Review Report Example](assets/ai-review-report.jpg)
 
@@ -41,124 +105,224 @@ Below is an example of the AI Review Report generated by the agent in a GitLab M
 ## 🛠️ Installation
 
 ### Prerequisites
-- Python 3.10+
-- GitLab Instance (Cloud or Self-Hosted)
-- vLLM or compatible OpenAI API provider
+- Python 3.12+
+- A GitLab instance (cloud or self-hosted)
+- vLLM or any OpenAI-compatible chat completions endpoint
 
 ### Setup
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd openhands
-   ```
 
-2. Install dependencies using uv:
-   ```bash
-   # Install uv if not already installed (https://github.com/astral-sh/uv)
-   curl -LsSf https://astral.sh/uv/install.sh | sh
+```bash
+git clone https://github.com/yusfcicek/code-reviewer.git
+cd code-reviewer
 
-   # Create virtual environment and install dependencies
-   uv sync
-   ```
+# install uv if you do not have it: https://github.com/astral-sh/uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-3. Configure Environment Variables:
-   ```bash
-   export GITLAB_URL="https://gitlab.example.com"
-   export GITLAB_TOKEN="your-access-token"
-   export VLLM_API_URL="http://vllm-endpoint:8000/v1"
-   export VLLM_API_KEY="your-api-key"
-   export VLLM_MODEL="mistralai/Mistral-7B-Instruct-v0.2"
-   ```
+uv sync
+```
+
+### Environment variables
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `GITLAB_URL` | yes | Base URL of the GitLab instance |
+| `GITLAB_TOKEN` | yes | Personal or project access token with API scope |
+| `VLLM_API_URL` | yes | OpenAI-compatible base URL, e.g. `http://host:8000/v1` |
+| `VLLM_API_KEY` | yes | API key for that endpoint |
+| `VLLM_MODEL` | yes | Model name to request |
+| `CI_PROJECT_ID` | no | Fallback for `--project-id` |
+| `CI_MERGE_REQUEST_IID` | no | Fallback for `--mr-iid` |
+| `GITLAB_CA_BUNDLE` | no | CA certificate bundle for an internal GitLab |
+| `GITLAB_SSL_VERIFY` | no | Set to `false` to disable certificate verification (not recommended) |
+| `LOG_LEVEL` | no | `DEBUG`, `INFO` (default), `WARNING`, `ERROR` |
+| `LOG_FORMAT` | no | `text` (default) or `json` |
+| `LLM_TIMEOUT_SECONDS` | no | Request timeout for the model, default `120` |
+| `LLM_MAX_RETRIES` | no | Retries on timeout or 5xx, default `2` |
+| `LLM_TEMPERATURE` | no | Sampling temperature, default `0.3` |
+
+```bash
+export GITLAB_URL="https://gitlab.example.com"
+export GITLAB_TOKEN="your-access-token"
+export VLLM_API_URL="http://vllm-endpoint:8000/v1"
+export VLLM_API_KEY="your-api-key"
+export VLLM_MODEL="mistralai/Mistral-7B-Instruct-v0.2"
+```
 
 ---
 
-## ⚙️ Configuration (`review_policy.yaml`)
+## ⚙️ Configuration
 
-The behavior of the agent is controlled by `openhands/agent/config/review_policy.yaml`. You can customize:
+Behaviour is driven by a policy file. A reference policy ships at
+`code_reviewer/infrastructure/config/review_policy.yaml`.
+
+It is loaded automatically. Resolution order, highest priority first:
+
+1. the path given to `--policy`
+2. `review_policy.yaml`, `.review_policy.yaml`, `.agent/review_policy.yaml` or
+   `config/review_policy.yaml` in the working directory
+3. the file bundled with the package
+4. the dataclass defaults in `code_reviewer/infrastructure/config/loader.py`
+
+The chosen source is printed at startup, because "which policy actually
+applied" is the first question when a review surprises someone.
 
 ```yaml
 triage:
-  skip_patterns: 
+  skip_patterns:
     - ".*\\.md$"
     - ".*\\.lock$"
   allow_only_comments: true
 
 security:
   block_on_critical: true
-  banned_patterns: 
+  banned_patterns:
     - "eval\\s*\\("
-    - "password\\s*="
+    - "exec\\s*\\("
+
+quality:
+  max_class_methods: 15
+  max_cyclomatic_complexity: 15
 
 gate:
+  blocking_severity: "critical"   # critical | high | medium | low | info
   quality_score_threshold: 60
   fail_pipeline_on_critical: true
+  fail_on_review_error: false     # a file the reviewer could not process
 ```
+
+Documentation, generated lock files, binary assets and vendored trees are
+skipped by default. Dockerfiles, pipeline definitions, Kubernetes manifests,
+Terraform and dependency manifests are **not** — that is where a privilege
+escalation or a changed base image hides.
+
+Selected values can be overridden from the environment with `REVIEW_POLICY_*`
+variables — see `ReviewPolicyLoader._load_from_env` for the supported keys.
 
 ---
 
 ## 🏃 Usage
 
-### Manual Execution / CI Pipeline
-Run the agent using `uv run` by providing the Project ID and Merge Request IID:
-
 ```bash
-uv run python openhands/agent/main.py --project-id <PROJECT_ID> --mr-iid <MR_IID>
+uv run ai-code-review --project-id <PROJECT_ID> --mr-iid <MR_IID>
 ```
 
-**Options:**
-- `--policy <path>`: Path to a custom policy YAML file (default: built-in `review_policy.yaml`).
-- `--token-limit <int>`: Max tokens for memory (default: 100k).
+**Options**
 
-### Integration with GitLab CI/CD
-Add the following job to your `.gitlab-ci.yml`:
+| Flag | Default | Meaning |
+|---|---|---|
+| `--project-id` | `$CI_PROJECT_ID` | GitLab project ID |
+| `--mr-iid` | `$CI_MERGE_REQUEST_IID` | Merge request IID |
+| `--policy` | bundled `review_policy.yaml` | Path to a policy YAML file |
+
+### GitLab CI
+
+The repository ships `.gitlab-ci.yml`; this is the review job from it.
 
 ```yaml
 ai-code-review:
   stage: review
   image: python:3.12-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - pip install --quiet uv
+    - uv sync --frozen
   script:
-    - curl -LsSf https://astral.sh/uv/install.sh | sh
-    - uv sync
-    - uv run python openhands/agent/main.py --project-id $CI_PROJECT_ID --mr-iid $CI_MERGE_REQUEST_IID
+    - uv run ai-code-review --project-id "$CI_PROJECT_ID" --mr-iid "$CI_MERGE_REQUEST_IID"
   artifacts:
+    when: always
     reports:
       metrics: metrics.txt
   allow_failure: true
 ```
 
+`allow_failure: true` keeps a review that cannot run from blocking a merge.
+Set it to `false` once you trust the verdict, and use
+`gate.fail_pipeline_on_critical` and `gate.blocking_severity` to decide what
+"trust" means.
+
 ---
 
-## 🧪 Testing
-
-The project includes a comprehensive unit test suite:
+## 🧪 Development
 
 ```bash
-# Run all unit tests
-uv run python -m unittest discover tests/unit
+uv sync
+uv run pre-commit install
+
+uv run ruff check code_reviewer tests          # lint
+uv run ruff format code_reviewer tests         # format
+uv run mypy                                    # types (domain + application)
+uv run pytest                                  # tests
+uv run pytest --cov                            # tests with the coverage floor
 ```
 
-Key tests:
-- `tests/unit/test_smart_memory.py`: Verifies memory prioritization and summarization.
-- `tests/unit/test_agent_core.py`: Verifies agent logic and prompt construction.
+CI runs exactly these four checks — `.github/workflows/ci.yml` on GitHub and
+`.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
+its own merge requests, so the job below is one the project uses on itself.
+
+433 tests, 87 % coverage with an enforced floor of 85 %. The domain and
+application layers sit at 88–100 %; the
+review workflow runs entirely against in-memory fakes, with no network and no
+GitLab. Every behaviour change from Level 1 onwards is written test-first: the
+test that pins a fix is observed failing before the fix lands.
 
 ---
 
-## 📂 Project Structure
+## 📂 Project structure
 
 ```
-openhands/
-├── agent/
-│   ├── analyzers/       # Semantic, SAST, Quality, Performance analyzers
-│   ├── config/          # Configuration loader and Policy definitions
-│   ├── core/            # Main Agent logic (ReviewAgent)
-│   ├── gate/            # Review Gate (Pass/Fail decision)
-│   ├── memory/          # SmartMemoryStrategy
-│   ├── metrics/         # Prometheus/GitLab metrics collector
-│   ├── triage/          # Smart Review Triage logic
-│   └── tools/           # LangChain tool definitions
-├── tests/               # Unit tests
-└── main.py              # CLI Entry point
+.
+├── code_reviewer/
+│   ├── domain/                  rules of code review — no I/O, no frameworks
+│   │   ├── severity.py          the one ordered Severity
+│   │   ├── finding.py           Finding, FindingCategory, AffectedCode
+│   │   ├── policy.py            ReviewPolicy and its sections
+│   │   ├── triage.py            triage decisions
+│   │   ├── gate.py              per-file PASS / WARN / FAIL
+│   │   └── outcome.py           merge-request-level verdict
+│   ├── application/             the workflow and the ports it needs
+│   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer
+│   │   ├── review_service.py    the use case
+│   │   └── report.py            merge-request comment rendering
+│   ├── infrastructure/          adapters onto the outside world
+│   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
+│   │   ├── config/              YAML loader + review_policy.yaml
+│   │   ├── forge/               GitLab client and CodeForge adapter
+│   │   ├── llm/                 vLLM provider, review agent, token counting
+│   │   ├── memory/              SmartMemoryStrategy
+│   │   ├── metrics/             Prometheus / GitLab exporter
+│   │   └── tools/               tool definitions + workspace confinement
+│   ├── cli.py                   argument parsing
+│   └── __main__.py              composition root
+├── tests/
+│   ├── unit/{domain,application,infrastructure}/
+│   └── integration/
+├── docs/roadmap/                findings inventory, per-level specs and plans
+└── assets/
 ```
+
+Dependencies point one way: `infrastructure → application → domain`. The domain
+imports nothing but the standard library, so its rules are testable without a
+single mock. `tests/unit/test_architecture.py` parses every module's imports and
+fails if that direction is ever reversed.
+
+---
+
+## 📚 Documentation
+
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
+| [docs/adr/](docs/adr/README.md) | Eight decision records: what was decided, why, and what it costs |
+| [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory and the seven levels of work it produced |
+| [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
+| [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branching, commits, the TDD expectation, the design rules |
+
+## 🤝 Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 📜 License
+
 [MIT License](LICENSE)
