@@ -1,0 +1,126 @@
+"""
+Review Gate - CI Pipeline Kontrol Mekanizması.
+
+Agent'ın review sonucuna göre pipeline'ın devam edip etmeyeceğine karar verir.
+Markdown çıktısını parse ederek metrikleri ve bulguları değerlendirir.
+"""
+
+import re
+from enum import Enum
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Tuple
+from .policy import ReviewPolicy
+
+
+class ReviewGateResult(Enum):
+    """Pipeline karar sonucu."""
+    PASS = "pass"
+    WARN = "warn"
+    FAIL = "fail"
+
+
+@dataclass
+class GateEvaluation:
+    """Gate değerlendirme sonucu.
+
+    ``scores`` değerleri ``None`` olabilir: raporda ilgili satır yoksa skor
+    *bilinmiyor* demektir, sıfır değil (bkz. F-10).
+    """
+    result: ReviewGateResult
+    exit_code: int
+    reasons: List[str]
+    scores: Dict[str, Optional[int]]
+    blocking_issues: List[str]
+
+
+class ReviewGate:
+    """
+    Review sonucunu değerlendiren mekanizma.
+    
+    Kontrol edilen kriterler:
+    - SAST Scan Result (Pass/Fail)
+    - Security Risk Level (Critical/High)
+    - Breaking Changes
+    - Code Quality Score
+    - Performance Issues
+    """
+    
+    def __init__(self, policy: ReviewPolicy):
+        self.policy = policy
+    
+    def evaluate(self, review_markdown: str) -> GateEvaluation:
+        """
+        Agent'ın markdown çıktısını analiz eder ve karar verir.
+        
+        Args:
+            review_markdown: Agent'ın ürettiği markdown raporu
+            
+        Returns:
+            GateEvaluation: Değerlendirme sonucu
+        """
+        reasons = []
+        blocking_issues = []
+        scores = {}
+        
+        # 1. SAST/Security Kontrolü
+        security_score = 100  # Default
+        sast_fail = False
+        
+        if "SAST Scan Result: FAIL" in review_markdown:
+            sast_fail = True
+            reasons.append("SAST Scan Failed")
+            security_score = 0  # Fail ise 0 kabul ediyoruz
+        
+        # Risk seviyesini parse et
+        risk_match = re.search(r"Risk Assessment\*\*:\s*\[?(\w+)\]?", review_markdown)
+        risk_level = risk_match.group(1).lower() if risk_match else "unknown"
+        
+        if risk_level == "critical" and self.policy.gate.fail_pipeline_on_critical:
+            blocking_issues.append("Critical Risk Assessment")
+        
+        # 2. Quality Score Parsing
+        #
+        # A missing score is unknown, not zero. Defaulting to 0 meant that any
+        # drift in the model's report formatting scored below every threshold
+        # and blocked the merge request for a reason nobody could act on (F-10).
+        quality_match = re.search(r"SOLID Compliance\*\*:\s*\[?(\d+)/100\]?", review_markdown)
+        quality_score = int(quality_match.group(1)) if quality_match else None
+        scores['quality'] = quality_score
+
+        if quality_score is None:
+            reasons.append(
+                "Quality score not reported by the review — the report is missing a "
+                "'SOLID Compliance: n/100' line, so the quality gate was not applied"
+            )
+        elif quality_score < self.policy.gate.quality_score_threshold:
+            msg = f"Quality Score ({quality_score}) below threshold ({self.policy.gate.quality_score_threshold})"
+            if self.policy.gate.fail_pipeline_on_quality_below > quality_score:
+                blocking_issues.append(msg)
+            else:
+                reasons.append(msg)
+        
+        # 3. Breaking Changes
+        if "Breaking Changes**: Yes" in review_markdown:
+            msg = "Breaking Changes Detected"
+            if self.policy.security.block_on_critical: # Breaking change kritik kabul edilebilir
+                reasons.append(msg)
+        
+        # 4. Karar Verme
+        result = ReviewGateResult.PASS
+        exit_code = 0
+        
+        if blocking_issues or sast_fail:
+            result = ReviewGateResult.FAIL
+            exit_code = 1
+            reasons.extend(blocking_issues)
+        elif reasons:
+            result = ReviewGateResult.WARN
+            exit_code = 0  # Warning pipeline'ı kırmaz (opsiyonel)
+        
+        return GateEvaluation(
+            result=result,
+            exit_code=exit_code,
+            reasons=reasons,
+            scores=scores,
+            blocking_issues=blocking_issues
+        )

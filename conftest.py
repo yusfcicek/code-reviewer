@@ -6,7 +6,7 @@ The package under test is imported from the repository root, which
 
 Known hazard (finding F-37): ``tests/unit/test_agent_core.py`` replaces several
 ``langchain`` modules in ``sys.modules`` at import time so that
-``openhands.agent.core.agent`` can be imported without the real framework.
+``code_reviewer.infrastructure.llm.review_agent`` can be imported without the real framework.
 Because ``sys.modules`` is process-global, those stubs stay in place for every
 test collected afterwards, which makes results depend on collection order.
 

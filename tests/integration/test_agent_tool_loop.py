@@ -13,8 +13,8 @@ import pytest
 from langchain.tools import StructuredTool
 from langchain_community.chat_models.fake import FakeListChatModel
 
-from openhands.agent.core.agent import ReviewAgent
-from openhands.agent.core.interfaces import MemoryStrategy
+from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+from code_reviewer.application.ports import MemoryStrategy
 
 pytestmark = pytest.mark.integration
 
@@ -59,7 +59,7 @@ class TestAgentToolLoop(unittest.TestCase):
         self.memory = MagicMock(spec=MemoryStrategy)
         self.memory.load_context.return_value = "PRIOR-INSIGHTS"
 
-        with patch("openhands.agent.core.agent.get_tools") as get_tools:
+        with patch("code_reviewer.infrastructure.llm.review_agent.get_tools") as get_tools:
             get_tools.return_value = [PROBE_TOOL]
             self.agent = ReviewAgent(provider, self.memory, token_counter=lambda text: 10)
 
