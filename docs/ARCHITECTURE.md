@@ -28,6 +28,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `gate.py` | One file's verdict: `PASS`, `WARN` or `FAIL`. |
 | `outcome.py` | The merge request's verdict, aggregated from the files'. |
 | `evaluation.py` | Whether a produced finding *is* the expected one, and the confusion matrix that follows. Beside `gate.py` because both turn findings into a verdict. |
+| `retrieval.py` | `CodeChunk`, rank fusion, maximal marginal relevance, cosine. The arithmetic of choosing evidence; building the index is an adapter's job. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
 
@@ -35,11 +36,12 @@ No I/O, no frameworks, no mocks needed to test any of it.
 
 | Module | What it holds |
 |---|---|
-| `ports.py` | `CodeForge`, `LLMProvider`, `MemoryStrategy`, `Reviewer`, `StaticAnalysis`, `EvaluationDataset`, plus the `FileChange`, `MergeRequestRef` and `CaseFixture` value objects. |
+| `ports.py` | `CodeForge`, `LLMProvider`, `MemoryStrategy`, `Reviewer`, `StaticAnalysis`, `EvaluationDataset`, `EmbeddingModel`, `LexicalIndex`, `VectorIndex`, `CodeRetriever`, plus the `FileChange`, `MergeRequestRef` and `CaseFixture` value objects. |
 | `review_service.py` | The use case: triage, analyse, review, gate, report. |
 | `report.py` | The merge-request comment. |
 | `evaluation_service.py` | The second use case: grade the suite against a dataset. |
 | `evaluation_report.py` | The evaluation run, as markdown and as JSON. |
+| `retrieval_service.py` | `HybridRetriever`: two searches, fused and diversified, and what happens when one of them fails. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -51,6 +53,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `analyzers/` | The five analyzers plus `StaticAnalysisSuite`, which runs them and translates their reports into `Finding`. |
 | `config/` | The YAML policy loader and the shipped `review_policy.yaml`. |
 | `evaluation/` | `FileSystemDataset`, which reads `evaluation/cases/*.yaml` and their fixtures. |
+| `retrieval/` | Chunking, BM25, the hashed embedding, the in-memory vector index, and the corpus builder. |
 | `forge/` | The GitLab client (`gitlab_client.py`) and `GitLabForge`, the `CodeForge` adapter. |
 | `llm/` | The vLLM provider, the review agent and token counting. |
 | `memory/` | `SmartMemoryStrategy`. |
@@ -68,6 +71,10 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `LLMProvider` | `VLLMProvider` | Any OpenAI-compatible endpoint |
 | `MemoryStrategy` | `SmartMemoryStrategy` | A different compression policy |
 | `EvaluationDataset` | `FileSystemDataset` | Cases exported from real reviews, or held anywhere but a directory |
+| `EmbeddingModel` | `HashingEmbedding` | A trained model, hosted or local — one constructor call |
+| `LexicalIndex` | `BM25Index` | A search server, if a repository outgrows an in-process index |
+| `VectorIndex` | `InMemoryVectorIndex` | Qdrant, or any approximate index, above ~10⁵ vectors |
+| `CodeRetriever` | `HybridRetriever` | A different retrieval strategy entirely; the workflow knows one method |
 
 ## The path of one review
 
@@ -108,6 +115,40 @@ scan must not depend on what the model felt like doing
 recorded against that file, and reported in the comment as *not reviewed* —
 which is a warning, not an approval
 ([ADR 0006](adr/0006-a-failing-file-is-reported-not-fatal.md)).
+
+## The path of one retrieval
+
+```
+  main()                            build_retriever(repo_root) — once per run
+    │                                 walk, chunk, embed, index
+    ▼
+  ReviewService._retrieve(change)
+    │
+    ├─► query_from_change()          the added lines, plus the file's name
+    └─► CodeRetriever.related(query, limit, exclude_path)
+          ├─► LexicalIndex.search()        BM25 over tokenised identifiers
+          ├─► VectorIndex.search()         cosine over hashed embeddings
+          ├─► reciprocal_rank_fusion()     order, not magnitude
+          └─► maximal_marginal_relevance() relevance against novelty
+    │
+    ▼
+  Reviewer.review_diff(..., related=chunks)
+      rendered inside <untrusted_repository_context>
+```
+
+Two properties of that path are deliberate, and they are opposites of two
+properties of the review path.
+
+**Retrieval never blocks.** An index that cannot be built, a search that
+raises, an embedding endpoint that is down: each costs the prompt some context
+and nothing else. Static analysis failing *does* block, because a gate must not
+read "nothing examined" as "nothing found"
+([ADR 0011](adr/0011-unknown-means-blocked.md)); a prompt with less in it is
+still a prompt ([ADR 0015](adr/0015-retrieval-is-hybrid-local-and-untrusted.md)).
+
+**Retrieved code is untrusted.** It sits in the checkout, and the checkout is
+what the merge request changed. Same trust boundary, same escaping, same
+declaration in the system prompt.
 
 ## The path of one evaluation
 

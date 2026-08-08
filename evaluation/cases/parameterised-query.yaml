@@ -1,0 +1,9 @@
+# Every safe spelling in one file: a placeholder query, a constant executed by
+# name, a query assigned to a local and executed with arguments, and a string
+# concatenation that is not SQL at all.
+#
+# Nothing is expected and everything is graded. This is where the Level 13
+# taint pass shows up as lost precision if it overreached — which is the only
+# way to know that closing E-01 was worth doing.
+name: parameterised-query
+file: fixtures/parameterised_query.py

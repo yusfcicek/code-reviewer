@@ -21,12 +21,14 @@ from .ports import (
     AccessAuditor,
     AccessViolation,
     CodeForge,
+    CodeRetriever,
     FileChange,
     MergeRequestRef,
     Reviewer,
     StaticAnalysis,
 )
 from .report import render_review_comment
+from .retrieval_service import query_from_change
 
 # Standard logging, not the infrastructure helper: the application layer may
 # not import downwards. Every module in this package lives under the
@@ -78,6 +80,8 @@ class ReviewService:
         analysis: StaticAnalysis | None = None,
         gate: ReviewGate | None = None,
         access_auditor: AccessAuditor | None = None,
+        retriever: CodeRetriever | None = None,
+        related_limit: int = 4,
         clock=None,
     ):
         self._forge = forge
@@ -91,6 +95,10 @@ class ReviewService:
         # Optional so a caller without a sandbox still reviews. When present,
         # a refused file access becomes a finding on the file being reviewed.
         self._access_auditor = access_auditor
+        # Optional, and best-effort when present: retrieval is an improvement
+        # to the prompt, never a precondition for reviewing (Level 13, D-5).
+        self._retriever = retriever
+        self._related_limit = related_limit
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
@@ -212,6 +220,7 @@ class ReviewService:
                 change.diff,
                 full_content,
                 other_files=sibling_paths,
+                related=self._retrieve(change),
             )
 
             refusals = self._refusal_findings(change.path, violations_before)
@@ -239,6 +248,31 @@ class ReviewService:
             },
         )
         return section, metric, findings or []
+
+    def _retrieve(self, change: FileChange) -> list:
+        """Related code from elsewhere in the checkout, or nothing.
+
+        Never raises and never produces a finding. Level 9 made a failed
+        *analysis* block, because a gate must not read "nothing examined" as
+        "nothing found"; a failed *retrieval* has no such property. The review
+        proceeds with the evidence it had before, and the failure is logged
+        rather than reported as an opinion about the code.
+        """
+        if self._retriever is None:
+            return []
+
+        try:
+            return self._retriever.related(
+                query_from_change(change.path, change.diff),
+                limit=self._related_limit,
+                exclude_path=change.path,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Retrieval failed; reviewing without repository context",
+                extra={"fields": {"path": change.path, "error": str(exc)}},
+            )
+            return []
 
     def _violation_count(self) -> int:
         """How many refusals the auditor has seen so far, or zero without one."""

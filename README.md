@@ -5,14 +5,15 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.6.0.** Rebuilt from an imported prototype across thirteen levels
+> **Status: 2.7.0.** Rebuilt from an imported prototype across fourteen levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 898 tests at 92 % coverage; lint,
+> last deferred one closed in Level 7. 1045 tests at 93 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
 > second roadmap, sourced from what the work is expected to do rather than from
-> what was wrong.
+> what was wrong, and Level 13 spent its first measurement on two real defects
+> before adding retrieval.
 > What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
 
@@ -111,7 +112,27 @@ and why, naming any written without one.
 `SmartMemoryStrategy` keeps findings in priority buckets, never summarises
 `SECURITY` or `BREAKING` insights, and compresses lower-priority context first.
 
-### 🎯 8. Measured review quality
+### 🔎 8. Retrieval over the repository
+- The checkout is chunked by syntax tree — every function, class and method,
+  with line windows as the fallback — then indexed twice: **BM25** over
+  tokenised identifiers, and **cosine** over embeddings.
+- The two rankings are fused by **reciprocal rank** rather than by score, then
+  reduced by **maximal marginal relevance** so the context is not three copies
+  of one function.
+- Retrieved code reaches the prompt inside `<untrusted_repository_context>`,
+  under the same trust boundary as the diff. It lives in the checkout, and the
+  checkout is what the merge request changed.
+- `search_related_code` exposes the same index to the agent, for questions the
+  automatic query did not cover.
+- Everything is **offline and deterministic**: the default embedding hashes
+  tokens, so there are no weights to download and no endpoint to fail.
+  `EmbeddingModel`, `LexicalIndex` and `VectorIndex` are ports — a trained
+  model or a hosted vector database is one constructor call.
+- **Retrieval never blocks.** An index that cannot be built costs the prompt
+  its context and nothing else
+  ([ADR 0015](docs/adr/0015-retrieval-is-hybrid-local-and-untrusted.md)).
+
+### 🎯 9. Measured review quality
 - `ai-code-review-eval` grades the analysis suite against an annotated dataset
   (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
   and per rule.
@@ -121,9 +142,10 @@ and why, naming any written without one.
   able to tell a bad score from a broken harness.
 - Findings a case does not grade are **counted and named**, never dropped, so
   narrowing what is graded cannot quietly improve the score.
-- The current baseline is precision 1.00, recall 0.89, F1 0.94, with the one
-  known gap written into the dataset rather than annotated away
-  ([baseline](docs/roadmap/level-12/baseline.md)).
+- The current baseline is precision 1.00, recall 1.00, F1 1.00 over ten cases
+  ([baseline](docs/roadmap/level-12/baseline.md)). Level 12 opened at recall
+  0.89 — the gap was a real defect the dataset recorded rather than annotated
+  away, and Level 13 closed it.
 
 ---
 
@@ -156,7 +178,8 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
-| Evaluation harness | ✅ Works | Eight annotated cases scored on every push against committed floors; ungraded findings are counted, and one known false negative is recorded rather than hidden |
+| Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
+| Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 
 Every gap the variant comparison found is closed. What the levels did, and
 what each one found while doing it, is in
@@ -455,7 +478,7 @@ CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-898 tests, 92 % coverage with an enforced floor of 91 %. The dependency
+1045 tests, 93 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -477,17 +500,20 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── suppression.py       `review-ignore` directives
 │   │   ├── gate.py              per-file PASS / WARN / FAIL
 │   │   ├── outcome.py           merge-request-level verdict
-│   │   └── evaluation.py        grading findings against a case
+│   │   ├── evaluation.py        grading findings against a case
+│   │   └── retrieval.py         chunks, rank fusion, marginal relevance
 │   ├── application/             the workflow and the ports it needs
 │   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer, EvaluationDataset
 │   │   ├── review_service.py    the use case
 │   │   ├── report.py            merge-request comment rendering
 │   │   ├── evaluation_service.py  grading the suite against a dataset
-│   │   └── evaluation_report.py   the run, as markdown and as JSON
+│   │   ├── evaluation_report.py   the run, as markdown and as JSON
+│   │   └── retrieval_service.py   the hybrid retriever
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
 │   │   ├── evaluation/          the dataset loader
+│   │   ├── retrieval/           chunking, BM25, embedding, vector index, corpus
 │   │   ├── forge/               GitLab client and CodeForge adapter
 │   │   ├── llm/                 vLLM provider, review agent, tool loop, token counting
 │   │   ├── memory/              SmartMemoryStrategy
@@ -518,7 +544,7 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Fourteen decision records: what was decided, why, and what it costs |
+| [docs/adr/](docs/adr/README.md) | Fifteen decision records: what was decided, why, and what it costs |
 | [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |

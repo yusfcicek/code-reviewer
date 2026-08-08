@@ -25,7 +25,8 @@ from code_reviewer.infrastructure.llm.vllm import LLMFactory
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 from code_reviewer.infrastructure.metrics.collector import MetricsCollector, ReviewMetrics
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
-from code_reviewer.infrastructure.tools import Workspace, set_workspace
+from code_reviewer.infrastructure.retrieval.corpus import build_retriever
+from code_reviewer.infrastructure.tools import Workspace, set_retriever, set_workspace
 
 #: Exit codes. The split exists because "the gate blocked the merge request"
 #: and "the agent fell over" both used to be `1`, so no pipeline could tell
@@ -61,7 +62,9 @@ class _NoNarration(Reviewer):
     a shorter report.
     """
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None) -> str:
+    def review_diff(
+        self, filename, diff_content, full_file_content=None, other_files=None, related=None
+    ) -> str:
         return (
             "_Narration was not requested (`--no-llm`). The verdict below comes "
             "from static analysis, which is where it always comes from._"
@@ -112,6 +115,12 @@ def run(args) -> int:
         },
     )
 
+    # Retrieval over the checkout. Built once per run, from the same tree the
+    # tools are confined to, and best-effort throughout: an index that cannot
+    # be built costs the prompt its context and nothing else (Level 13, D-5).
+    retriever = _build_retriever(args.repo_root)
+    set_retriever(retriever)
+
     service = ReviewService(
         forge=GitLabForge(),
         reviewer=_build_reviewer(args),
@@ -122,6 +131,7 @@ def run(args) -> int:
         # about the diff — the agent asked for that path because the content
         # under review led it to — so it reaches the gate as a finding.
         access_auditor=workspace,
+        retriever=retriever,
     )
 
     result = service.review(args.project_id, args.mr_iid, publish=not args.dry_run)
@@ -164,6 +174,26 @@ def _build_reviewer(args) -> Reviewer:
 
     provider = LLMFactory.create_provider("vllm")
     return ReviewAgent(provider, SmartMemoryStrategy(provider))
+
+
+def _build_retriever(repo_root: str):
+    """The repository index, or ``None`` when it could not be built.
+
+    Failing here would trade a whole review for some missing context, which is
+    the wrong trade: this project reviewed merge requests for twelve levels
+    without retrieving anything.
+    """
+    try:
+        retriever = build_retriever(repo_root)
+    except Exception as exc:
+        logger.warning(
+            "Could not index the repository; reviewing without retrieval",
+            extra={"fields": {"repo_root": repo_root, "error": str(exc)}},
+        )
+        return None
+
+    logger.info("Repository indexed for retrieval", extra={"fields": {"repo_root": repo_root}})
+    return retriever
 
 
 def main() -> None:
