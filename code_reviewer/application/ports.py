@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from code_reviewer.domain.evaluation import EvaluationCase
+from code_reviewer.domain.retrieval import CodeChunk, ScoredChunk, Vector
 from code_reviewer.domain.suppression import SuppressionResult
 
 
@@ -129,8 +130,85 @@ class Reviewer(ABC):
         diff_content: str,
         full_file_content: str | None = None,
         other_files: list[str] | None = None,
+        related: list[CodeChunk] | None = None,
     ) -> str:
-        """Returns the review report for one file, as markdown."""
+        """Returns the review report for one file, as markdown.
+
+        ``related`` is code retrieved from elsewhere in the checkout. It is
+        optional and it defaults to nothing, because a reviewer that cannot
+        retrieve is a complete reviewer — it is what this project was for
+        twelve levels.
+        """
+
+
+class EmbeddingModel(ABC):
+    """Turns text into a vector.
+
+    Declared here rather than assumed, because this is the one piece of the
+    retrieval pipeline everyone eventually replaces: the shipped adapter is a
+    deterministic hashed-token embedding that needs no weights and no network,
+    and a hosted model is a sibling module behind this signature.
+    """
+
+    @abstractmethod
+    def embed(self, texts: list[str]) -> list[Vector]:
+        """One vector per input, in order, all of the same dimension."""
+
+
+class LexicalIndex(ABC):
+    """Keyword search over chunks.
+
+    An exact identifier is the strongest signal code search has, and an
+    embedding blurs it. This is the half of the hybrid that does not.
+    """
+
+    @abstractmethod
+    def add(self, chunks: list[CodeChunk]) -> None:
+        """Indexes chunks. Calling it twice adds; it does not replace."""
+
+    @abstractmethod
+    def search(self, query: str, limit: int) -> list[ScoredChunk]:
+        """Best matches, most relevant first."""
+
+
+class VectorIndex(ABC):
+    """Nearest-neighbour search over embedded chunks."""
+
+    @abstractmethod
+    def add(self, entries: list[tuple[CodeChunk, Vector]]) -> None:
+        """Indexes chunks against their vectors."""
+
+    @abstractmethod
+    def search(self, vector: Vector, limit: int) -> list[ScoredChunk]:
+        """Nearest chunks, closest first."""
+
+    @abstractmethod
+    def vector_of(self, chunk: CodeChunk) -> Vector | None:
+        """The stored vector, or ``None``.
+
+        Needed because diversification compares candidates with each other,
+        not only with the query — and re-embedding a chunk to find out what it
+        already embedded to would be work the index has already done.
+        """
+
+
+class CodeRetriever(ABC):
+    """Related code from somewhere other than the diff.
+
+    The port the review workflow depends on. Everything behind it — chunking,
+    two indexes, fusion, diversification — is one adapter's business, and the
+    workflow's whole knowledge of retrieval is this one method.
+    """
+
+    @abstractmethod
+    def related(self, query: str, limit: int = 5, exclude_path: str = "") -> list[CodeChunk]:
+        """Chunks worth showing alongside ``query``.
+
+        ``exclude_path`` drops chunks from a file the caller already has in
+        full. Returns an empty list rather than raising when there is nothing
+        to say: retrieval is an improvement to the prompt, never a
+        precondition for reviewing (Level 13, decision D-5).
+        """
 
 
 @dataclass(frozen=True)
