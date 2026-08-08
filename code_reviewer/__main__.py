@@ -73,9 +73,17 @@ def run(args) -> int:
 
     # Every file the agent can read is confined to the checkout it is
     # reviewing; the paths it asks for come from the diff (finding F-21).
-    workspace = Workspace()
+    workspace = Workspace.from_environment()
     set_workspace(workspace)
-    logger.info("Tools confined", extra={"fields": {"workspace": str(workspace.root)}})
+    logger.info(
+        "Tools confined",
+        extra={
+            "fields": {
+                "workspace": str(workspace.root),
+                "read_budget_bytes": workspace.total_read_budget_bytes,
+            }
+        },
+    )
 
     provider = LLMFactory.create_provider("vllm")
     memory = SmartMemoryStrategy(provider)
@@ -86,6 +94,10 @@ def run(args) -> int:
         triage=ReviewTriage(policy),
         policy=policy,
         analysis=StaticAnalysisSuite(policy),
+        # The workspace records what it refused. A refused read is evidence
+        # about the diff — the agent asked for that path because the content
+        # under review led it to — so it reaches the gate as a finding.
+        access_auditor=workspace,
     )
 
     result = service.review(args.project_id, args.mr_iid)

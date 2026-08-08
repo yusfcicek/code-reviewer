@@ -35,6 +35,7 @@ Every level follows the same three-step rhythm:
 | [5](level-5/spec.md) | CI/CD & quality gates | ✅ Done |
 | [6](level-6/spec.md) | Documentation & productisation | ✅ Done |
 | [7](level-7/spec.md) | Dependency & tool-protocol upgrade | ✅ Done |
+| [8](level-8/spec.md) | Untrusted input hardening | ✅ Done |
 
 ### Deferred, then done
 

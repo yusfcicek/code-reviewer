@@ -5,10 +5,12 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.1.0.** Rebuilt from an imported prototype across eight levels of
+> **Status: 2.2.0.** Rebuilt from an imported prototype across nine levels of
 > work. 59 defects were found and recorded and all 59 are now fixed — the last
-> deferred one closed in Level 7. 489 tests at 87 % coverage; lint, formatting,
+> deferred one closed in Level 7. 584 tests at 88 % coverage; lint, formatting,
 > types, tests and a dependency audit with an empty ignore list all gate on CI.
+> Levels 7-8 closed a further nine gaps found by comparing against a sibling
+> implementation.
 > What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
 
@@ -48,11 +50,29 @@ Classifies each changed file before any LLM call:
 - `gate.blocking_severity` sets how severe a finding has to be to fail a
   pipeline. It defaults to `critical`.
 
-### 🔒 4. Confinement
-Every file the agent reads is resolved against the checkout under review and
-refused if it lands outside — including through `..` and symlinks. The paths the
-agent asks for ultimately come from the diff, so anyone who can open a merge
-request could otherwise attempt to steer them.
+### 🔒 4. Defences against the content under review
+The diff is written by whoever opened the merge request, so it is treated as
+hostile input in five places
+([ADR 0010](docs/adr/0010-untrusted-input-defences.md)):
+
+- **A declared trust boundary.** The diff and the file content are wrapped in
+  `<untrusted_diff>` / `<untrusted_file_content>`, both tag forms escaped
+  inside the content, and the system prompt opens by declaring everything
+  inside them to be data rather than instructions.
+- **Confinement.** Every path is resolved against the checkout and refused if
+  it lands outside, including through `..` and symlinks.
+- **A deny-list and a read budget.** `.env`, `id_rsa`, `*.pem`, `*.key` and
+  anything under `.git/` are refused at any depth, and listings omit them
+  rather than naming them. A per-review total read budget means an
+  exfiltration cannot proceed one ordinary file at a time.
+- **Fixed-string search.** `grep` runs with `-F` after `--`, bounded, with
+  credential files excluded, so a model-supplied pattern is data rather than a
+  program.
+- **Redaction.** The review text is masked on the way out — the values of the
+  secrets this process holds first, then known secret shapes.
+
+**A refused access becomes a `CRITICAL` finding**, so an injection attempt can
+fail the pipeline rather than merely be mentioned in the report.
 
 ### 📈 5. Metrics and logging
 - The whole review is exported as OpenMetrics text for GitLab's `metrics`
@@ -84,7 +104,9 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
 | Policy file | ✅ Works | The bundled `review_policy.yaml` is the default, and its thresholds change what the analyzers report |
 | Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
-| Tool sandboxing | ✅ Works | Every file tool resolves against a workspace root and refuses paths outside it, including traversal and symlinks |
+| Tool sandboxing | ✅ Works | Confinement, a credential deny-list, a per-review read budget and an audit log; a refusal becomes a CRITICAL finding |
+| Prompt-injection containment | ✅ Works | Reviewed content is delimited and declared untrusted, and cannot close its own delimiter |
+| Secret redaction | ✅ Works | Environment secret values and known secret shapes are masked before the review is published |
 | Metrics | ✅ Works | The whole review is aggregated and exported as valid OpenMetrics; every field is derived from something the review produced |
 | Logging | ✅ Works | Structured `logging` with `LOG_LEVEL` and an optional JSON format |
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
@@ -92,7 +114,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
 
 Work still queued against the variant gap analysis is scheduled in
-[Levels 8-11](docs/roadmap/README.md).
+[Levels 9-11](docs/roadmap/README.md).
 
 ---
 
@@ -144,6 +166,8 @@ uv sync
 | `REVIEW_TOOL_PROTOCOL` | no | How tools are offered: `auto` (default), `native`, `hermes`, `none` |
 | `REVIEW_MAX_ITERATIONS` | no | Tool rounds allowed per file, default `10` |
 | `REVIEW_MAX_SECONDS` | no | Wall-clock budget for one file. Unset means none — see below |
+| `WORKSPACE_MAX_FILE_BYTES` | no | Per-file truncation threshold, default `200000` |
+| `WORKSPACE_TOTAL_READ_BUDGET` | no | Bytes one review may read in total, default `20000000` |
 
 ```bash
 export GITLAB_URL="https://gitlab.example.com"
@@ -304,7 +328,7 @@ CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-489 tests, 87 % coverage with an enforced floor of 85 %. The dependency
+584 tests, 88 % coverage with an enforced floor of 87 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -336,7 +360,8 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── llm/                 vLLM provider, review agent, tool loop, token counting
 │   │   ├── memory/              SmartMemoryStrategy
 │   │   ├── metrics/             Prometheus / GitLab exporter
-│   │   └── tools/               tool definitions + workspace confinement
+│   │   ├── security/            secret redaction on the way out
+│   │   └── tools/               tool definitions, workspace limits, safe search
 │   ├── cli.py                   argument parsing
 │   └── __main__.py              composition root
 ├── tests/

@@ -17,6 +17,7 @@ nobody has taken turns this directory into a wish list.
 | [0007](0007-langchain-pinned.md) | LangChain is held at 0.1.x | Superseded by 0009 |
 | [0008](0008-english-source.md) | English is the language of the source | Accepted |
 | [0009](0009-agent-loop-in-tree.md) | The agent's tool loop lives in this repository | Accepted |
+| [0010](0010-untrusted-input-defences.md) | Untrusted input is defended in four layers, and a refusal is a finding | Accepted |
 
 ## Adding one
 

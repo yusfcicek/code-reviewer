@@ -10,13 +10,22 @@ directly and therefore had no tests at all (findings F-25, F-27).
 import logging
 from dataclasses import dataclass, field
 
-from code_reviewer.domain.finding import Finding
+from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.gate import ReviewGate
 from code_reviewer.domain.outcome import ReviewOutcome
 from code_reviewer.domain.policy import ReviewPolicy
+from code_reviewer.domain.severity import Severity
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
 
-from .ports import CodeForge, FileChange, MergeRequestRef, Reviewer, StaticAnalysis
+from .ports import (
+    AccessAuditor,
+    AccessViolation,
+    CodeForge,
+    FileChange,
+    MergeRequestRef,
+    Reviewer,
+    StaticAnalysis,
+)
 from .report import render_review_comment
 
 # Standard logging, not the infrastructure helper: the application layer may
@@ -68,6 +77,7 @@ class ReviewService:
         policy: ReviewPolicy,
         analysis: StaticAnalysis | None = None,
         gate: ReviewGate | None = None,
+        access_auditor: AccessAuditor | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -78,6 +88,9 @@ class ReviewService:
         # then falls back to reading the model's prose.
         self._analysis = analysis
         self._gate = gate or ReviewGate(policy)
+        # Optional so a caller without a sandbox still reviews. When present,
+        # a refused file access becomes a finding on the file being reviewed.
+        self._access_auditor = access_auditor
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
@@ -169,12 +182,21 @@ class ReviewService:
             # prose rather than losing the file entirely.
             findings = self._analyse(change, full_content)
 
+            # Counted before the reviewer runs, so what it triggers is
+            # attributable to *this* file rather than to the whole run.
+            violations_before = self._violation_count()
+
             review_text = self._reviewer.review_diff(
                 change.path,
                 change.diff,
                 full_content,
                 other_files=sibling_paths,
             )
+
+            refusals = self._refusal_findings(change.path, violations_before)
+            if refusals:
+                findings = list(findings or []) + refusals
+
             section = self._render_section(change.path, review_text, findings)
 
             evaluation = self._gate.evaluate(review_text, findings)
@@ -196,6 +218,51 @@ class ReviewService:
             },
         )
         return section, metric, findings or []
+
+    def _violation_count(self) -> int:
+        """How many refusals the auditor has seen so far, or zero without one."""
+        if self._access_auditor is None:
+            return 0
+        return len(self._access_auditor.access_violations())
+
+    def _refusal_findings(self, file_path: str, seen_before: int) -> list[Finding]:
+        """Turns refusals raised while reviewing ``file_path`` into findings.
+
+        The agent asked for those paths because something in this file's diff
+        led it to, so the refusal is evidence about the merge request. Making
+        it a `Finding` is what puts it in front of the gate: prose warns,
+        findings block (ADR 0004), and an injection attempt is worth blocking.
+        """
+        if self._access_auditor is None:
+            return []
+
+        new_violations = self._access_auditor.access_violations()[seen_before:]
+        return [self._to_finding(file_path, violation) for violation in new_violations]
+
+    @staticmethod
+    def _to_finding(file_path: str, violation: AccessViolation) -> Finding:
+        return Finding(
+            category=FindingCategory.SECURITY,
+            severity=Severity.CRITICAL,
+            file_path=file_path,
+            line_number=0,
+            title="Refused File Access",
+            description=(
+                f"While reviewing this file the agent attempted to read "
+                f"'{violation.path}', which was refused: {violation.reason}. The paths "
+                f"the agent asks for come from the content under review, so this is a "
+                f"likely prompt-injection attempt in the diff."
+            ),
+            remediation=(
+                "Read the diff for text addressed to an automated reviewer. If the "
+                "attempt is deliberate, treat the merge request as hostile; if it is "
+                "not, the file path came from somewhere and that source is worth finding."
+            ),
+            rule_id="sandbox_violation",
+            cwe_id="CWE-77",
+            owasp_category="LLM01:2025 Prompt Injection",
+            evidence=violation.path,
+        )
 
     def _analyse(self, change: FileChange, full_content):
         """Runs the analysis suite, returning None when none ran.

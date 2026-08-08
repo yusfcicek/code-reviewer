@@ -63,7 +63,8 @@ class TestReviewAgent(unittest.TestCase):
 
         prompt = self._prompt_text()
         self.assertIn("Review the changes in `test.py`", prompt)
-        self.assertIn("DIFF:\n+ change", prompt)
+        # The diff sits inside its trust-boundary tag (finding G-03).
+        self.assertIn("<untrusted_diff>\n+ change\n</untrusted_diff>", prompt)
 
         self.assertEqual(output, "Agent Review Output")
 
@@ -208,3 +209,48 @@ class TestToolProtocol(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOutputIsRedacted(unittest.TestCase):
+    """The review goes to a CI log and a public comment. Both are one-way.
+
+    Applied at the single point where review text is returned. A redactor
+    applied at three points is a redactor with two points left to forget.
+    """
+
+    def setUp(self):
+        self.provider = MagicMock(spec=LLMProvider)
+        llm = MagicMock()
+        llm.get_num_tokens_from_messages.return_value = 10
+        self.provider.get_chat_model.return_value = llm
+        self.memory = MagicMock(spec=MemoryStrategy)
+        self.memory.load_context.return_value = ""
+
+    def _review_returning(self, text, **kwargs):
+        agent = _agent(self.provider, self.memory, **kwargs)
+        agent.loop = MagicMock()
+        agent.loop.run.return_value = text
+        return agent.review_diff("app.py", "+ line")
+
+    def test_a_secret_the_model_quoted_does_not_reach_the_caller(self):
+        output = self._review_returning("The file contains AKIAIOSFODNN7EXAMPLE, which is a key.")
+
+        self.assertNotIn("AKIAIOSFODNN7EXAMPLE", output)
+
+    def test_a_process_secret_value_is_masked(self):
+        with patch.dict("os.environ", {"GITLAB_TOKEN": "glpat-realtokenvalue"}, clear=False):
+            output = self._review_returning("Saw glpat-realtokenvalue in the config.")
+
+        self.assertNotIn("glpat-realtokenvalue", output)
+
+    def test_an_ordinary_review_survives_untouched(self):
+        text = "# Review\nThe retry looks correct. Risk Assessment: Low."
+
+        self.assertEqual(self._review_returning(text), text)
+
+    def test_the_unredacted_text_is_still_what_memory_records(self):
+        """Memory stays in-process; masking it would lose context for later files."""
+        self._review_returning("Key AKIAIOSFODNN7EXAMPLE found.")
+
+        saved = self.memory.save_context.call_args[0][1]
+        self.assertIn("AKIAIOSFODNN7EXAMPLE", saved)

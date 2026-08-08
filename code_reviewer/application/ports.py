@@ -122,3 +122,31 @@ class Reviewer(ABC):
         other_files: list[str] | None = None,
     ) -> str:
         """Returns the review report for one file, as markdown."""
+
+
+@dataclass(frozen=True)
+class AccessViolation:
+    """One refused attempt to read something.
+
+    Deliberately not the infrastructure's ``AccessRecord``: the workflow needs
+    the path and the reason, and nothing else. Allowed reads are the sandbox's
+    own business.
+    """
+
+    path: str
+    reason: str
+
+
+class AccessAuditor(ABC):
+    """Reports the file accesses that were refused during a review.
+
+    The paths the agent asks for come from the diff, so a refused read is
+    evidence about the merge request rather than about the model: it is the
+    loudest available signal that the reviewed content contains an injection.
+    The workflow turns each one into a ``Finding``, which is what puts it in
+    front of the gate instead of into a paragraph of prose (ADR 0004).
+    """
+
+    @abstractmethod
+    def access_violations(self) -> list[AccessViolation]:
+        """Every refusal so far, oldest first."""
