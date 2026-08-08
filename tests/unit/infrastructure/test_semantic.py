@@ -82,8 +82,8 @@ class TestIntegrityIssues(unittest.TestCase):
         is called from elsewhere. The wording has to say what was actually
         checked.
         """
-        content = "def helper():\n    return 1\n"
-        diff = "+def helper():\n+    return 1\n"
+        content = "def _helper():\n    return 1\n"
+        diff = "+def _helper():\n+    return 1\n"
 
         result = SemanticChangeAnalyzer().analyze_diff(diff, content, "m.py")
 
@@ -93,8 +93,32 @@ class TestIntegrityIssues(unittest.TestCase):
         self.assertNotIn("never called", description.lower())
 
     def test_function_used_in_the_same_file_is_not_reported(self):
-        content = "def helper():\n    return 1\n\nvalue = helper()\n"
-        diff = "+def helper():\n+    return 1\n"
+        content = "def _helper():\n    return 1\n\nvalue = _helper()\n"
+        diff = "+def _helper():\n+    return 1\n"
+
+        result = SemanticChangeAnalyzer().analyze_diff(diff, content, "m.py")
+
+        self.assertEqual(result.integrity_issues, [])
+
+    def test_a_public_function_referenced_nowhere_in_its_file_is_not_reported(self):
+        """E-02, found by the Level 12 harness.
+
+        A public function is called from outside the module that defines it.
+        A single-file analyzer cannot see those callers, so reporting the
+        absence as an integrity issue states more than the evidence supports —
+        and it fired on every module whose public API is its only content.
+        """
+        content = "def render_invoice(order):\n    return str(order)\n"
+        diff = "+def render_invoice(order):\n+    return str(order)\n"
+
+        result = SemanticChangeAnalyzer().analyze_diff(diff, content, "m.py")
+
+        self.assertEqual(result.integrity_issues, [])
+
+    def test_a_dunder_is_not_reported_either(self):
+        """`__init__` is called by the language, not by a name in the file."""
+        content = "class A:\n    def __init__(self):\n        self.x = 1\n"
+        diff = "+    def __init__(self):\n+        self.x = 1\n"
 
         result = SemanticChangeAnalyzer().analyze_diff(diff, content, "m.py")
 
