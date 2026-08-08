@@ -258,7 +258,7 @@ class ReviewService:
                 "attempt is deliberate, treat the merge request as hostile; if it is "
                 "not, the file path came from somewhere and that source is worth finding."
             ),
-            rule_id="sandbox_violation",
+            rule_id="SANDBOX.VIOLATION",
             cwe_id="CWE-77",
             owasp_category="LLM01:2025 Prompt Injection",
             evidence=violation.path,
