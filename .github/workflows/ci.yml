@@ -61,7 +61,7 @@ jobs:
         if: '!cancelled()'
         run: >
           uv run ai-code-review-eval
-          --min-precision 0.95 --min-recall 0.85 --min-f1 0.90
+          --min-precision 0.95 --min-recall 0.95 --min-f1 0.95
           --json evaluation-summary.json
 
       - name: Upload evaluation summary

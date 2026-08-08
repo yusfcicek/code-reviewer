@@ -1,0 +1,15 @@
+# The other side of E-02. The rule was narrowed to private names rather than
+# deleted, because a private function referenced only by its own definition is
+# genuine dead code — this case is what stops the narrowing from becoming a
+# removal by neglect.
+#
+# The public `render` in the same fixture is referenced nowhere either, and
+# must produce nothing.
+name: dead-private-helper
+file: fixtures/dead_private_helper.py
+diff: fixtures/dead_private_helper.diff
+scope: ["SEMANTIC.*"]
+expect:
+  - rule: SEMANTIC.UNREFERENCED_IN_FILE
+    line: 0
+    severity: low

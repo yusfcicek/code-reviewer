@@ -13,13 +13,18 @@ from code_reviewer.domain.evaluation import EVERYTHING, EvaluationThreshold
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.evaluation.dataset import FileSystemDataset
 
-#: The floors committed to CI. Read off the measured baseline — precision 1.00,
-#: recall 0.89, F1 0.94 — with a margin, per decision D-4. Raising them is the
-#: work of a later level; lowering them to make a build green is the thing this
-#: level exists to prevent.
+#: The floors committed to CI, per decision D-4: the measured baseline with a
+#: margin. Level 12 opened at precision 1.00, recall 0.89, F1 0.94 and floored
+#: at 0.95 / 0.85 / 0.90 — the recall gap being the one defect the dataset
+#: recorded and the suite could not find. Level 13 closed it (E-01) and
+#: narrowed the rule that was firing on ordinary code (E-02), so the baseline
+#: is 1.00 across the board over ten cases and the floors rise with it.
+#:
+#: Raising a floor is what a level earns. Lowering one to make a build green is
+#: the thing the harness exists to prevent.
 MIN_PRECISION = 0.95
-MIN_RECALL = 0.85
-MIN_F1 = 0.90
+MIN_RECALL = 0.95
+MIN_F1 = 0.95
 
 #: Namespaces the dataset must exercise. A harness that grades only the SAST
 #: rules would report a healthy F1 while three analyzers went unmeasured.
@@ -37,7 +42,7 @@ def report(dataset):
 
 
 def test_the_shipped_dataset_loads(dataset):
-    assert len(dataset.cases()) >= 8
+    assert len(dataset.cases()) >= 10
 
 
 def test_every_fixture_on_disk_is_referenced_by_a_case(dataset):
@@ -45,7 +50,10 @@ def test_every_fixture_on_disk_is_referenced_by_a_case(dataset):
     from pathlib import Path
 
     referenced = {fixture.case.file_path for fixture in dataset.cases()}
-    referenced |= {"fixtures/breaking_change.diff"}
+    # A `.diff` belongs to the source of the same stem. The case names it in
+    # its own key, which `CaseFixture` deliberately does not carry — it holds
+    # the *content*, so the workflow never learns where a fixture lives.
+    referenced |= {path.replace(".py", ".diff") for path in referenced}
     on_disk = {f"fixtures/{path.name}" for path in Path("evaluation/fixtures").iterdir() if path.is_file()}
 
     assert on_disk - referenced == set()
