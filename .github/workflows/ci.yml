@@ -55,6 +55,23 @@ jobs:
         if: '!cancelled()'
         run: ./scripts/audit-deps.sh
 
+      # Review quality, measured rather than asserted. The floors are the
+      # measured baseline minus a margin (Level 12, decision D-4).
+      - name: Evaluate review quality
+        if: '!cancelled()'
+        run: >
+          uv run ai-code-review-eval
+          --min-precision 0.95 --min-recall 0.85 --min-f1 0.90
+          --json evaluation-summary.json
+
+      - name: Upload evaluation summary
+        if: '!cancelled()'
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-summary
+          path: evaluation-summary.json
+          if-no-files-found: ignore
+
       - name: Upload coverage
         if: '!cancelled()'
         uses: actions/upload-artifact@v4
