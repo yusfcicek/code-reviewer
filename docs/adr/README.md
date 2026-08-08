@@ -22,6 +22,7 @@ nobody has taken turns this directory into a wish list.
 | [0012](0012-one-comment-per-merge-request.md) | One comment per merge request, and an exit code that says which failure | Accepted |
 | [0013](0013-suppression-is-narrow-and-counted.md) | Suppression is narrow, reasoned and counted | Accepted |
 | [0014](0014-evaluation-is-a-dataset-not-a-fixture.md) | Review quality is measured against a dataset | Accepted |
+| [0015](0015-retrieval-is-hybrid-local-and-untrusted.md) | Retrieval is hybrid, local, and untrusted | Accepted |
 
 ## Adding one
 

@@ -7,6 +7,67 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.0] — 2026-08-09
+
+Level 13: the reviewer stops seeing only the diff, and the Level 12 harness
+gets spent on the two things it found.
+
+### Added
+
+- **Retrieval over the checkout.** The repository is chunked by syntax tree —
+  every function, class and method, with overlapping line windows as the
+  fallback — and indexed twice: BM25 over tokenised identifiers, and cosine
+  over embeddings.
+- **Rank fusion and diversification.** `domain/retrieval.py` holds
+  `reciprocal_rank_fusion`, `maximal_marginal_relevance` and
+  `cosine_similarity`. Fusion by rank rather than by score, because BM25's
+  scale depends on the corpus and cosine's does not.
+- **Four ports.** `EmbeddingModel`, `LexicalIndex`, `VectorIndex` and
+  `CodeRetriever`. The shipped adapters — `HashingEmbedding`, `BM25Index`,
+  `InMemoryVectorIndex`, `HybridRetriever` — need no weights, no network and
+  no server.
+- **Retrieved code in the prompt**, inside `<untrusted_repository_context>`
+  with both tag forms escaped, each chunk under its `path:line-line` citation.
+- **`search_related_code`**, so the agent can ask its own question. Without an
+  index it says so rather than reporting no results.
+- **A measurement of the retriever**, scored with the same `ConfusionMatrix`
+  the findings harness uses: at a cutoff of two over eleven queries the
+  lexical half answers 8, the dense half 8, and the fusion 9. Two paraphrase
+  queries are missed by everything, and there is a test asserting that — it is
+  what swapping in a trained embedding would buy.
+
+### Fixed
+
+- **`SAST.SQL_INJECTION` follows an assignment** (E-01). The pattern matched
+  `execute(...+` on one line; nobody writes it there. An AST pass now reports a
+  query built by concatenation, `%`, `.format()` or an f-string into a local
+  and later executed — at the line where the string was built, which is the
+  line someone has to change.
+- **`SEMANTIC.UNREFERENCED_IN_FILE` narrowed to private names** (E-02). A
+  public function is called from outside its module, so "not referenced in this
+  file" was the normal state of every public API. A single leading underscore
+  is the case where one file *is* the whole of the evidence.
+
+### Changed
+
+- `Reviewer.review_diff` takes a `related` argument, defaulting to `None`.
+- `ReviewService` takes an optional `retriever`. Retrieval never blocks: an
+  index that cannot be built costs the prompt its context and nothing else.
+- The evaluation dataset grows to ten cases and the CI floors rise from
+  0.95 / 0.85 / 0.90 to **0.95 / 0.95 / 0.95** — precision, recall and F1 are
+  all 1.00.
+- `search_related_code` lives in `tools/retrieval_tools.py`, not
+  `tools/definitions.py`: adding it to that file took its quality score below
+  the gate's threshold, and the agent reported it against its own source.
+
+### Documented
+
+- [ADR 0015](docs/adr/0015-retrieval-is-hybrid-local-and-untrusted.md) — rank
+  fusion over score fusion, a hashed embedding behind a port, brute force over
+  ANN, and why retrieved code is untrusted and best-effort.
+
+---
+
 ## [2.6.0] — 2026-08-09
 
 Level 12: the first level of a second roadmap, sourced from three published
