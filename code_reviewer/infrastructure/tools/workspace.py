@@ -27,6 +27,7 @@ nobody records is a signal nobody acts on.
 
 import fnmatch
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,6 +74,36 @@ DENIED_GLOBS = (
 )
 
 
+def _positive_int_from_env(variable: str, default: int, environment: Mapping[str, str] | None = None) -> int:
+    """Reads a positive byte count, falling back to ``default`` on anything else.
+
+    Falling back rather than raising: a review tool should not fail someone's
+    pipeline over a typo in an environment variable. The fallback is the
+    documented default, not "no limit" — a mistyped budget must not silently
+    remove the budget.
+    """
+    raw = (environment if environment is not None else os.environ).get(variable, "").strip()
+    if not raw:
+        return default
+
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+
+    return value if value > 0 else default
+
+
+def max_file_bytes_from_env(environment: Mapping[str, str] | None = None) -> int:
+    """The per-file truncation threshold, from ``WORKSPACE_MAX_FILE_BYTES``."""
+    return _positive_int_from_env("WORKSPACE_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES, environment)
+
+
+def total_read_budget_from_env(environment: Mapping[str, str] | None = None) -> int:
+    """The per-review read ceiling, from ``WORKSPACE_TOTAL_READ_BUDGET``."""
+    return _positive_int_from_env("WORKSPACE_TOTAL_READ_BUDGET", DEFAULT_TOTAL_READ_BUDGET_BYTES, environment)
+
+
 class OutsideWorkspaceError(PermissionError):
     """Raised when a path is refused: outside the root, sensitive, or over budget.
 
@@ -117,6 +148,23 @@ class Workspace(AccessAuditor):
 
         self.audit_log: list[AccessRecord] = []
         self._bytes_read = 0
+
+    @classmethod
+    def from_environment(
+        cls,
+        root: str | Path | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> "Workspace":
+        """A workspace whose limits come from the environment.
+
+        The right budget depends on the size of the repository under review,
+        which is deployment knowledge rather than source knowledge.
+        """
+        return cls(
+            root,
+            max_file_bytes=max_file_bytes_from_env(environment),
+            total_read_budget_bytes=total_read_budget_from_env(environment),
+        )
 
     # -- audit --------------------------------------------------------------
 

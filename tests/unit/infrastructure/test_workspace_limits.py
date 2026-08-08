@@ -222,3 +222,57 @@ class TestMalformedPaths(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLimitsAreOperatorSettable(unittest.TestCase):
+    """The right budget depends on the repository, which is deployment knowledge.
+
+    Both fall back rather than raise on a bad value: a review tool must not
+    fail someone's pipeline over a typo in an environment variable, and the
+    fallback is the documented default rather than "no limit".
+    """
+
+    def test_the_total_budget_is_read_from_the_environment(self):
+        from code_reviewer.infrastructure.tools.workspace import total_read_budget_from_env
+
+        self.assertEqual(total_read_budget_from_env({"WORKSPACE_TOTAL_READ_BUDGET": "4096"}), 4096)
+
+    def test_the_per_file_cap_is_read_from_the_environment(self):
+        from code_reviewer.infrastructure.tools.workspace import max_file_bytes_from_env
+
+        self.assertEqual(max_file_bytes_from_env({"WORKSPACE_MAX_FILE_BYTES": "512"}), 512)
+
+    def test_an_unset_variable_yields_the_default(self):
+        from code_reviewer.infrastructure.tools.workspace import (
+            DEFAULT_MAX_FILE_BYTES,
+            DEFAULT_TOTAL_READ_BUDGET_BYTES,
+            max_file_bytes_from_env,
+            total_read_budget_from_env,
+        )
+
+        self.assertEqual(total_read_budget_from_env({}), DEFAULT_TOTAL_READ_BUDGET_BYTES)
+        self.assertEqual(max_file_bytes_from_env({}), DEFAULT_MAX_FILE_BYTES)
+
+    def test_a_nonsense_value_yields_the_default_rather_than_no_limit(self):
+        from code_reviewer.infrastructure.tools.workspace import (
+            DEFAULT_TOTAL_READ_BUDGET_BYTES,
+            total_read_budget_from_env,
+        )
+
+        for value in ("plenty", "-1", "0", ""):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    total_read_budget_from_env({"WORKSPACE_TOTAL_READ_BUDGET": value}),
+                    DEFAULT_TOTAL_READ_BUDGET_BYTES,
+                )
+
+    def test_a_workspace_built_from_the_environment_honours_them(self):
+        from code_reviewer.infrastructure.tools.workspace import Workspace
+
+        with _Repo() as repo:
+            workspace = Workspace.from_environment(
+                repo.root, environment={"WORKSPACE_TOTAL_READ_BUDGET": "5"}
+            )
+
+            with self.assertRaises(OutsideWorkspaceError):
+                workspace.read("src/app.py")

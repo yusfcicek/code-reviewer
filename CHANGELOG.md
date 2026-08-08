@@ -7,6 +7,44 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.2.0] — 2026-08-08
+
+Level 8: the reviewed content is treated as hostile input, which is what it is.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| Files named `.env`, `.env.*`, `.netrc`, `.npmrc`, `.pypirc`, `credentials`, `id_rsa`/`id_*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, and anything under `.git/`, are no longer readable by the agent | Nothing, unless a review legitimately needed one. `.env.example` is caught by the glob; that trade is deliberate. |
+| `grep_search` refuses a pattern with a leading `-`, control characters, `..`, or shell metacharacters, and treats the pattern as a fixed string | Regular-expression searches no longer work. They never worked *correctly* — the pattern was a BRE by accident. |
+| A refused file access fails the pipeline | It is a `CRITICAL` finding, so `gate.blocking_severity` governs it like any other. |
+| `ReviewService` gained an `access_auditor` argument | Optional; omitting it keeps the previous behaviour. |
+
+### Added
+
+- A trust boundary: the diff and file content are delimited by
+  `<untrusted_diff>` / `<untrusted_file_content>`, escaped so the content
+  cannot close its own tag, with a trust-boundary section at the top of the
+  system prompt.
+- Secret redaction before publishing, in two layers: the values of the
+  secret-bearing environment variables this process holds, then known secret
+  shapes.
+- A per-review read budget (`WORKSPACE_TOTAL_READ_BUDGET`, default 20 MB) and
+  a settable per-file cap (`WORKSPACE_MAX_FILE_BYTES`).
+- An audit log of every file-access attempt, and an `AccessAuditor` port that
+  carries the refusals to the workflow.
+- `code_reviewer.infrastructure.security` and
+  `code_reviewer.infrastructure.tools.safe_search`.
+
+### Fixed
+
+- A path containing a NUL byte made `Path.resolve()` raise `ValueError`, which
+  escaped the workspace's own error contract: the access was neither refused
+  nor recorded (G-05).
+- `list_files` and `find_file` walked the tree themselves, so the deny-list did
+  not apply to discovery. Locating a credential file is the first half of
+  reading one (G-05).
+
 ## [2.1.0] — 2026-08-08
 
 Level 7: the agent's tool loop moved into this repository, which unblocked the

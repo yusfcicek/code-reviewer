@@ -73,9 +73,17 @@ def run(args) -> int:
 
     # Every file the agent can read is confined to the checkout it is
     # reviewing; the paths it asks for come from the diff (finding F-21).
-    workspace = Workspace()
+    workspace = Workspace.from_environment()
     set_workspace(workspace)
-    logger.info("Tools confined", extra={"fields": {"workspace": str(workspace.root)}})
+    logger.info(
+        "Tools confined",
+        extra={
+            "fields": {
+                "workspace": str(workspace.root),
+                "read_budget_bytes": workspace.total_read_budget_bytes,
+            }
+        },
+    )
 
     provider = LLMFactory.create_provider("vllm")
     memory = SmartMemoryStrategy(provider)
