@@ -227,14 +227,17 @@ class TestNoPrints(unittest.TestCase):
         # Asserted on the file and the count, not the line number: a test
         # that breaks when something above it moves is a test that gets
         # deleted rather than understood.
-        marked = [
+        marked = sorted(
             str(path.relative_to(package))
             for path in package.rglob("*.py")
             for line in path.read_text(encoding="utf-8").splitlines()
             if STDOUT_MARKER in line and "print(" in line
-        ]
+        )
 
-        self.assertEqual(marked, ["__main__.py"], marked)
+        # Two entry points, and only entry points: `__main__` prints the review
+        # under `--dry-run`, and `evaluate` prints the evaluation report and
+        # the two reasons it could not be produced. Everything below them logs.
+        self.assertEqual(marked, ["__main__.py", "evaluate.py", "evaluate.py", "evaluate.py"], marked)
 
 
 if __name__ == "__main__":

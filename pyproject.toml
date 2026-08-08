@@ -1,6 +1,6 @@
 [project]
 name = "enterprise-ai-code-reviewer"
-version = "2.5.0"
+version = "2.6.0"
 description = "Enterprise-grade AI Code Review Agent with CI/CD integration"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -51,6 +51,10 @@ Issues = "https://github.com/yusfcicek/code-reviewer/issues"
 
 [project.scripts]
 ai-code-review = "code_reviewer.__main__:main"
+# A second entry point rather than a subcommand: pipelines invoke
+# `ai-code-review` with a fixed argument list, and moving it behind a
+# subcommand would break every one of them (Level 12, decision D-5).
+ai-code-review-eval = "code_reviewer.evaluate:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -155,6 +159,19 @@ ignore = [
     "S324",
     "S603",
     "S607",
+]
+
+
+# The evaluation fixtures are annotated specimens: hardcoded credentials, weak
+# hashes and SQL built by concatenation, each of which some case asserts is
+# found. Linting them clean would delete the dataset.
+"evaluation/**" = [
+    "S105",
+    "S106",
+    "S107",
+    "S324",
+    "S608",
+    "E501",
 ]
 
 [tool.ruff.lint.isort]
