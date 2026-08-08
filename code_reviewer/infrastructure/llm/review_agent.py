@@ -23,6 +23,7 @@ from code_reviewer.infrastructure.llm.narration_loop import (
 )
 from code_reviewer.infrastructure.llm.token_counter import ModelTokenCounter
 from code_reviewer.infrastructure.observability.logging import get_logger
+from code_reviewer.infrastructure.security.redaction import SecretRedactor
 from code_reviewer.infrastructure.tools.definitions import get_tools
 
 logger = get_logger(__name__)
@@ -236,10 +237,14 @@ class ReviewAgent:
         memory_strategy: MemoryStrategy,
         token_counter: Callable[[str], int] | None = None,
         tool_protocol: str | None = None,
+        redactor: SecretRedactor | None = None,
     ):
         self.llm = llm_provider.get_chat_model()
         self.memory_strategy = memory_strategy
         self.count_tokens = token_counter or ModelTokenCounter(self.llm)
+        # Built from the environment so the secrets this process was actually
+        # given are masked by value, not only by shape (finding G-04).
+        self.redactor = redactor or SecretRedactor.from_environment()
 
         self.tool_protocol = self._resolve_protocol(tool_protocol)
         # Under `none` the model narrates from the diff alone. Registering the
@@ -444,10 +449,22 @@ class ReviewAgent:
                         self.memory_strategy.log_insight(insight)
                         logger.debug("Insight stored", extra={"fields": {"insight": insight}})
 
-            # Save interaction/summary
+            # Memory stays in-process, so it keeps the unmasked text: masking
+            # it would lose context the next file's review may need.
             self.memory_strategy.save_context(user_input, output)
 
-            return output
+            # This is the boundary. Everything past here is a CI log or a
+            # merge-request comment, and neither can be taken back — a comment
+            # survives its own deletion in notification mail and webhook
+            # history (finding G-04).
+            redaction = self.redactor.redact_with_report(output)
+            if redaction.count:
+                logger.warning(
+                    "Redacted potential secrets from a review",
+                    extra={"fields": {"path": filename, "count": redaction.count}},
+                )
+
+            return redaction.text
 
         except Exception as e:
             logger.error(
