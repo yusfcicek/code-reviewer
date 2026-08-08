@@ -200,7 +200,7 @@ class SemanticChangeAnalyzer:
         return added, removed, context
 
     def _extract_changed_symbols(
-        self, added_lines: list[str], removed_lines: list[str], full_content: str, file_path: str
+        self, added_lines: list[str], removed_lines: list[str], full_content: str | None, file_path: str
     ) -> list[ChangedSymbol]:
         """Collects the symbols the change touched, AST first, regex second."""
         symbols = []
@@ -261,7 +261,7 @@ class SemanticChangeAnalyzer:
 
         return symbols
 
-    def _get_function_signature(self, node: ast.FunctionDef) -> str:
+    def _get_function_signature(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
         """Renders a function signature, for comparing before and after."""
         args = []
         for arg in node.args.args:

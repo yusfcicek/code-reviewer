@@ -19,6 +19,7 @@ directly would be a large change with no behavioural gain, and their tests pin
 the current output (decision D-2).
 """
 
+from code_reviewer.application.ports import StaticAnalysis
 from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
@@ -49,7 +50,7 @@ def _rule_id(namespace: str, raw) -> str:
     return f"{namespace}.{str(value).upper()}"
 
 
-class StaticAnalysisSuite:
+class StaticAnalysisSuite(StaticAnalysis):
     """Every analyzer, one call, one vocabulary."""
 
     def __init__(self, policy: ReviewPolicy | None = None):

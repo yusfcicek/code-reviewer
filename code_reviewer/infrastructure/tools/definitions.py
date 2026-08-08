@@ -119,7 +119,11 @@ class CodeSearchTools:
             return f"Refused: {exc}"
 
         try:
-            output = subprocess.check_output(command, stderr=subprocess.DEVNULL).decode("utf-8")
+            # `command` is built by build_grep_command, which validates the
+            # pattern and places it after `--`.
+            output = subprocess.check_output(  # noqa: S603
+                command, stderr=subprocess.DEVNULL
+            ).decode("utf-8")
         except subprocess.CalledProcessError:
             return "No matches found."
         except Exception as exc:
@@ -238,7 +242,7 @@ class DependencyAnalysisTools:
         except SyntaxError as exc:
             return f"Error analyzing imports: {exc}"
 
-        imports = []
+        imports: list[str] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imports.extend(f"import {alias.name}" for alias in node.names)

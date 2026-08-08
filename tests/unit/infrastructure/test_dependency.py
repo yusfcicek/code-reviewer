@@ -11,6 +11,7 @@ classification has a specification.
 """
 
 import unittest
+from unittest.mock import MagicMock, patch
 
 from code_reviewer.domain.finding import DependencyType
 from code_reviewer.infrastructure.analyzers.dependency import DependencyTracker
@@ -94,3 +95,49 @@ class TestRiskLevels(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUsageSearchIsSafe(unittest.TestCase):
+    """The second `grep` call site, missed when G-06 fixed the first.
+
+    `find_affected_by_change` and `find_ripple_effects` are agent tools, so the
+    symbol reaching this search comes from the model, which got it from the
+    diff. It was assembled without `--`, without `-F` and without excluding
+    credential files — the same three defects G-06 fixed in the tool module,
+    in a call site nobody looked at. Ruff's `S603` found it (finding G-18).
+    """
+
+    def _command(self, symbol):
+        with patch("subprocess.run") as run:
+            run.return_value = MagicMock(returncode=1, stdout="")
+            DependencyTracker(root_path=".")._find_all_usages(symbol)
+            return run.call_args[0][0] if run.call_args else []
+
+    def test_the_symbol_comes_after_a_separator(self):
+        command = self._command("handle_request")
+
+        self.assertIn("--", command)
+        self.assertLess(command.index("--"), command.index("handle_request"))
+
+    def test_the_symbol_is_a_fixed_string(self):
+        self.assertIn("-F", self._command("handle_request"))
+
+    def test_credential_files_are_excluded(self):
+        command = self._command("token")
+
+        self.assertIn("--exclude=.env", command)
+        self.assertIn("--exclude=*.pem", command)
+
+    def test_a_flag_shaped_symbol_runs_nothing(self):
+        """Refused before a process is started, not sanitised into one."""
+        with patch("subprocess.run") as run:
+            result = DependencyTracker(root_path=".")._find_all_usages("--include=.env")
+
+        run.assert_not_called()
+        self.assertEqual(result, [])
+
+    def test_a_symbol_with_control_characters_runs_nothing(self):
+        with patch("subprocess.run") as run:
+            DependencyTracker(root_path=".")._find_all_usages("a\nb")
+
+        run.assert_not_called()

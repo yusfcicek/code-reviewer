@@ -254,12 +254,16 @@ class QualityAnalyzer:
 
         return issues
 
-    def _check_function_srp(self, func_node: ast.FunctionDef, content: str) -> list[QualityIssue]:
+    def _check_function_srp(
+        self, func_node: ast.FunctionDef | ast.AsyncFunctionDef, content: str
+    ) -> list[QualityIssue]:
         """Flags functions that are too long or too branchy."""
         issues = []
 
-        # Length
-        if hasattr(func_node, "end_lineno"):
+        # Length. `end_lineno` is Optional on every AST node, and `hasattr`
+        # does not narrow that — a node carrying `end_lineno=None` would have
+        # raised a TypeError here rather than skipping the check.
+        if func_node.end_lineno is not None:
             line_count = func_node.end_lineno - func_node.lineno + 1
             if line_count > self.max_function_lines:
                 issues.append(
@@ -392,7 +396,7 @@ class QualityAnalyzer:
                             count += 1
         return count
 
-    def _calculate_cyclomatic_complexity(self, func_node: ast.FunctionDef) -> int:
+    def _calculate_cyclomatic_complexity(self, func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
         """Counts the independent paths through a function."""
         complexity = 1  # Base complexity
 
@@ -426,7 +430,11 @@ class QualityAnalyzer:
 
         for i in range(len(normalized_lines) - block_size + 1):
             block = [nl[1] for nl in normalized_lines[i : i + block_size]]
-            block_hash = hashlib.md5("\n".join(block).encode()).hexdigest()
+            # Not a security hash: this buckets identical blocks so the
+            # duplicate-code check can compare them. `usedforsecurity=False`
+            # says so to the reader and to the FIPS-restricted builds where
+            # md5 is otherwise unavailable.
+            block_hash = hashlib.md5("\n".join(block).encode(), usedforsecurity=False).hexdigest()
             start_line = normalized_lines[i][0]
             block_hashes[block_hash].append(start_line)
 
@@ -516,7 +524,7 @@ class QualityAnalyzer:
             score=max(0, score), issues=issues, summary=f"Testability score: {max(0, score)}/100"
         )
 
-    def _find_global_usage(self, func_node: ast.FunctionDef) -> list[str]:
+    def _find_global_usage(self, func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
         """The globals a function declares it will write to."""
         globals_used = []
 

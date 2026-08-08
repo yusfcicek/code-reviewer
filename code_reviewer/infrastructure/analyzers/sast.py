@@ -28,7 +28,7 @@ class VulnerabilityType(Enum):
     XSS = "xss"
     COMMAND_INJECTION = "command_injection"
     PATH_TRAVERSAL = "path_traversal"
-    HARDCODED_SECRET = "hardcoded_secret"
+    HARDCODED_SECRET = "hardcoded_secret"  # noqa: S105 - a rule name, not a credential
     INSECURE_RANDOM = "insecure_random"
     INSECURE_DESERIALIZATION = "insecure_deserialization"
     WEAK_CRYPTO = "weak_crypto"
@@ -597,6 +597,9 @@ class SASTAnalyzer:
             return "\n".join(parts)
 
         risk = report.risk_score
+        if risk is None:  # pragma: no cover - a report with findings always scores
+            parts.append("⚠️ Findings were reported without a risk score.")
+            return "\n".join(parts)
 
         # Any critical finding makes the file critical, whatever the total emoji
         risk_emoji = {"critical": "🚨", "high": "⚠️", "medium": "⚡", "low": "ℹ️", "safe": "✅"}

@@ -15,7 +15,7 @@ from typing import Any
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from code_reviewer.application.ports import LLMProvider, MemoryStrategy
+from code_reviewer.application.ports import LLMProvider, MemoryStrategy, Reviewer
 from code_reviewer.infrastructure.llm.narration_loop import (
     NarrationLoop,
     max_iterations_from_env,
@@ -93,7 +93,7 @@ def render_tool_catalogue(tools: Sequence[Any]) -> str:
     )
 
 
-class ReviewAgent:
+class ReviewAgent(Reviewer):
     """
     Advanced Architectural Code Review Agent.
 

@@ -120,6 +120,7 @@ select = [
     "C4",   # comprehensions
     "SIM",  # simplifications
     "RUF",  # ruff-specific
+    "S",    # flake8-bandit: the rule family for the layer that calls out
 ]
 ignore = [
     # The codebase documents itself partly in Turkish and uses typographic
@@ -138,18 +139,38 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests build deliberately awkward inputs and assert on them; a few
 # simplifications would obscure what is being exercised.
-"tests/**" = ["SIM117", "B017"]
+"tests/**" = [
+    "SIM117",
+    "B017",
+    # Tests assert. That is what they are.
+    "S101",
+    # Test fixtures contain deliberately bad code — hardcoded secrets,
+    # `eval`, insecure URLs — because that is what the analyzers are
+    # being pointed at.
+    "S105",
+    "S106",
+    "S107",
+    "S108",
+    "S307",
+    "S324",
+    "S603",
+    "S607",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["code_reviewer"]
 
 [tool.mypy]
 python_version = "3.12"
-# The domain and application layers carry no framework types and are where a
-# type error would be a genuine design fault. The infrastructure layer is
-# reported but not gating: most of what mypy finds there is LangChain's own
-# missing annotations.
-files = ["code_reviewer/domain", "code_reviewer/application"]
+# The whole package. `infrastructure` is where every subprocess call, every
+# path construction and every network client lives — the layer most worth
+# checking and, until Level 11, the one not checked at all (finding G-18).
+#
+# Checked, not made strict: the five analyzers carry type debt from the
+# imported prototype, and closing it in one pass would mean hundreds of
+# annotations on branches with no tests behind them. Widening finds real
+# errors today; strictness is a separate decision with its own cost.
+files = ["code_reviewer"]
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_ignores = true

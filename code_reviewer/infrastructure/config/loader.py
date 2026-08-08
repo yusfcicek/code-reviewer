@@ -11,6 +11,7 @@ relative to the working directory (finding F-04).
 
 import dataclasses
 import os
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 from typing import ClassVar
@@ -217,10 +218,10 @@ class ReviewPolicyLoader:
 
     def _load_from_env(self) -> dict:
         """Collects the REVIEW_POLICY_* overrides that are set."""
-        overrides = {}
+        overrides: dict[str, dict[str, object]] = {}
 
         # Only these variables are recognised; anything else is ignored.
-        env_mappings = {
+        env_mappings: dict[str, tuple[str, str, Callable[[str], object]]] = {
             "REVIEW_POLICY_MAX_LINES_AUTO": ("triage", "max_lines_for_auto", int),
             "REVIEW_POLICY_MAX_LINES_QUICK": ("triage", "max_lines_for_quick", int),
             "REVIEW_POLICY_BLOCK_CRITICAL": ("security", "block_on_critical", self._parse_bool),

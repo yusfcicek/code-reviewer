@@ -234,7 +234,9 @@ class PerformanceAnalyzer:
 
         return reports
 
-    def _analyze_function_complexity(self, func_node: ast.FunctionDef) -> ComplexityReport:
+    def _analyze_function_complexity(
+        self, func_node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> ComplexityReport:
         """Estimates one function's complexity from its loops and recursion."""
         max_depth = 0
         is_recursive = False
@@ -313,7 +315,7 @@ class PerformanceAnalyzer:
 
         return max_depth
 
-    def _is_recursive(self, func_node: ast.FunctionDef) -> bool:
+    def _is_recursive(self, func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """True when the function calls itself."""
         func_name = func_node.name
 
@@ -329,7 +331,7 @@ class PerformanceAnalyzer:
 
     def _detect_memory_leaks(self, tree: ast.AST) -> list[MemoryLeakRisk]:
         """Finds resources that may never be released."""
-        risks = []
+        risks: list[MemoryLeakRisk] = []
 
         for node in ast.walk(tree):
             # open() without context manager
@@ -638,7 +640,7 @@ class PerformanceAnalyzer:
             parts.append(f"\n💾 **Memory Leak Risks**: {len(report.memory_leak_risks)}")
 
         # Issue breakdown
-        issue_types = {}
+        issue_types: dict[str, int] = {}
         for issue in report.issues:
             issue_types[issue.issue_type.value] = issue_types.get(issue.issue_type.value, 0) + 1
 
