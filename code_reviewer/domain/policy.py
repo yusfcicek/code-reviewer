@@ -131,6 +131,16 @@ class GatePolicy:
     #: the failure is always reported in the comment (decision D-4).
     fail_on_review_error: bool = False
 
+    #: A file whose static analysis could not run at all.
+    #:
+    #: Defaults to True, and the asymmetry with `fail_on_review_error` above is
+    #: deliberate. That one covers "the reviewer crashed on this file", where
+    #: the model is allowed to fail and the analysis still happened. This one
+    #: covers "we could not look", where zero findings means nothing was
+    #: examined rather than nothing was found — and for a gate, "unknown" must
+    #: not mean "pass" (finding G-09).
+    fail_pipeline_on_analysis_error: bool = True
+
     # Notification
     notify_on_critical: bool = True
     notify_channels: list[str] = field(default_factory=list)
