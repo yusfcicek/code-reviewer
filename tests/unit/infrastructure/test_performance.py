@@ -259,3 +259,110 @@ class TestPolicyDrivenThresholds(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNPlusOnePrecision(unittest.TestCase):
+    """`.get(` is a dict method far more often than it is a query.
+
+    Found by dogfooding (finding G-16): the rule fired seventeen times across
+    this package, and not one of them touched a database. A rule that flags
+    every `dict.get()` inside a loop is a rule teams turn off, which costs
+    them the real N+1 detections too.
+    """
+
+    @staticmethod
+    def _patterns(source):
+        return PerformanceAnalyzer().analyze(textwrap.dedent(source).strip(), "m.py").n_plus_one_patterns
+
+    def test_a_dict_get_in_a_loop_is_not_an_n_plus_one(self):
+        source = """
+            def handle(rows, lookup):
+                out = []
+                for row in rows:
+                    out.append(lookup.get(row))
+                return out
+        """
+
+        self.assertEqual(self._patterns(source), [])
+
+    def test_a_string_find_in_a_loop_is_not_an_n_plus_one(self):
+        source = """
+            def handle(lines):
+                for line in lines:
+                    if line.find("x") >= 0:
+                        pass
+        """
+
+        self.assertEqual(self._patterns(source), [])
+
+    def test_a_list_all_in_a_loop_is_not_an_n_plus_one(self):
+        source = """
+            def handle(rows):
+                for row in rows:
+                    if all(c.isdigit() for c in row):
+                        pass
+        """
+
+        self.assertEqual(self._patterns(source), [])
+
+    def test_a_cursor_execute_in_a_loop_still_is_one(self):
+        """The precision fix must not cost the detection it exists for."""
+        source = """
+            def handle(rows, cursor):
+                for row in rows:
+                    cursor.execute("SELECT 1")
+        """
+
+        self.assertEqual(len(self._patterns(source)), 1)
+
+    def test_a_session_query_in_a_loop_still_is_one(self):
+        source = """
+            def handle(rows, session):
+                for row in rows:
+                    session.query(Model).first()
+        """
+
+        self.assertEqual(len(self._patterns(source)), 1)
+
+    def test_an_http_request_in_a_loop_still_is_one(self):
+        source = """
+            def handle(rows):
+                for row in rows:
+                    requests.get(row.url)
+        """
+
+        self.assertEqual(len(self._patterns(source)), 1)
+
+    def test_a_named_client_get_in_a_loop_still_is_one(self):
+        """`client.get(url)` is the case `.get(` was in the list for."""
+        source = """
+            def handle(rows, client):
+                for row in rows:
+                    client.get(row.url)
+        """
+
+        self.assertEqual(len(self._patterns(source)), 1)
+
+    def test_an_orm_filter_in_a_loop_still_is_one(self):
+        source = """
+            def handle(rows, session):
+                for row in rows:
+                    session.filter(id=row.id)
+        """
+
+        self.assertEqual(len(self._patterns(source)), 1)
+
+    def test_a_chained_call_is_reported_once(self):
+        """`session.query(Model).first()` is one round trip, not two.
+
+        Matching happens against the line, and a chained expression is several
+        Call nodes on one line — so without deduplication a single query was
+        reported once per node.
+        """
+        source = """
+            def handle(rows, session):
+                for row in rows:
+                    session.query(Model).filter(id=row.id).first()
+        """
+
+        self.assertEqual(len(self._patterns(source)), 1)

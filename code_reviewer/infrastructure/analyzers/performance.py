@@ -116,16 +116,32 @@ class PerformanceAnalyzer:
     RESOURCE_CLOSERS: ClassVar[set[str]] = {"close", "release", "disconnect", "shutdown"}
 
     # Calls that cross a process boundary
+    #: Calls that mean a round trip, matched by *receiver* as well as by name.
+    #:
+    #: The receiver is what makes this usable. `.get(`, `.find(` and `.all(`
+    #: were once matched on the method alone, and in Python those are far more
+    #: often `dict.get`, `str.find` and the `all()` builtin than they are
+    #: queries: dogfooding found seventeen hits across this package and not one
+    #: touched a database (finding G-16). A rule that flags every `dict.get()`
+    #: in a loop is a rule teams switch off, and switching it off costs them
+    #: the real N+1 detections too.
+    #:
+    #: Unambiguous method names still match on any receiver; ambiguous ones
+    #: require a receiver that names a client, a session or a cursor.
     DB_QUERY_PATTERNS: ClassVar[list[str]] = [
+        # Unambiguous: these are not builtins or common container methods.
         r"\.execute\s*\(",
-        r"\.query\s*\(",
-        r"\.find\s*\(",
-        r"\.get\s*\(",
-        r"\.filter\s*\(",
-        r"\.all\s*\(",
-        r"requests\.\w+\s*\(",
+        r"\.executemany\s*\(",
+        r"\.fetchone\s*\(",
+        r"\.fetchall\s*\(",
         r"\.fetch\s*\(",
-        r"\.select\s*\(",
+        r"\brequests\.\w+\s*\(",
+        r"\bhttpx\.\w+\s*\(",
+        r"\burlopen\s*\(",
+        # Ambiguous method names, qualified by a receiver that means I/O.
+        r"\b\w*(?:conn|connection|cursor|session|client|db|database|repo|repository|"
+        r"query|queryset|objects|api|http|store)\w*"
+        r"\.(?:get|find|filter|all|select|query|first|one|count|exists|delete|save)\s*\(",
     ]
 
     # Patterns that materialise more than they need to
@@ -403,6 +419,11 @@ class PerformanceAnalyzer:
         patterns = []
         lines = content.split("\n")
 
+        # Matching is done against the *line*, and a chained expression such
+        # as `session.query(Model).first()` is several Call nodes on one line.
+        # Without this, one round trip would be reported once per node.
+        reported: set[tuple[int, int]] = set()
+
         for node in ast.walk(tree):
             if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
                 loop_line = node.lineno
@@ -410,10 +431,13 @@ class PerformanceAnalyzer:
                 # Does anything inside this loop cross a process boundary?
                 for child in ast.walk(node):
                     if isinstance(child, ast.Call) and hasattr(child, "lineno"):
+                        if (loop_line, child.lineno) in reported:
+                            continue
                         call_line_content = lines[child.lineno - 1] if child.lineno <= len(lines) else ""
 
                         for pattern in self.DB_QUERY_PATTERNS:
                             if re.search(pattern, call_line_content):
+                                reported.add((loop_line, child.lineno))
                                 patterns.append(
                                     NPlusOnePattern(
                                         loop_line=loop_line,
