@@ -17,9 +17,10 @@ from typing import Any
 #: every `.yaml`, `.json` and `Dockerfile`, which is precisely where privilege
 #: escalation, a changed base image or a swapped dependency hides (F-22).
 DEFAULT_SKIP_PATTERNS = [
-    # Documentation
+    # Documentation. `.txt` excludes requirements files: a dependency
+    # manifest that happens to end in `.txt` is not documentation.
     r".*\.md$",
-    r".*\.txt$",
+    r"^(?!.*requirements).*\.txt$",
     r".*\.rst$",
     r".*\.adoc$",
     r"^LICENSE",
@@ -30,22 +31,58 @@ DEFAULT_SKIP_PATTERNS = [
     r"\.gitattributes$",
     r"\.editorconfig$",
     r"\.dockerignore$",
-    # Generated lock files
-    r"(^|/)uv\.lock$",
-    r"(^|/)poetry\.lock$",
-    r"(^|/)Pipfile\.lock$",
-    r"(^|/)package-lock\.json$",
-    r"(^|/)yarn\.lock$",
-    r"(^|/)pnpm-lock\.yaml$",
-    r"(^|/)Cargo\.lock$",
-    r"(^|/)composer\.lock$",
-    r"(^|/)Gemfile\.lock$",
-    r"(^|/)go\.sum$",
+    # Lock files are NOT skipped, and that is a change from before Level 9.
+    #
+    # They were skipped as "generated", which is true and beside the point: a
+    # lock file is the only place a changed *transitive* dependency is
+    # visible. Skipping them means the one artefact that records a
+    # supply-chain change is the one artefact nobody reads (finding G-11).
+    #
+    # The cost is real — a lock file diff is long and mostly noise — so they
+    # are matched by `manifest_patterns` below and a team that finds the
+    # trade wrong can move them back in its own policy.
     # Binary and vendored content
     r"\.(png|jpe?g|gif|svg|ico|pdf|woff2?|ttf|eot)$",
     r"(^|/)vendor/",
     r"(^|/)node_modules/",
     r"(^|/)\.min\.(js|css)$",
+]
+
+#: Dependency manifests, container definitions and CI configuration.
+#:
+#: Deliberately overlapping with nothing in DEFAULT_SKIP_PATTERNS: a file
+#: cannot both be not worth reading and be the most dangerous kind of change.
+#: Lock files appear here rather than in the skip list for the same reason —
+#: a changed transitive dependency is exactly the thing worth noticing.
+DEFAULT_MANIFEST_PATTERNS = [
+    # JavaScript / TypeScript
+    r"(^|/)package(-lock)?\.json$",
+    r"(^|/)yarn\.lock$",
+    r"(^|/)pnpm-lock\.yaml$",
+    # Python
+    r"(^|/)requirements[^/]*\.txt$",
+    r"(^|/)pyproject\.toml$",
+    r"(^|/)poetry\.lock$",
+    r"(^|/)uv\.lock$",
+    r"(^|/)Pipfile(\.lock)?$",
+    r"(^|/)setup\.(py|cfg)$",
+    # Go, Rust, Ruby, JVM
+    r"(^|/)go\.(mod|sum)$",
+    r"(^|/)Cargo\.(toml|lock)$",
+    r"(^|/)Gemfile(\.lock)?$",
+    r"(^|/)pom\.xml$",
+    r"(^|/)build\.gradle(\.kts)?$",
+    # Containers and orchestration
+    r"(^|/)Dockerfile[^/]*$",
+    r"(^|/)docker-compose[^/]*\.ya?ml$",
+    r"(^|/)Makefile$",
+    # CI definitions: the shortest path from a merge request to arbitrary
+    # code running with the runner's credentials.
+    r"(^|/)\.gitlab-ci\.ya?ml$",
+    r"(^|/)\.github/workflows/.*\.ya?ml$",
+    r"(^|/)\.circleci/.*\.ya?ml$",
+    r"(^|/)Jenkinsfile$",
+    r"(^|/)azure-pipelines\.ya?ml$",
 ]
 
 
@@ -54,6 +91,15 @@ class TriagePolicy:
     """Which files are reviewed, and how much review each one warrants."""
 
     skip_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_SKIP_PATTERNS))
+
+    #: Paths reviewed in full regardless of how little of them changed.
+    #:
+    #: Supply-chain and pipeline-poisoning changes are small by nature: a
+    #: one-line version bump and a one-line `curl … | sh` added to a CI job
+    #: both sit inside the auto-approve threshold, and the logic-change guard
+    #: looks for `if`/`for`/`def`, which no YAML or JSON line contains. Size is
+    #: the wrong axis for this class of file (finding G-11).
+    manifest_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_MANIFEST_PATTERNS))
     max_lines_for_auto: int = 10
     max_lines_for_quick: int = 50
     allow_only_comments: bool = True
