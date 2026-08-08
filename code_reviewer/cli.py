@@ -16,11 +16,24 @@ import os
 import sys
 from collections.abc import Sequence
 
+#: Where GitLab CI picks up the metrics report artifact.
+DEFAULT_METRICS_PATH = "metrics.txt"
+
 
 def _env_int(name: str) -> str | None:
     """Reads an environment default, leaving conversion to argparse's ``type``."""
     value = os.getenv(name)
     return value if value not in (None, "") else None
+
+
+def _env(name: str, fallback: str) -> str:
+    """An environment default for a plain string option.
+
+    Each operational flag has one, so a pipeline sets it once in its variables
+    block rather than on every invocation.
+    """
+    value = os.getenv(name)
+    return value if value else fallback
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,6 +58,40 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Path to a policy YAML file (defaults to the bundled review_policy.yaml)",
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=str,
+        default=_env("CI_PROJECT_DIR", "."),
+        help="Workspace root. The agent cannot read outside this directory.",
+    )
+    parser.add_argument(
+        "--metrics-path",
+        type=str,
+        default=_env("REVIEW_METRICS_PATH", DEFAULT_METRICS_PATH),
+        help=f"Where to write the OpenMetrics report (default: {DEFAULT_METRICS_PATH})",
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default=_env("LOG_LEVEL", "INFO"),
+        help="DEBUG, INFO (default), WARNING or ERROR",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Print the report instead of posting it. The exit code is still the "
+            "real one, so a dry run answers 'would this block the merge'."
+        ),
+    )
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help=(
+            "Run static analysis only, with no model endpoint. The verdict is "
+            "unchanged: it has never come from the model."
+        ),
     )
     return parser
 

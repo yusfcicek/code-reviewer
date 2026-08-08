@@ -1,0 +1,225 @@
+"""What the operational flags actually do.
+
+`--dry-run` and `--no-llm` are what make the agent adoptable: they let someone
+run it against a real merge request without posting to it, and let a team run
+the deterministic half without a model endpoint at all (finding G-13).
+
+Both are only honest if they are wired, not merely parsed — hence behavioural
+tests rather than argument-parsing ones. The parsing lives in
+`tests/unit/test_cli.py`.
+"""
+
+import unittest
+from unittest.mock import MagicMock, patch
+
+from code_reviewer.__main__ import EXIT_BLOCKED, EXIT_OK, _NoNarration, run
+from code_reviewer.application.ports import Reviewer
+from code_reviewer.cli import parse_args
+
+
+def _args(*argv):
+    return parse_args(["--project-id", "1", "--mr-iid", "2", *argv])
+
+
+class _Result:
+    def __init__(self, comment="the report", exit_code=EXIT_OK):
+        self.comment = comment
+        self.exit_code = exit_code
+        self.metrics = []
+        self.findings = []
+        self.outcome = MagicMock(is_blocking=exit_code != EXIT_OK, blocking_issues=[])
+
+
+class _Harness:
+    """Stubs everything `run()` reaches for, recording what it was given."""
+
+    def __enter__(self):
+        self._patches = [
+            patch("code_reviewer.__main__.load_policy"),
+            patch("code_reviewer.__main__.GitLabForge"),
+            patch("code_reviewer.__main__.ReviewService"),
+            patch("code_reviewer.__main__.LLMFactory"),
+            patch("code_reviewer.__main__.StaticAnalysisSuite"),
+            patch("code_reviewer.__main__.set_workspace"),
+            patch("code_reviewer.__main__._export_metrics"),
+        ]
+        (
+            self.load_policy,
+            self.forge,
+            self.service,
+            self.llm_factory,
+            self.analysis,
+            self.set_workspace,
+            self.export_metrics,
+        ) = [p.start() for p in self._patches]
+
+        self.load_policy.return_value = MagicMock(version="1.0")
+        self.service.return_value.review.return_value = _Result()
+        return self
+
+    def __exit__(self, *exc_info):
+        for p in self._patches:
+            p.stop()
+        return False
+
+    @property
+    def service_kwargs(self):
+        return self.service.call_args.kwargs
+
+    @property
+    def review_kwargs(self):
+        return self.service.return_value.review.call_args.kwargs
+
+
+class TestDryRun(unittest.TestCase):
+    def test_the_workflow_is_told_not_to_publish(self):
+        with _Harness() as harness:
+            run(_args("--dry-run"))
+
+        self.assertFalse(harness.review_kwargs["publish"])
+
+    def test_a_normal_run_does_publish(self):
+        with _Harness() as harness:
+            run(_args())
+
+        self.assertTrue(harness.review_kwargs["publish"])
+
+    def test_the_report_is_printed(self):
+        with _Harness(), patch("builtins.print") as printed:
+            run(_args("--dry-run"))
+
+        printed.assert_called_once()
+        self.assertIn("the report", printed.call_args[0][0])
+
+    def test_a_normal_run_prints_nothing(self):
+        with _Harness(), patch("builtins.print") as printed:
+            run(_args())
+
+        printed.assert_not_called()
+
+    def test_the_exit_code_is_still_the_real_one(self):
+        """A dry run answers "what would this do", including "would it block"."""
+        with _Harness() as harness:
+            harness.service.return_value.review.return_value = _Result(exit_code=EXIT_BLOCKED)
+
+            self.assertEqual(run(_args("--dry-run")), EXIT_BLOCKED)
+
+
+class TestNoLlm(unittest.TestCase):
+    def test_no_provider_is_constructed(self):
+        """Not merely unused — `--no-llm` must need no endpoint at all."""
+        with _Harness() as harness:
+            run(_args("--no-llm"))
+
+        harness.llm_factory.create_provider.assert_not_called()
+
+    def test_a_normal_run_does_construct_one(self):
+        with _Harness() as harness:
+            run(_args())
+
+        harness.llm_factory.create_provider.assert_called_once()
+
+    def test_the_reviewer_is_the_null_narrator(self):
+        with _Harness() as harness:
+            run(_args("--no-llm"))
+
+        self.assertIsInstance(harness.service_kwargs["reviewer"], _NoNarration)
+
+    def test_the_analyzers_still_run(self):
+        """The verdict comes from them, so this is not a degraded mode."""
+        with _Harness() as harness:
+            run(_args("--no-llm"))
+
+        self.assertIsNotNone(harness.service_kwargs["analysis"])
+
+    def test_the_null_narrator_satisfies_the_port(self):
+        self.assertIsInstance(_NoNarration(), Reviewer)
+
+    def test_its_output_explains_itself(self):
+        """A blank section would leave a reader wondering what went wrong."""
+        text = _NoNarration().review_diff("app.py", "+ line")
+
+        self.assertIn("--no-llm", text)
+        self.assertIn("static analysis", text)
+
+
+class TestOperationalPaths(unittest.TestCase):
+    def test_the_repo_root_becomes_the_workspace(self):
+        with _Harness() as harness, patch("code_reviewer.__main__.Workspace") as workspace:
+            run(_args("--repo-root", "/srv/checkout"))
+
+        workspace.from_environment.assert_called_once_with("/srv/checkout")
+        harness.set_workspace.assert_called_once()
+
+    def test_the_metrics_path_is_honoured(self):
+        with _Harness() as harness:
+            run(_args("--metrics-path", "build/metrics.txt"))
+
+        self.assertEqual(harness.export_metrics.call_args[0][-1], "build/metrics.txt")
+
+    def test_the_default_metrics_path_is_unchanged(self):
+        with _Harness() as harness:
+            run(_args())
+
+        self.assertEqual(harness.export_metrics.call_args[0][-1], "metrics.txt")
+
+
+class TestLogLevelReachesTheConfiguration(unittest.TestCase):
+    def test_main_configures_logging_with_the_requested_level(self):
+        from code_reviewer.__main__ import main
+
+        with (
+            patch("code_reviewer.__main__.configure_logging") as configure,
+            patch("code_reviewer.__main__.parse_args") as parse,
+            patch("code_reviewer.__main__.run") as runner,
+        ):
+            parse.return_value = MagicMock(project_id=1, mr_iid=2, log_level="DEBUG")
+            runner.return_value = EXIT_OK
+
+            with self.assertRaises(SystemExit):
+                main()
+
+        configure.assert_called_once_with("DEBUG")
+
+    def test_configure_logging_really_accepts_a_level(self):
+        """The mock above cannot catch a signature mismatch — this can.
+
+        `configure_logging(stream=None)` used to be the only parameter, so
+        `configure_logging("DEBUG")` would have passed the string as the output
+        stream and produced a handler writing to a string.
+        """
+        import io
+        import logging
+
+        from code_reviewer.infrastructure.observability.logging import configure_logging
+
+        logger = configure_logging("DEBUG", stream=io.StringIO())
+
+        self.assertEqual(logger.level, logging.DEBUG)
+
+    def test_an_explicit_level_beats_the_environment(self):
+        """A flag that loses to a variable is not a flag."""
+        import io
+        import logging
+        import os
+
+        from code_reviewer.infrastructure.observability.logging import configure_logging
+
+        with patch.dict(os.environ, {"LOG_LEVEL": "ERROR"}):
+            logger = configure_logging("DEBUG", stream=io.StringIO())
+
+        self.assertEqual(logger.level, logging.DEBUG)
+
+    def test_an_unrecognised_level_falls_back_rather_than_raising(self):
+        import io
+        import logging
+
+        from code_reviewer.infrastructure.observability.logging import configure_logging
+
+        logger = configure_logging("VERBOSE", stream=io.StringIO())
+
+        self.assertEqual(logger.level, logging.INFO)
+
+
+if __name__ == "__main__":
+    unittest.main()

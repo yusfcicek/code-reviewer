@@ -7,8 +7,12 @@ second forge means adding a sibling of this module and nothing else
 """
 
 from code_reviewer.application.ports import CodeForge, FileChange, MergeRequestRef
+from code_reviewer.application.report import REVIEW_COMMENT_MARKER
+from code_reviewer.infrastructure.observability.logging import get_logger
 
 from .gitlab_client import build_gitlab_client
+
+logger = get_logger(__name__)
 
 
 class GitLabForge(CodeForge):
@@ -63,7 +67,58 @@ class GitLabForge(CodeForge):
             return None
 
     def publish_comment(self, reference: MergeRequestRef, body: str) -> None:
-        self._merge_request(reference).notes.create({"body": body})
+        """Posts the review, editing the previous one rather than adding to it.
+
+        Five pipeline runs used to leave five reports, with the oldest and
+        most wrong at the top of the thread (finding G-12). The agent finds
+        its own previous comment by the marker the renderer embeds, so the
+        state lives in the comment rather than anywhere that could drift out
+        of sync with it.
+
+        Every failure here falls back to creating a comment. Losing the
+        idempotency is cosmetic; losing the review is not.
+        """
+        merge_request = self._merge_request(reference)
+
+        existing = self._existing_review_note(merge_request, body)
+        if existing is not None:
+            try:
+                existing.body = body
+                existing.save()
+                return
+            except Exception as exc:
+                logger.warning(
+                    "Could not update the existing review comment; posting a new one",
+                    extra={"fields": {"error": str(exc)}},
+                )
+
+        merge_request.notes.create({"body": body})
+
+    @staticmethod
+    def _existing_review_note(merge_request, body: str):
+        """The note this agent posted last time, or ``None``.
+
+        Matched on the marker, never on authorship or position: a human reply
+        and another tool's report both live in the same thread, and neither
+        may be overwritten. A body carrying no marker is not looking for a
+        note to replace.
+        """
+        if REVIEW_COMMENT_MARKER not in body:
+            return None
+
+        try:
+            notes = merge_request.notes.list(all=True)
+        except Exception as exc:
+            logger.warning(
+                "Could not read existing comments; posting a new one",
+                extra={"fields": {"error": str(exc)}},
+            )
+            return None
+
+        for note in notes:
+            if REVIEW_COMMENT_MARKER in (getattr(note, "body", "") or ""):
+                return note
+        return None
 
     # -- internals ----------------------------------------------------------
 

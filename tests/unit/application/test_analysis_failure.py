@@ -196,3 +196,65 @@ class TestOneFileDoesNotCondemnTheOthers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPublishingIsOptional(unittest.TestCase):
+    """`--dry-run` runs the whole workflow and posts nothing.
+
+    Asserted here against the real `ReviewService`, not a mock of it: a test
+    that stubs the object it is checking the signature of cannot catch a
+    signature that does not exist (finding G-13).
+    """
+
+    def test_the_comment_is_published_by_default(self):
+        forge = _Forge()
+        policy = ReviewPolicy()
+        ReviewService(
+            forge=forge,
+            reviewer=_Reviewer(),
+            triage=ReviewTriage(policy),
+            policy=policy,
+            analysis=_CleanAnalysis(),
+        ).review(1, 2)
+
+        self.assertIsNotNone(forge.published)
+
+    def test_publish_false_posts_nothing(self):
+        forge = _Forge()
+        policy = ReviewPolicy()
+        ReviewService(
+            forge=forge,
+            reviewer=_Reviewer(),
+            triage=ReviewTriage(policy),
+            policy=policy,
+            analysis=_CleanAnalysis(),
+        ).review(1, 2, publish=False)
+
+        self.assertIsNone(forge.published)
+
+    def test_the_report_is_still_produced(self):
+        """Not posting is not the same as not reviewing."""
+        forge = _Forge()
+        policy = ReviewPolicy()
+        result = ReviewService(
+            forge=forge,
+            reviewer=_Reviewer(),
+            triage=ReviewTriage(policy),
+            policy=policy,
+            analysis=_CleanAnalysis(),
+        ).review(1, 2, publish=False)
+
+        self.assertIn("AI Review Report", result.comment)
+
+    def test_the_verdict_is_unaffected(self):
+        forge = _Forge()
+        policy = ReviewPolicy()
+        result = ReviewService(
+            forge=forge,
+            reviewer=_Reviewer(),
+            triage=ReviewTriage(policy),
+            policy=policy,
+            analysis=_BrokenAnalysis(),
+        ).review(1, 2, publish=False)
+
+        self.assertEqual(result.exit_code, 1)

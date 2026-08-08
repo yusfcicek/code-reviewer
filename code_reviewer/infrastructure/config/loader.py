@@ -20,6 +20,7 @@ import yaml
 from code_reviewer.domain.policy import (
     ReviewPolicy,
 )
+from code_reviewer.errors import ConfigurationError
 from code_reviewer.infrastructure.observability.logging import get_logger
 
 logger = get_logger(__name__)
@@ -57,7 +58,7 @@ def _matches(value: object, annotation: object) -> bool:
     return True
 
 
-class PolicyLoadError(Exception):
+class PolicyLoadError(ConfigurationError):
     """A policy file was found but could not be trusted.
 
     Raised rather than logged, and the distinction is the whole design. A
@@ -68,6 +69,9 @@ class PolicyLoadError(Exception):
 
     The cost of failing closed is one startup error the first time someone
     typos a key — which is exactly the moment they want to hear about it.
+
+    A ``ConfigurationError``, so the entry point exits `2`: nothing was
+    reviewed, and retrying will not change that until the file is fixed.
     """
 
 
