@@ -14,16 +14,22 @@ import warnings
 
 import gitlab
 
+from code_reviewer.errors import ConfigurationError
+
 #: Values accepted as "yes, really disable certificate verification".
 _FALSEY = {"false", "0", "no", "off"}
 _TRUTHY = {"true", "1", "yes", "on"}
 
 
-class MissingCredentialsError(RuntimeError):
+class MissingCredentialsError(ConfigurationError):
     """Raised when the GitLab URL or token is absent.
 
     The previous code only printed a warning and continued, so a missing token
     surfaced later as an opaque 401 in the middle of a review.
+
+    A ``ConfigurationError``: nothing was reviewed, and nothing will be until
+    someone sets the variable, so the exit code should say "fix your setup"
+    rather than "the code has a problem" (finding G-13).
     """
 
 

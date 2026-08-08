@@ -99,22 +99,26 @@ def _resolve_level(raw: str | None) -> int:
     return level if isinstance(level, int) else DEFAULT_LEVEL
 
 
-def configure_logging(stream: TextIO | None = None) -> logging.Logger:
+def configure_logging(level: str | None = None, stream: TextIO | None = None) -> logging.Logger:
     """Configures the package logger. Safe to call more than once.
 
     Args:
+        level: ``DEBUG``, ``INFO``, ``WARNING`` or ``ERROR``. Overrides
+            ``LOG_LEVEL``, so ``--log-level`` beats the environment the way a
+            flag should. An unrecognised value falls back rather than raising:
+            a review must not be lost to a typo in a pipeline variable.
         stream: Where records go. Defaults to stderr, which keeps diagnostics
             out of anything reading the process's stdout.
 
     Returns:
         The configured package logger.
     """
-    raw_level = os.getenv("LOG_LEVEL")
-    level = _resolve_level(raw_level)
+    raw_level = level if level else os.getenv("LOG_LEVEL")
+    resolved = _resolve_level(raw_level)
     use_json = (os.getenv("LOG_FORMAT") or "").strip().lower() == "json"
 
     logger = logging.getLogger(ROOT_LOGGER_NAME)
-    logger.setLevel(level)
+    logger.setLevel(resolved)
     # The package's records are handled here; letting them reach the root logger
     # as well would print everything twice under pytest and under any host that
     # configures logging itself.
@@ -125,7 +129,7 @@ def configure_logging(stream: TextIO | None = None) -> logging.Logger:
 
     handler = logging.StreamHandler(stream if stream is not None else sys.stderr)
     handler.setFormatter(JsonFormatter() if use_json else StructuredFormatter())
-    handler.setLevel(level)
+    handler.setLevel(resolved)
     logger.addHandler(handler)
 
     if (

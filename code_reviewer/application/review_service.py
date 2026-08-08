@@ -94,8 +94,16 @@ class ReviewService:
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
-    def review(self, project_id: int, merge_request_iid: int) -> ReviewResult:
-        """Runs the full workflow and returns what happened."""
+    def review(self, project_id: int, merge_request_iid: int, publish: bool = True) -> ReviewResult:
+        """Runs the full workflow and returns what happened.
+
+        Args:
+            project_id: The forge's project identifier.
+            merge_request_iid: The merge request under review.
+            publish: Whether to post the comment. ``False`` runs everything
+                else unchanged, including the gate — a dry run answers "what
+                would this do", and that includes "would it block".
+        """
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
         changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
 
@@ -136,7 +144,8 @@ class ReviewService:
 
         if sections:
             result.comment = render_review_comment(self._policy.version, outcome, sections, result.findings)
-            self._forge.publish_comment(reference, result.comment)
+            if publish:
+                self._forge.publish_comment(reference, result.comment)
 
         result.exit_code = outcome.exit_code(self._policy)
         return result
