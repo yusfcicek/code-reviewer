@@ -9,6 +9,9 @@ accepting any certificate for every request that carries ``GITLAB_TOKEN``
 environment, and turning it off is noisy.
 """
 
+# review-ignore-file: SAST.INSECURE_HTTP - this module's docstring documents
+# the ssl_verify=False default it exists to have removed (F-20). The rule reads
+# prose it cannot tell from code; the code below turns verification *on*.
 import os
 import warnings
 

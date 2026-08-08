@@ -328,32 +328,17 @@ class SemanticChangeAnalyzer:
         if self._is_only_documentation(added_lines, removed_lines):
             return ChangeType.DOCUMENTATION
 
-        # Sadece whitespace/formatting
+        # Whitespace and formatting only
         if self._is_only_style(added_lines, removed_lines):
             return ChangeType.STYLE
 
-        # Bug-fix markers. Without word boundaries, ordinary identifiers like
-        # `prefix`, `debug` and `error_handler` matched too (finding F-13).
-        if any(
-            re.search(pattern, added_text) or re.search(pattern, removed_text)
-            for pattern in self.BUGFIX_MARKERS
-        ):
+        if self._mentions_a_bugfix(added_text, removed_text):
             return ChangeType.BUGFIX
 
-        # A public signature that moved is a break
-        public_changes = [s for s in changed_symbols if s.is_public]
-        if public_changes and removed_lines:
-            # ...but only when we can see both signatures
-            for sym in public_changes:
-                if sym.old_signature and sym.new_signature:
-                    if sym.old_signature != sym.new_signature:
-                        return ChangeType.BREAKING_CHANGE
+        if removed_lines and self._breaks_a_public_signature(changed_symbols):
+            return ChangeType.BREAKING_CHANGE
 
-        # Mostly additions, including a new definition: a feature
-        new_definitions = len(added_lines) > len(removed_lines) * 1.5
-        if new_definitions and any(
-            s.symbol_type in [SymbolType.FUNCTION, SymbolType.CLASS] for s in changed_symbols
-        ):
+        if self._adds_a_definition(added_lines, removed_lines, changed_symbols):
             return ChangeType.FEATURE
 
         # Something moved both ways without a clearer signal
@@ -361,6 +346,42 @@ class SemanticChangeAnalyzer:
             return ChangeType.REFACTOR
 
         return ChangeType.UNKNOWN
+
+    def _mentions_a_bugfix(self, added_text: str, removed_text: str) -> bool:
+        """Whether either side names a fix.
+
+        Without word boundaries, ordinary identifiers such as `prefix`,
+        `debug` and `error_handler` matched too (finding F-13).
+        """
+        return any(
+            re.search(pattern, added_text) or re.search(pattern, removed_text)
+            for pattern in self.BUGFIX_MARKERS
+        )
+
+    @staticmethod
+    def _breaks_a_public_signature(changed_symbols: list[ChangedSymbol]) -> bool:
+        """Whether a public signature changed — and was visible on both sides.
+
+        A symbol whose old or new signature could not be read is not evidence
+        of a break; it is evidence of a diff we could not fully parse.
+        """
+        return any(
+            symbol.is_public
+            and symbol.old_signature
+            and symbol.new_signature
+            and symbol.old_signature != symbol.new_signature
+            for symbol in changed_symbols
+        )
+
+    @staticmethod
+    def _adds_a_definition(
+        added_lines: list[str], removed_lines: list[str], changed_symbols: list[ChangedSymbol]
+    ) -> bool:
+        """Mostly additions, and at least one of them defines something."""
+        mostly_additions = len(added_lines) > len(removed_lines) * 1.5
+        return mostly_additions and any(
+            symbol.symbol_type in (SymbolType.FUNCTION, SymbolType.CLASS) for symbol in changed_symbols
+        )
 
     def _is_only_documentation(self, added: list[str], removed: list[str]) -> bool:
         """True when every changed line is a comment, docstring or blank."""

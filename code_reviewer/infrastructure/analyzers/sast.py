@@ -14,6 +14,12 @@ from typing import ClassVar
 
 from code_reviewer.domain.severity import Severity
 
+# review-ignore-file: SAST.COMMAND_INJECTION - this module *is* the rule
+# table, so its own descriptions ('eval() executes arbitrary code') match
+# the patterns they describe. Scoped to the file rather than to four lines
+# because the strings are spread through the table; it is safe here because
+# this module runs no subprocess and calls neither eval nor exec.
+
 
 class VulnerabilityType(Enum):
     """The classes of vulnerability this analyzer recognises."""
