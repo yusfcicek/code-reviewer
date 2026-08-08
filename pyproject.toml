@@ -69,6 +69,7 @@ dev = [
     "pytest-cov",
     "pygments>=2.20.0",  # PYSEC-2026-2987 (AdlLexer ReDoS), reached through pip-audit
     "ruff>=0.16.2",
+    "hypothesis>=6.165.2",
 ]
 
 [tool.pytest.ini_options]
