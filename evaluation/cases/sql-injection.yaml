@@ -1,0 +1,16 @@
+# Two injections, one of which the suite does not yet see.
+#
+# `find_by_name` builds the query into a local and executes the local, so the
+# concatenation and the `execute(` are on different lines. The SAST rule is a
+# single-line pattern and misses it. That is a real gap, recorded here as ground
+# truth rather than annotated away: a dataset that only states what the suite
+# already finds cannot measure anything.
+name: sql-injection
+file: fixtures/sql_injection.py
+scope: ["SAST.*"]
+expect:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+  - rule: SAST.SQL_INJECTION
+    line: 16
+    severity: high

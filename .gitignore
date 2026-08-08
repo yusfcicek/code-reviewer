@@ -39,6 +39,7 @@ htmlcov/
 # Agent runtime artifacts
 metrics.txt
 review_metrics.json
+evaluation-summary.json
 
 # Editors / OS / tooling state
 .idea/

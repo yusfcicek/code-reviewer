@@ -5,12 +5,14 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.5.0.** Rebuilt from an imported prototype across twelve levels of
-> work. 59 defects were found and recorded and all 59 are now fixed — the last
-> deferred one closed in Level 7. 804 tests at 92 % coverage; lint, formatting,
-> types, tests and a dependency audit with an empty ignore list all gate on CI.
-> Levels 7-11 closed a further nineteen gaps found by comparing against a sibling
-> implementation.
+> **Status: 2.6.0.** Rebuilt from an imported prototype across thirteen levels
+> of work. 59 defects were found and recorded and all 59 are now fixed — the
+> last deferred one closed in Level 7. 898 tests at 92 % coverage; lint,
+> formatting, types, tests, a dependency audit with an empty ignore list and a
+> review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
+> gaps found by comparing against a sibling implementation; Level 12 started a
+> second roadmap, sourced from what the work is expected to do rather than from
+> what was wrong.
 > What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
 
@@ -109,6 +111,20 @@ and why, naming any written without one.
 `SmartMemoryStrategy` keeps findings in priority buckets, never summarises
 `SECURITY` or `BREAKING` insights, and compresses lower-priority context first.
 
+### 🎯 8. Measured review quality
+- `ai-code-review-eval` grades the analysis suite against an annotated dataset
+  (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
+  and per rule.
+- A floor on each is enforceable in CI. Below it the command exits `1`; when
+  the measurement could not be taken at all — an unreadable case, a missing
+  fixture, an analyzer that raised — it exits `2`, because a pipeline has to be
+  able to tell a bad score from a broken harness.
+- Findings a case does not grade are **counted and named**, never dropped, so
+  narrowing what is graded cannot quietly improve the score.
+- The current baseline is precision 1.00, recall 0.89, F1 0.94, with the one
+  known gap written into the dataset rather than annotated away
+  ([baseline](docs/roadmap/level-12/baseline.md)).
+
 ---
 
 ## 📋 Current status
@@ -140,6 +156,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
+| Evaluation harness | ✅ Works | Eight annotated cases scored on every push against committed floors; ungraded findings are counted, and one known false negative is recorded rather than hidden |
 
 Every gap the variant comparison found is closed. What the levels did, and
 what each one found while doing it, is in
@@ -403,14 +420,42 @@ uv run mypy                                    # types (domain + application)
 uv run pytest                                  # tests
 uv run pytest --cov                            # tests with the coverage floor
 uv run pytest tests/unit/test_dogfooding.py    # the agent against its own source
+uv run ai-code-review-eval                     # score the analyzers against the dataset
 ./scripts/audit-deps.sh                        # dependency advisories
 ```
 
-CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
+### Adding an evaluation case
+
+Drop a fixture in `evaluation/fixtures/` and a case beside it in
+`evaluation/cases/`:
+
+```yaml
+name: sql-injection
+file: fixtures/sql_injection.py
+scope: ["SAST.*"]        # optional; the default grades every rule
+line_tolerance: 0        # optional
+expect:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+  - rule: SAST.SQL_INJECTION
+    line: 16
+    severity: high       # optional; stating it pins the grade too
+expect_absent:           # where a fixed false positive is pinned
+  - rule: SAST.WEAK_CRYPTO
+    line: 14
+```
+
+Write what *should* be found, not what is found today. The shipped dataset
+states one defect the suite still misses, which is why the committed recall
+floor is 0.85 rather than 1.00. The loader refuses anything it does not
+recognise — an unknown key, a missing line, an unparseable severity — because a
+dataset is ground truth and a key nobody reads is a claim nobody checks.
+
+CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-804 tests, 92 % coverage with an enforced floor of 91 %. The dependency
+898 tests, 92 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -431,14 +476,18 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── triage.py            triage decisions
 │   │   ├── suppression.py       `review-ignore` directives
 │   │   ├── gate.py              per-file PASS / WARN / FAIL
-│   │   └── outcome.py           merge-request-level verdict
+│   │   ├── outcome.py           merge-request-level verdict
+│   │   └── evaluation.py        grading findings against a case
 │   ├── application/             the workflow and the ports it needs
-│   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer
+│   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer, EvaluationDataset
 │   │   ├── review_service.py    the use case
-│   │   └── report.py            merge-request comment rendering
+│   │   ├── report.py            merge-request comment rendering
+│   │   ├── evaluation_service.py  grading the suite against a dataset
+│   │   └── evaluation_report.py   the run, as markdown and as JSON
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
+│   │   ├── evaluation/          the dataset loader
 │   │   ├── forge/               GitLab client and CodeForge adapter
 │   │   ├── llm/                 vLLM provider, review agent, tool loop, token counting
 │   │   ├── memory/              SmartMemoryStrategy
@@ -446,11 +495,13 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── security/            secret redaction on the way out
 │   │   └── tools/               tool definitions, workspace limits, safe search
 │   ├── cli.py                   argument parsing
+│   ├── evaluate.py              the ai-code-review-eval entry point
 │   ├── errors.py                operational error categories
 │   └── __main__.py              composition root
 ├── tests/
 │   ├── unit/{domain,application,infrastructure}/
 │   └── integration/
+├── evaluation/                  annotated cases and their fixtures
 ├── docs/roadmap/                findings inventory, per-level specs and plans
 └── assets/
 ```
@@ -467,8 +518,8 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Eight decision records: what was decided, why, and what it costs |
-| [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory and the seven levels of work it produced |
+| [docs/adr/](docs/adr/README.md) | Fourteen decision records: what was decided, why, and what it costs |
+| [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branching, commits, the TDD expectation, the design rules |

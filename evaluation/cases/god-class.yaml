@@ -1,0 +1,10 @@
+# Thirteen public methods against a policy ceiling of ten. The only case driven
+# by a configurable threshold rather than a pattern, which makes it the one that
+# breaks if the policy default moves without the dataset following.
+name: god-class
+file: fixtures/god_class.py
+scope: ["QUALITY.*"]
+expect:
+  - rule: QUALITY.SOLID_SRP
+    line: 4
+    severity: medium

@@ -40,6 +40,50 @@ Every level follows the same three-step rhythm:
 | [10](level-10/spec.md) | Operability | ✅ Done |
 | [11](level-11/spec.md) | Verification depth | ✅ Done |
 
+Levels 0–11 answered a single question: *is this repository trustworthy?* The
+levels below answer a different one — *is this agent capable?* — and they are
+sourced differently. Levels 0–11 came from the findings inventory, i.e. from
+defects. Levels 12–20 come from three role descriptions
+([`capability-sources.md`](capability-sources.md)) that state what an agentic
+AI system in a regulated bank is expected to do, and from the gap between that
+statement and what this repository does today.
+
+| Level | Theme | Status |
+|---|---|---|
+| [12](level-12/spec.md) | Evaluation harness — measuring review quality | ✅ Done |
+| 13 | Retrieval & RAG over the repository | ⏳ Planned |
+| 14 | Long-term memory across reviews | ⏳ Planned |
+| 15 | Multi-agent orchestration | ⏳ Planned |
+| 16 | Tracing & agent observability | ⏳ Planned |
+| 17 | Asynchronous execution | ⏳ Planned |
+| 18 | Service surface — HTTP API & webhooks | ⏳ Planned |
+| 19 | Containerisation & cloud-native deployment | ⏳ Planned |
+| 20 | Governance, explainability & compliance | ⏳ Planned |
+
+### Why *this* order for 12–20
+
+Measurement first. Every level after 12 changes what the agent says, and a
+change to what an LLM says has no natural regression signal — test coverage
+proves the code ran, not that the review got better. Level 12 builds the
+scoreboard so levels 13–15 can be judged rather than asserted.
+
+Then capability, in dependency order: retrieval (13) gives the agent evidence
+beyond the diff; long-term memory (14) is retrieval over the *project's own
+history*, so it reuses 13's index rather than inventing a second one;
+multi-agent orchestration (15) is only worth its cost once each specialist has
+something to retrieve.
+
+Then the operational consequences of having built all that. Tracing (16) is
+scoped after 15 deliberately — tracing a single-agent loop is logging with
+extra ceremony, whereas tracing an orchestrator with handoffs is the only way
+to answer "which agent decided this". Async (17) follows tracing so the spans
+survive concurrency instead of being retrofitted onto it. The service surface
+(18) and its deployment (19) turn a CI job into something callable.
+
+Governance (20) is last because it is a claim *about* the other eight: it
+records which model, which prompt version, which retrieved evidence and which
+agent produced each finding. There is nothing to record until they exist.
+
 ### Deferred, then done
 
 | Item | Why it waited | Closed by |

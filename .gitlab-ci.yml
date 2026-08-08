@@ -55,6 +55,28 @@ tests:
         coverage_format: cobertura
         path: coverage.xml
 
+# Review quality, measured rather than asserted.
+#
+# The floors are the measured baseline minus a margin (Level 12, decision D-4):
+# an aspirational number would leave this red on day one and train everyone to
+# skip it. Exit 1 means the analyzers got worse; exit 2 means the harness could
+# not take the measurement, and the two must not be confused.
+#
+# The JSON artefact is the point of the job as much as the gate is: a number in
+# a log is an anecdote, a number in an artefact is a series.
+evaluate:
+  stage: check
+  script:
+    - >
+      uv run ai-code-review-eval
+      --min-precision 0.95 --min-recall 0.85 --min-f1 0.90
+      --json evaluation-summary.json
+  artifacts:
+    when: always
+    paths:
+      - evaluation-summary.json
+    expire_in: 1 month
+
 # The agent reviewing this project's own merge requests.
 #
 # allow_failure is true while the agent is in alpha: a review that cannot run

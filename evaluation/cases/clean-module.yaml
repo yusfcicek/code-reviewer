@@ -1,0 +1,6 @@
+# Ordinary code: a frozen value object and a fold over a list. Nothing is
+# expected and everything is graded, so any rule that fires here is a false
+# positive. This is the case that catches an analyzer that has become
+# enthusiastic, and it is the reason the empty confusion matrix scores 1.0.
+name: clean-module
+file: fixtures/clean_module.py
