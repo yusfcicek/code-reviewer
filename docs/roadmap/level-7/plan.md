@@ -147,6 +147,28 @@ Expected fallout, in the order it will appear:
 **Gate:** `pytest`, then `./scripts/audit-deps.sh` green with an empty ignore
 list. The before/after advisory counts go in the level's completion note.
 
+**Measured.** None of the four expected breakages happened. `langchain.tools`
+had already moved to `langchain_core.tools` in Step 2, and the other three —
+the `AgentExecutor` import, the `ChatOpenAI` constructor arguments and
+`get_num_tokens` — needed no change: the agent imports were already gone, the
+provider's argument aliases survived the major, and the token counter has a
+fallback for exactly this. **489 tests passed with no source edit.** That is
+what Step 6 bought by landing first.
+
+Two advisories survived the dependency upgrade, both in the dev group and both
+with a fix available: `pytest` (PYSEC-2026-1845) and `pygments`
+(PYSEC-2026-2987, reached through `pip-audit`'s own `rich`). Their floors were
+raised rather than ignored.
+
+**After-figure:**
+
+```
+No known vulnerabilities found
+```
+
+59 → 0, with an empty ignore list. `langchain-community`, `aiohttp`,
+`SQLAlchemy` and `dataclasses-json` are no longer in the tree at all.
+
 ## Step 8 — Documentation and records
 
 - ADR `0009-agent-loop-in-tree.md`: why the loop is ours, superseding

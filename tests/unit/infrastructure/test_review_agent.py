@@ -14,7 +14,7 @@ from langchain_core.tools import StructuredTool
 
 from code_reviewer.application.ports import LLMProvider, MemoryStrategy
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
-from tests.fakes import ScriptedChatModel
+from tests.fakes import BoundScriptedModel, ScriptedChatModel
 
 
 def _probe(target_path: str) -> str:
@@ -135,10 +135,23 @@ class TestToolProtocol(unittest.TestCase):
     def test_auto_binds_the_tools(self):
         model = ScriptedChatModel([])
 
-        agent = _agent(self._provider(model), self.memory, [SAMPLE_TOOL], tool_protocol="auto")
+        _agent(self._provider(model), self.memory, [SAMPLE_TOOL], tool_protocol="auto")
 
         self.assertEqual(model.bound_tools, [SAMPLE_TOOL])
-        self.assertIs(agent.model, model)
+
+    def test_the_bound_model_is_the_one_the_loop_runs(self):
+        """Binding and then calling the unbound model offers the model nothing.
+
+        LangChain's `bind_tools` returns a runnable binding rather than the
+        model, so keeping the original is a silent way back to the defect this
+        level exists to remove.
+        """
+        model = ScriptedChatModel([])
+
+        agent = _agent(self._provider(model), self.memory, [SAMPLE_TOOL], tool_protocol="auto")
+
+        self.assertIsInstance(agent.model, BoundScriptedModel)
+        self.assertIs(agent.loop.model, agent.model)
 
     def test_auto_falls_back_when_the_server_refuses_to_bind(self):
         model = ScriptedChatModel([], binding_error=NotImplementedError("no tool API"))

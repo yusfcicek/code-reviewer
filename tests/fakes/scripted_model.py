@@ -46,11 +46,18 @@ class ScriptedChatModel:
         #: Tools passed to `bind_tools`, or None if it was never called.
         self.bound_tools: list[Any] | None = None
 
-    def bind_tools(self, tools: Sequence[Any]) -> "ScriptedChatModel":
+    def bind_tools(self, tools: Sequence[Any]) -> "BoundScriptedModel":
+        """Returns a *binding*, not the model, the way LangChain does.
+
+        Returning ``self`` would be the convenient lie: an agent that bound
+        its tools and then kept calling the unbound model would pass every
+        test while offering the model nothing (finding G-02). The distinct
+        object is what makes that mistake visible.
+        """
         if self.binding_error is not None:
             raise self.binding_error
         self.bound_tools = list(tools)
-        return self
+        return BoundScriptedModel(self)
 
     def invoke(self, messages: Sequence[BaseMessage], **_: Any) -> AIMessage:
         self.calls.append(list(messages))
@@ -68,3 +75,24 @@ class ScriptedChatModel:
     def get_num_tokens_from_messages(self, messages: Sequence[Any]) -> int:
         """A crude count, so the agent's budget arithmetic has something real."""
         return sum(len(str(getattr(m, "content", m))) for m in messages) // 4
+
+    def get_num_tokens(self, text: str) -> int:
+        return len(text) // 4
+
+
+class BoundScriptedModel:
+    """What :meth:`ScriptedChatModel.bind_tools` hands back.
+
+    LangChain returns a runnable binding rather than the model itself, and the
+    agent has to use *that* object. Delegating here keeps the script and the
+    recorded calls in one place while the identity stays distinct.
+    """
+
+    def __init__(self, model: ScriptedChatModel):
+        self.model = model
+
+    def invoke(self, messages: Sequence[BaseMessage], **kwargs: Any) -> AIMessage:
+        return self.model.invoke(messages, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.model, name)
