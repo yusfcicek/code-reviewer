@@ -29,27 +29,27 @@ class TestSecurityFindings(unittest.TestCase):
         self.suite = StaticAnalysisSuite()
 
     def test_an_eval_call_produces_a_critical_security_finding(self):
-        findings = self.suite.analyze("src/app.py", VULNERABLE)
+        findings = self.suite.analyze("src/app.py", VULNERABLE).findings
 
         security = [f for f in findings if f.category is FindingCategory.SECURITY]
         self.assertTrue(security)
         self.assertIs(security[0].severity, Severity.CRITICAL)
 
     def test_security_findings_carry_their_location(self):
-        findings = self.suite.analyze("src/app.py", VULNERABLE)
+        findings = self.suite.analyze("src/app.py", VULNERABLE).findings
 
         security = next(f for f in findings if f.category is FindingCategory.SECURITY)
         self.assertEqual(security.file_path, "src/app.py")
         self.assertEqual(security.line_number, 2)
 
     def test_security_findings_carry_the_cwe(self):
-        findings = self.suite.analyze("src/app.py", VULNERABLE)
+        findings = self.suite.analyze("src/app.py", VULNERABLE).findings
 
         security = next(f for f in findings if f.category is FindingCategory.SECURITY)
         self.assertTrue(security.cwe_id.startswith("CWE-"))
 
     def test_security_findings_carry_a_remediation(self):
-        findings = self.suite.analyze("src/app.py", VULNERABLE)
+        findings = self.suite.analyze("src/app.py", VULNERABLE).findings
 
         security = next(f for f in findings if f.category is FindingCategory.SECURITY)
         self.assertTrue(security.remediation)
@@ -59,7 +59,7 @@ class TestQualityFindings(unittest.TestCase):
     def test_an_empty_except_produces_a_quality_finding(self):
         source = "def run():\n    try:\n        work()\n    except ValueError:\n        pass\n"
 
-        findings = StaticAnalysisSuite().analyze("src/app.py", source)
+        findings = StaticAnalysisSuite().analyze("src/app.py", source).findings
 
         self.assertIn(FindingCategory.QUALITY, _categories(findings))
 
@@ -68,8 +68,8 @@ class TestQualityFindings(unittest.TestCase):
         policy.quality = QualityPolicy(max_class_methods=1)
         source = "class Narrow:\n    def one(self): pass\n    def two(self): pass\n"
 
-        strict = StaticAnalysisSuite(policy).analyze("src/app.py", source)
-        default = StaticAnalysisSuite().analyze("src/app.py", source)
+        strict = StaticAnalysisSuite(policy).analyze("src/app.py", source).findings
+        default = StaticAnalysisSuite().analyze("src/app.py", source).findings
 
         self.assertIn(FindingCategory.QUALITY, _categories(strict))
         self.assertNotIn(FindingCategory.QUALITY, _categories(default))
@@ -86,7 +86,7 @@ class TestPerformanceFindings(unittest.TestCase):
             """
         )
 
-        findings = StaticAnalysisSuite().analyze("src/app.py", source)
+        findings = StaticAnalysisSuite().analyze("src/app.py", source).findings
 
         self.assertIn(FindingCategory.PERFORMANCE, _categories(findings))
 
@@ -95,30 +95,32 @@ class TestSemanticFindings(unittest.TestCase):
     def test_a_removed_public_function_produces_a_semantic_finding(self):
         diff = "@@ -1,4 +1,1 @@\n-def public_api(value):\n-    return value\n"
 
-        findings = StaticAnalysisSuite().analyze("src/app.py", "", diff=diff)
+        findings = StaticAnalysisSuite().analyze("src/app.py", "", diff=diff).findings
 
         self.assertIn(FindingCategory.SEMANTIC, _categories(findings))
 
     def test_semantic_analysis_is_skipped_without_a_diff(self):
-        findings = StaticAnalysisSuite().analyze("src/app.py", CLEAN)
+        findings = StaticAnalysisSuite().analyze("src/app.py", CLEAN).findings
 
         self.assertNotIn(FindingCategory.SEMANTIC, _categories(findings))
 
 
 class TestCleanAndBrokenInput(unittest.TestCase):
     def test_a_clean_file_produces_nothing(self):
-        self.assertEqual(StaticAnalysisSuite().analyze("src/app.py", CLEAN), [])
+        self.assertEqual(StaticAnalysisSuite().analyze("src/app.py", CLEAN).findings, [])
 
     def test_unparseable_source_does_not_raise(self):
-        findings = StaticAnalysisSuite().analyze("src/broken.py", "def (((\n")
+        findings = StaticAnalysisSuite().analyze("src/broken.py", "def (((\n").findings
 
         self.assertIsInstance(findings, list)
 
     def test_an_empty_file_produces_nothing(self):
-        self.assertEqual(StaticAnalysisSuite().analyze("src/empty.py", ""), [])
+        self.assertEqual(StaticAnalysisSuite().analyze("src/empty.py", "").findings, [])
 
     def test_a_non_python_file_is_still_scanned_for_secrets(self):
-        findings = StaticAnalysisSuite().analyze("config/app.yml", 'api_key = "AKIAIOSFODNN7EXAMPLE"\n')
+        findings = (
+            StaticAnalysisSuite().analyze("config/app.yml", 'api_key = "AKIAIOSFODNN7EXAMPLE"\n').findings
+        )
 
         self.assertIn(FindingCategory.SECURITY, _categories(findings))
 
@@ -127,7 +129,7 @@ class TestOrdering(unittest.TestCase):
     def test_findings_come_back_most_severe_first(self):
         source = VULNERABLE + "\nurl = 'http://example.com'\n"
 
-        findings = StaticAnalysisSuite().analyze("src/app.py", source)
+        findings = StaticAnalysisSuite().analyze("src/app.py", source).findings
 
         severities = [finding.severity for finding in findings]
         self.assertEqual(severities, sorted(severities))
@@ -163,7 +165,7 @@ class TestRuleIdsAreNamespaced(unittest.TestCase):
     ).strip()
 
     def setUp(self):
-        self.findings = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", self.SOURCE)
+        self.findings = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", self.SOURCE).findings
 
     def test_the_source_produces_something_to_check(self):
         self.assertTrue(self.findings, "the fixture stopped triggering any analyzer")
@@ -275,8 +277,82 @@ class TestDeduplication(unittest.TestCase):
         self.assertEqual(StaticAnalysisSuite.deduplicate([]), [])
 
     def test_the_suite_returns_deduplicated_findings_most_severe_first(self):
-        findings = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", TestRuleIdsAreNamespaced.SOURCE)
+        findings = (
+            StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", TestRuleIdsAreNamespaced.SOURCE).findings
+        )
 
         keys = [(f.rule_id, f.file_path, f.line_number) for f in findings]
         self.assertEqual(len(keys), len(set(keys)), "the suite returned a duplicate")
         self.assertEqual(findings, sorted(findings), "the suite stopped sorting")
+
+
+class TestSuppression(unittest.TestCase):
+    """What the suite was told to ignore comes back alongside what it found.
+
+    Dropping the suppressed ones would make a silenced rule and an inert rule
+    look identical from the outside, which is the state suppression exists to
+    avoid creating (finding G-07).
+    """
+
+    SOURCE = textwrap.dedent(
+        """
+        import subprocess
+
+        def run(name):
+            # review-ignore: SAST.COMMAND_INJECTION - name comes from an enum
+            subprocess.call("ls " + name, shell=True)
+        """
+    ).strip()
+
+    def setUp(self):
+        self.result = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", self.SOURCE)
+
+    def test_the_suppressed_finding_is_absent_from_the_findings(self):
+        rules = {finding.rule_id for finding in self.result.findings}
+
+        self.assertNotIn("SAST.COMMAND_INJECTION", rules)
+
+    def test_the_suppressed_finding_is_present_in_the_record(self):
+        rules = {item.finding.rule_id for item in self.result.suppressed}
+
+        self.assertIn("SAST.COMMAND_INJECTION", rules)
+
+    def test_the_reason_travels_with_it(self):
+        reasons = {item.directive.reason for item in self.result.suppressed}
+
+        self.assertIn("name comes from an enum", reasons)
+
+    def test_the_count_is_available(self):
+        self.assertGreaterEqual(self.result.suppressed_count, 1)
+
+    def test_a_file_without_directives_suppresses_nothing(self):
+        result = StaticAnalysisSuite(ReviewPolicy()).analyze(
+            "app.py", 'import subprocess\nsubprocess.call("ls", shell=True)\n'
+        )
+
+        self.assertEqual(result.suppressed, [])
+
+    def test_suppression_happens_after_deduplication(self):
+        """One directive silences one finding, not a duplicate pair.
+
+        Suppressing first would leave the duplicate behind and make the count
+        report two silences where the author wrote one.
+        """
+        pair = [
+            TestDeduplication._finding(description="first"),
+            TestDeduplication._finding(description="second"),
+        ]
+        deduplicated = StaticAnalysisSuite.deduplicate(pair)
+
+        self.assertEqual(len(deduplicated), 1)
+
+    def test_the_findings_are_still_sorted(self):
+        result = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", TestRuleIdsAreNamespaced.SOURCE)
+
+        self.assertEqual(result.findings, sorted(result.findings))
+
+    def test_an_empty_analysis_still_returns_a_result(self):
+        result = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", "")
+
+        self.assertEqual(result.findings, [])
+        self.assertEqual(result.suppressed, [])

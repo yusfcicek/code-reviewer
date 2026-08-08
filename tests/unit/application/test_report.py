@@ -190,3 +190,64 @@ class TestTheCommentFitsThePlatformLimit(unittest.TestCase):
         from code_reviewer.application.report import DEFAULT_MAX_COMMENT_CHARS
 
         self.assertLess(DEFAULT_MAX_COMMENT_CHARS, 1_000_000)
+
+
+class TestSuppressionsAreVisible(unittest.TestCase):
+    """A suppression nobody can see is a rule that never fired (G-07).
+
+    The count belongs in the report because the report is what a reviewer
+    reads. Leaving it only in the source means noticing a silence requires
+    already suspecting one.
+    """
+
+    class _Directive:
+        def __init__(self, reason="a written reason"):
+            self.reason = reason
+            self.rule_id = "SAST.SQL_INJECTION"
+            self.line = 12
+
+        @property
+        def is_explained(self):
+            return bool(self.reason)
+
+    class _Suppressed:
+        def __init__(self, directive):
+            self.directive = directive
+            self.finding = None
+
+    def _outcome_with(self, *directives):
+        outcome = ReviewOutcome()
+        outcome.record_suppressions("src/app.py", [self._Suppressed(d) for d in directives])
+        return outcome
+
+    def test_the_count_is_stated(self):
+        outcome = self._outcome_with(self._Directive(), self._Directive())
+
+        body = render_review_comment("1.0", outcome, ["## a\n"])
+
+        self.assertIn("2 finding(s) suppressed", body)
+
+    def test_nothing_is_said_when_nothing_was_suppressed(self):
+        body = render_review_comment("1.0", ReviewOutcome(), ["## a\n"])
+
+        self.assertNotIn("suppressed", body.lower())
+
+    def test_the_file_is_named(self):
+        body = render_review_comment("1.0", self._outcome_with(self._Directive()), ["## a\n"])
+
+        self.assertIn("src/app.py", body)
+
+    def test_the_reason_is_shown(self):
+        outcome = self._outcome_with(self._Directive("name comes from an enum"))
+
+        body = render_review_comment("1.0", outcome, ["## a\n"])
+
+        self.assertIn("name comes from an enum", body)
+
+    def test_an_unexplained_suppression_is_called_out(self):
+        """The pressure to write a reason belongs where people read."""
+        outcome = self._outcome_with(self._Directive(reason=""))
+
+        body = render_review_comment("1.0", outcome, ["## a\n"])
+
+        self.assertIn("no reason given", body.lower())

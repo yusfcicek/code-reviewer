@@ -32,6 +32,7 @@ from code_reviewer.application.ports import (
 )
 from code_reviewer.application.review_service import ReviewService
 from code_reviewer.domain.policy import ReviewPolicy
+from code_reviewer.domain.suppression import SuppressionResult
 from code_reviewer.domain.triage import ReviewTriage
 
 DIFF = "\n".join(f"+ line {n}" for n in range(60))
@@ -76,7 +77,7 @@ class _CleanAnalysis(StaticAnalysis):
     """The suite ran and found nothing. Not the same thing at all."""
 
     def analyze(self, file_path, content, diff=""):
-        return []
+        return SuppressionResult()
 
 
 def _run(analysis, reviewer=None, policy=None, forge=None):

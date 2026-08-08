@@ -179,7 +179,9 @@ class ReviewService:
         section = None
         gate_result = "pass"
         quality_score = None
-        findings = []
+        # `None` and `[]` mean different things to the gate: the first is "no
+        # analysis ran", the second is "it ran and found nothing" (F-32).
+        findings: list[Finding] | None = []
 
         if decision.decision is ReviewDecision.AUTO_APPROVE:
             section = f"## ✅ Auto-Approved: `{change.path}`\n> {decision.reason}\n\n---\n"
@@ -188,7 +190,13 @@ class ReviewService:
             # Analysis runs first and unconditionally: whether a file gets a
             # security scan must not depend on the model deciding to ask for
             # one (finding F-32).
-            findings, analysis_error = self._analyse(change, full_content)
+            analysis, analysis_error = self._analyse(change, full_content)
+            findings = list(analysis.findings) if analysis is not None else None
+            if analysis is not None and analysis.suppressed:
+                # Counted on the outcome so the report can state it. A
+                # suppression nobody can see is indistinguishable from a rule
+                # that never fired (finding G-07).
+                outcome.record_suppressions(change.path, analysis.suppressed)
             if analysis_error is not None:
                 # Not "the review found nothing". Nothing was examined, and a
                 # gate that reads those as the same thing answers "pass" to a
@@ -280,10 +288,11 @@ class ReviewService:
     def _analyse(self, change: FileChange, full_content):
         """Runs the analysis suite.
 
-        Returns ``(findings, error)``. Exactly one is meaningful:
+        Returns ``(result, error)``. Exactly one is meaningful:
 
         - ``(None, None)`` — no analysis was configured at all;
-        - ``([...], None)`` or ``([], None)`` — it ran, and this is what it saw;
+        - ``(result, None)`` — it ran, and this is what it saw *and* what the
+          file asked it to ignore;
         - ``(None, "reason")`` — it could not run, and the caller must not read
           that as a clean file (finding G-09).
 
