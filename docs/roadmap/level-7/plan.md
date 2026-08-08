@@ -34,15 +34,37 @@ imports.
 ## Step 2 — Drop `langchain-community` (G-01)
 
 Test-first: `tests/unit/test_dependencies.py` asserts that no module under
-`code_reviewer/` or `tests/` imports `langchain_community`, and that it does not
-appear in `pyproject.toml`.
+`code_reviewer/` or `tests/` imports `langchain_community`, that it does not
+appear in `pyproject.toml`, and — the other half of the same property — that
+every third-party module `code_reviewer/` imports *is* declared.
 
 It fails on one import: `tests/integration/test_agent_tool_loop.py` uses
-`FakeListChatModel`. Replace it with a local scripted stub (decision D-6),
+`FakeListChatModel`. Replacing it needs a local scripted stub (decision D-6),
 which the later steps need anyway to express a native `tool_calls` response.
+
+> **Resequenced during implementation.** The stub cannot be a plain object
+> while `AgentExecutor` is still in place: the executor drives the model
+> through a LangChain runnable chain, so anything standing in for the model has
+> to be a `BaseChatModel` — which means inheriting a pydantic base whose major
+> version changes in Step 7. Writing the stub twice to satisfy an ordering is
+> worse than moving the step. So the removal lands **after Step 6**, when the
+> integration test is driving the in-tree loop and the stub only has to answer
+> `invoke`. The test above is written first and stays red until then; it is
+> committed with the change that makes it green, so no commit on this branch
+> leaves the suite failing.
 
 **Gate:** the dependency test passes; the integration test still passes; the
 audit re-run shows the advisories that left with the package.
+
+> **Measured, and only half of that is true.** Removing the declaration does
+> not remove the package: `langchain==0.1.0` itself requires
+> `langchain-community>=0.0.9,<0.1`, so it stays installed as a transitive
+> dependency and the audit still reports 59 advisories in 11 packages —
+> unchanged. What the removal buys now is that nothing *imports* it, so the
+> upgrade in Step 7 can drop it for real without breaking a call site. The
+> surface reduction lands with the version bump, not before it. The gap
+> analysis called this "a one-line change with no code behind it"; that was
+> wrong about the effect, right about the ordering.
 
 ## Step 3 — The parser, both protocols (G-02, C-1, C-2)
 

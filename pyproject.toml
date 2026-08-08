@@ -25,7 +25,10 @@ dependencies = [
     # level's worth of work with its own contracts and its own risk, tracked in
     # docs/roadmap/README.md, not a line change (finding F-45).
     "langchain==0.1.0",
-    "langchain-community==0.0.10",
+    # `langchain-community` is deliberately absent. Nothing in this package
+    # imported it; it was declared to satisfy one test import, and it dragged
+    # aiohttp, SQLAlchemy and dataclasses-json into the tree — an unused
+    # dependency is attack surface acquired for nothing (finding G-01).
     "langchain-openai==0.0.2",
     # Pinned alongside langchain-openai, which constrains the client surface it
     # uses.
