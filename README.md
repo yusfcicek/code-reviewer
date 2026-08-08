@@ -5,11 +5,11 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.3.0.** Rebuilt from an imported prototype across ten levels of
+> **Status: 2.4.0.** Rebuilt from an imported prototype across eleven levels of
 > work. 59 defects were found and recorded and all 59 are now fixed — the last
-> deferred one closed in Level 7. 657 tests at 88 % coverage; lint, formatting,
+> deferred one closed in Level 7. 722 tests at 90 % coverage; lint, formatting,
 > types, tests and a dependency audit with an empty ignore list all gate on CI.
-> Levels 7-9 closed a further thirteen gaps found by comparing against a sibling
+> Levels 7-10 closed a further sixteen gaps found by comparing against a sibling
 > implementation.
 > What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
@@ -106,6 +106,8 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
 | Fail-closed decisions | ✅ Works | An analysis that could not run blocks; an unrecognised policy key refuses to load; manifests and CI definitions are always reviewed in full |
 | Finding deduplication | ✅ Works | One rule at one location is one finding, so severity counts and the quality score are not inflated |
+| Idempotent reporting | ✅ Works | Repeated runs update one comment; an oversized report is truncated rather than rejected |
+| Exit codes | ✅ Works | A blocked gate exits `1`, a configuration error `2`, a crash `3` |
 | Tool sandboxing | ✅ Works | Confinement, a credential deny-list, a per-review read budget and an audit log; a refusal becomes a CRITICAL finding |
 | Prompt-injection containment | ✅ Works | Reviewed content is delimited and declared untrusted, and cannot close its own delimiter |
 | Secret redaction | ✅ Works | Environment secret values and known secret shapes are masked before the review is published |
@@ -116,7 +118,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
 
 Work still queued against the variant gap analysis is scheduled in
-[Levels 10-11](docs/roadmap/README.md).
+[Level 11](docs/roadmap/README.md).
 
 ---
 
@@ -170,6 +172,8 @@ uv sync
 | `REVIEW_MAX_SECONDS` | no | Wall-clock budget for one file. Unset means none — see below |
 | `WORKSPACE_MAX_FILE_BYTES` | no | Per-file truncation threshold, default `200000` |
 | `WORKSPACE_TOTAL_READ_BUDGET` | no | Bytes one review may read in total, default `20000000` |
+| `REVIEW_MAX_COMMENT_CHARS` | no | Comment size bound, default `900000` (under GitLab's limit) |
+| `REVIEW_METRICS_PATH` | no | Fallback for `--metrics-path` |
 
 ```bash
 export GITLAB_URL="https://gitlab.example.com"
@@ -264,6 +268,33 @@ uv run ai-code-review --project-id <PROJECT_ID> --mr-iid <MR_IID>
 | `--project-id` | `$CI_PROJECT_ID` | GitLab project ID |
 | `--mr-iid` | `$CI_MERGE_REQUEST_IID` | Merge request IID |
 | `--policy` | bundled `review_policy.yaml` | Path to a policy YAML file |
+| `--repo-root` | `$CI_PROJECT_DIR` or `.` | Workspace root; the agent cannot read outside it |
+| `--metrics-path` | `metrics.txt` | Where to write the OpenMetrics report |
+| `--log-level` | `$LOG_LEVEL` or `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--dry-run` | off | Print the report instead of posting it |
+| `--no-llm` | off | Static analysis only; no model endpoint needed |
+
+**Exit codes**
+
+| Code | Meaning |
+|---|---|
+| `0` | The review ran; the gate did not block |
+| `1` | The review ran; the gate **blocked** |
+| `2` | Configuration error — a missing credential, an unloadable policy |
+| `3` | Runtime error — the review did not complete |
+
+`1` is a *successful* run with a negative verdict; `3` is a run that did not
+happen. Keeping them apart is what makes `allow_failure: false` safe
+([ADR 0012](docs/adr/0012-one-comment-per-merge-request.md)).
+
+`--dry-run` still exits with the real code, because "what would this do"
+includes "would it block". `--no-llm` reaches the **same verdict** as a normal
+run — the verdict has never come from the model — and simply produces a shorter
+report.
+
+Repeated runs on one merge request update a single comment rather than adding
+to the thread, and a report too large for the platform is truncated with a
+notice rather than being rejected.
 
 ### GitLab CI
 
@@ -288,7 +319,10 @@ ai-code-review:
 ```
 
 `allow_failure: true` keeps a review that cannot run from blocking a merge.
-Set it to `false` once you trust the verdict, and use
+Since Level 10 the exit codes make the finer distinction available: `1` means
+the gate blocked, while `2` and `3` mean the agent could not do its job. A
+pipeline that wants a blocking gate without being hostage to a flaky runner can
+set `allow_failure: false` and rely on that split. Use
 `gate.fail_pipeline_on_critical` and `gate.blocking_severity` to decide what
 "trust" means.
 
@@ -350,7 +384,7 @@ CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-657 tests, 88 % coverage with an enforced floor of 87 %. The dependency
+722 tests, 90 % coverage with an enforced floor of 89 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -385,6 +419,7 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── security/            secret redaction on the way out
 │   │   └── tools/               tool definitions, workspace limits, safe search
 │   ├── cli.py                   argument parsing
+│   ├── errors.py                operational error categories
 │   └── __main__.py              composition root
 ├── tests/
 │   ├── unit/{domain,application,infrastructure}/

@@ -7,6 +7,44 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.0] — 2026-08-08
+
+Level 10: nothing here changes what the agent decides; all of it changes
+whether a team can live with the agent that decides it.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| A crash now exits `3`, not `1` | `1` means the gate blocked, and nothing else. A pipeline treating `1` as "the agent broke" needs updating — the previous meaning was ambiguous, which is the finding. |
+| A configuration error exits `2` | Already true for missing credentials; now also for an unloadable policy. |
+| `configure_logging()` takes `level` as its first argument | It was `stream`. `configure_logging(stream=...)` still works by keyword. |
+| `MissingCredentialsError` and `PolicyLoadError` are now `ConfigurationError` subclasses | Nothing, unless you caught them by their old base (`RuntimeError`, `Exception`). |
+| Repeated runs update one comment instead of posting a new one | Nothing. The agent edits only a note carrying its own marker; human replies are untouched. |
+
+### Added
+
+- `--dry-run`: runs the whole review and prints the report instead of posting
+  it, keeping the real exit code.
+- `--no-llm`: static analysis only, with no model endpoint constructed at all.
+  The verdict is unchanged — it has never come from the model.
+- `--repo-root`, `--metrics-path`, `--log-level`, each with an environment
+  fallback.
+- `REVIEW_MAX_COMMENT_CHARS` (default 900 000): the report is truncated
+  head-first with a notice rather than rejected by the platform.
+- `code_reviewer.errors`: `ReviewError`, `ConfigurationError`, `ForgeError`,
+  `ReviewAgentError`.
+- `ReviewService.review(..., publish=False)`.
+
+### Fixed
+
+- Five pipeline runs left five reports, with the oldest at the top of the
+  thread (G-12).
+- A review of many files produced a body GitLab rejects, so the merge request
+  showed nothing at all (G-19).
+- `configure_logging("DEBUG")` would have passed the string as the output
+  stream — found by replacing a mocked assertion with a real call.
+
 ## [2.3.0] — 2026-08-08
 
 Level 9: four places where the code met something it did not understand and

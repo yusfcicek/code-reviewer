@@ -37,6 +37,7 @@ Every level follows the same three-step rhythm:
 | [7](level-7/spec.md) | Dependency & tool-protocol upgrade | ✅ Done |
 | [8](level-8/spec.md) | Untrusted input hardening | ✅ Done |
 | [9](level-9/spec.md) | Fail-closed decisions | ✅ Done |
+| [10](level-10/spec.md) | Operability | ✅ Done |
 
 ### Deferred, then done
 

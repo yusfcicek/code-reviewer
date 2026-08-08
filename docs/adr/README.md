@@ -19,6 +19,7 @@ nobody has taken turns this directory into a wish list.
 | [0009](0009-agent-loop-in-tree.md) | The agent's tool loop lives in this repository | Accepted |
 | [0010](0010-untrusted-input-defences.md) | Untrusted input is defended in four layers, and a refusal is a finding | Accepted |
 | [0011](0011-unknown-means-blocked.md) | "Unknown" is not "pass" | Accepted |
+| [0012](0012-one-comment-per-merge-request.md) | One comment per merge request, and an exit code that says which failure | Accepted |
 
 ## Adding one
 
