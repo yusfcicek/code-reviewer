@@ -24,12 +24,10 @@ from pathlib import Path
 # reshuffling between majors.
 from langchain_core.tools import StructuredTool
 
+from .output import truncate as _truncate
+from .retrieval_tools import RetrievalTools
 from .safe_search import EXCLUDED_DIRS, InvalidPatternError, build_grep_command
 from .workspace import OutsideWorkspaceError, Workspace
-
-#: Longest tool output handed back to the model. Beyond this the observation
-#: crowds out the diff it is supposed to explain.
-MAX_OUTPUT_CHARS = 2000
 
 _workspace: Workspace | None = None
 
@@ -50,12 +48,6 @@ def get_workspace() -> Workspace:
     if _workspace is None:
         _workspace = Workspace()
     return _workspace
-
-
-def _truncate(text: str) -> str:
-    if len(text) <= MAX_OUTPUT_CHARS:
-        return text
-    return text[:MAX_OUTPUT_CHARS] + f"\n[... truncated at {MAX_OUTPUT_CHARS} characters ...]"
 
 
 class FileSystemTools:
@@ -446,5 +438,14 @@ def get_tools() -> list[StructuredTool]:
             func=AnalyzerTools.find_ripple_effects,
             name="find_ripple_effects",
             description="Traces a change's ripple effect two levels deep. Input: symbol_name (string).",
+        ),
+        StructuredTool.from_function(
+            func=RetrievalTools.search_related_code,
+            name="search_related_code",
+            description=(
+                "Searches the repository for code related to a description or an identifier, by "
+                "meaning as well as by name. Use it to find an existing helper, the pattern the "
+                "codebase already uses, or callers grep would miss. Input: query (string)."
+            ),
         ),
     ]
