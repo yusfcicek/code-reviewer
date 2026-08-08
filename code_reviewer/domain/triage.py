@@ -42,10 +42,16 @@ class ReviewTriage:
     1. Does the path match a skip pattern? -> SKIP
     2. Does an added line match a security pattern? -> CRITICAL
     3. Does it remove a public symbol? -> CRITICAL
-    4. Sadece yorum/whitespace mi? -> AUTO_APPROVE
-    5. Is it small (<=10 lines) with no logic change? -> AUTO_APPROVE
-    6. Is it moderate (<=50 lines)? -> QUICK_SCAN
-    7. Default -> FULL_REVIEW
+    4. Is it a manifest or a CI definition? -> FULL_REVIEW
+    5. Is it comment- or whitespace-only? -> AUTO_APPROVE
+    6. Is it small (<=10 lines) with no logic change? -> AUTO_APPROVE
+    7. Is it moderate (<=50 lines)? -> QUICK_SCAN
+    8. Default -> FULL_REVIEW
+
+    Rule 4 sits above every size rule because the changes it catches are small
+    by nature: a version bump and a `curl … | sh` added to a CI job are both
+    one line (finding G-11). It sits below the two CRITICAL rules because
+    those are more specific and they notify.
     """
 
     def __init__(self, policy: ReviewPolicy | None = None):
@@ -64,6 +70,13 @@ class ReviewTriage:
             skip_patterns = [r"\.md$", r"\.txt$"]
 
         self._skip_patterns = [re.compile(p, re.IGNORECASE) for p in skip_patterns]
+
+        # Which files a team treats as supply-chain-critical varies, so the
+        # list is policy rather than a constant in this module (decision D-5).
+        manifest_patterns = []
+        if self.policy and hasattr(self.policy, "triage"):
+            manifest_patterns = self.policy.triage.manifest_patterns
+        self._manifest_patterns = [re.compile(p) for p in manifest_patterns]
 
         # Critical patterns (Security + API)
         critical_patterns = []
@@ -106,7 +119,7 @@ class ReviewTriage:
                 details={"pattern": "skip_file_type"},
             )
 
-        # Diff'i parse et
+        # Parse the diff
         added_lines, removed_lines = self._parse_diff_lines(diff)
         total_changes = len(added_lines) + len(removed_lines)
 
@@ -137,6 +150,22 @@ class ReviewTriage:
                 details={"pattern": api_match, "type": "api_change"},
             )
 
+        # 4. Is it a manifest or a pipeline definition?
+        #
+        # Above every size rule, because this class of change is small by
+        # nature and the logic-change guard below looks for Python and C
+        # keywords that no YAML or JSON line contains (finding G-11).
+        if self._is_manifest(file_path):
+            return TriageResult(
+                decision=ReviewDecision.FULL_REVIEW,
+                reason=(
+                    f"Dependency manifest or pipeline definition: {file_path}. "
+                    f"Reviewed in full regardless of size."
+                ),
+                confidence=1.0,
+                details={"type": "manifest", "lines": total_changes},
+            )
+
         # Policy configs
         triage_cfg = self.policy.triage if self.policy else None
         allow_comments = triage_cfg.allow_only_comments if triage_cfg else True
@@ -145,7 +174,7 @@ class ReviewTriage:
         max_lines_auto = triage_cfg.max_lines_for_auto if triage_cfg else 10
         max_lines_quick = triage_cfg.max_lines_for_quick if triage_cfg else 50
 
-        # 4. Sadece yorum/whitespace mi?
+        # 5. Comment- or whitespace-only?
         if allow_comments and self._is_only_comments(added_lines, removed_lines):
             return TriageResult(
                 decision=ReviewDecision.AUTO_APPROVE,
@@ -154,7 +183,7 @@ class ReviewTriage:
                 details={"type": "comments_only"},
             )
 
-        # 5. Sadece formatting mi?
+        # 5b. Formatting-only?
         if allow_formatting and self._is_only_formatting(added_lines, removed_lines):
             return TriageResult(
                 decision=ReviewDecision.AUTO_APPROVE,
@@ -173,7 +202,7 @@ class ReviewTriage:
                     details={"type": "test_file", "lines": total_changes},
                 )
 
-        # 7. Small enough to approve without a model?
+        # 6b. Small enough to approve without a model?
         if total_changes <= max_lines_auto:
             # ...but only when nothing about the logic moved
             if not self._has_logic_change(added_lines, removed_lines):
@@ -184,7 +213,7 @@ class ReviewTriage:
                     details={"type": "minimal_change", "lines": total_changes},
                 )
 
-        # 8. Moderate size: a scan rather than a full review
+        # 7. Moderate size: a scan rather than a full review
         if total_changes <= max_lines_quick:
             return TriageResult(
                 decision=ReviewDecision.QUICK_SCAN,
@@ -193,7 +222,7 @@ class ReviewTriage:
                 details={"type": "moderate_change", "lines": total_changes},
             )
 
-        # 9. Default: Full review
+        # 8. Default: full review
         return TriageResult(
             decision=ReviewDecision.FULL_REVIEW,
             reason=f"Significant change ({total_changes} lines)",
@@ -204,6 +233,10 @@ class ReviewTriage:
     def _should_skip_file(self, file_path: str) -> bool:
         """True when the policy says this path is not worth reviewing."""
         return any(pattern.search(file_path) for pattern in self._skip_patterns)
+
+    def _is_manifest(self, file_path: str) -> bool:
+        """True when the path names a dependency manifest or a CI definition."""
+        return any(pattern.search(file_path) for pattern in self._manifest_patterns)
 
     def _parse_diff_lines(self, diff: str) -> tuple[list[str], list[str]]:
         """Splits a diff into its added and removed lines."""

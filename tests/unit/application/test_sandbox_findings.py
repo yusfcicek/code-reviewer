@@ -110,6 +110,13 @@ class TestViolationsBecomeFindings(unittest.TestCase):
     def test_the_finding_names_the_path_that_was_refused(self):
         self.assertIn("/etc/passwd", self.result.findings[0].description)
 
+    def test_the_rule_id_is_namespaced(self):
+        """A bare id gives a suppression glob nothing to match (G-08)."""
+        finding = self.result.findings[0]
+
+        self.assertEqual(finding.rule_id, "SANDBOX.VIOLATION")
+        self.assertEqual(finding.namespace, "SANDBOX")
+
     def test_the_finding_is_attributed_to_the_file_under_review(self):
         """It is evidence about that file's diff, which is where it came from."""
         self.assertEqual(self.result.findings[0].file_path, "src/a.py")

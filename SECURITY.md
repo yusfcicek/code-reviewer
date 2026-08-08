@@ -120,6 +120,21 @@ What it does **not** prevent:
 A merge request touching thousands of files will still take a long time. Bound
 the job with a CI timeout.
 
+## Supply-chain changes are never auto-approved
+
+A dependency manifest, a lock file, a `Dockerfile` and a CI definition are
+reviewed **in full regardless of how little of them changed**
+([ADR 0011](docs/adr/0011-unknown-means-blocked.md)). The reason is that this
+class of change is small by nature: a version bump is one line, and so is a
+`curl https://… | sh` appended to a CI job. Triage's size rules are the wrong
+instrument for it, and the logic-change guard they depend on searches for
+`if`/`for`/`def` — keywords no YAML or JSON line contains.
+
+Lock files are included, and they used to be skipped as "generated". They are
+generated, and they are also the only artefact where a changed *transitive*
+dependency is visible. Skipping them meant the one file recording a
+supply-chain compromise was the one file nobody read.
+
 ## Dependency advisories
 
 CI runs `./scripts/audit-deps.sh` on every push and merge request, and the job

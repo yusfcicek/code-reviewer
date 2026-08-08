@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from code_reviewer.infrastructure.config.loader import (
-    ReviewPolicy,
+    PolicyLoadError,
     ReviewPolicyLoader,
     get_default_policy,
     load_policy,
@@ -64,20 +64,30 @@ class TestBundledPolicyIsTheDefault(unittest.TestCase):
 
         self.assertEqual(policy.version, "7.7")
 
-    def test_missing_explicit_path_falls_back_rather_than_crashing(self):
+    def test_a_missing_explicit_path_raises(self):
+        """Changed in Level 9, deliberately (finding G-10).
+
+        This used to fall through to the packaged policy. The reasoning was
+        that a stale `--policy` in a pipeline definition should degrade to the
+        shipped rules rather than to no rules at all — but the rules it
+        degrades to are not the ones the pipeline asked for, and nothing in
+        the output says which set actually ran. Naming a file is a claim that
+        it exists; the honest response to a false claim is to say so.
+        """
         with _in_temporary_cwd():
-            policy = load_policy("/nonexistent/policy.yaml")
+            with self.assertRaises(PolicyLoadError):
+                load_policy("/nonexistent/policy.yaml")
 
-        # Falls through to the packaged file rather than raising.
-        self.assertIn(YAML_ONLY_PATTERN, policy.security.banned_patterns)
-
-    def test_unreadable_yaml_falls_back_to_defaults(self):
+    def test_unreadable_yaml_raises(self):
+        """Also changed in Level 9. Same reasoning: a file that does not parse
+        is a configuration nobody can read, and running something else in its
+        place is a silent substitution."""
         with _in_temporary_cwd() as cwd:
             broken = Path(cwd) / "broken.yaml"
             broken.write_text("version: '1.0'\n  bad: [indent", encoding="utf-8")
-            policy = load_policy(str(broken))
 
-        self.assertIsInstance(policy, ReviewPolicy)
+            with self.assertRaises(PolicyLoadError):
+                load_policy(str(broken))
 
     def test_loader_records_which_source_won(self):
         with _in_temporary_cwd():

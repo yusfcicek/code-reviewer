@@ -178,9 +178,13 @@ class ReviewService:
         elif decision.decision in NEEDS_REVIEWER:
             # Analysis runs first and unconditionally: whether a file gets a
             # security scan must not depend on the model deciding to ask for
-            # one (finding F-32). A failing analyzer degrades the review to
-            # prose rather than losing the file entirely.
-            findings = self._analyse(change, full_content)
+            # one (finding F-32).
+            findings, analysis_error = self._analyse(change, full_content)
+            if analysis_error is not None:
+                # Not "the review found nothing". Nothing was examined, and a
+                # gate that reads those as the same thing answers "pass" to a
+                # question it never asked (finding G-09).
+                outcome.record_unanalysed(change.path, analysis_error)
 
             # Counted before the reviewer runs, so what it triggers is
             # attributable to *this* file rather than to the whole run.
@@ -258,30 +262,37 @@ class ReviewService:
                 "attempt is deliberate, treat the merge request as hostile; if it is "
                 "not, the file path came from somewhere and that source is worth finding."
             ),
-            rule_id="sandbox_violation",
+            rule_id="SANDBOX.VIOLATION",
             cwe_id="CWE-77",
             owasp_category="LLM01:2025 Prompt Injection",
             evidence=violation.path,
         )
 
     def _analyse(self, change: FileChange, full_content):
-        """Runs the analysis suite, returning None when none ran.
+        """Runs the analysis suite.
 
-        A broken analyzer must not cost the file its model review: the result
-        is a review with less evidence, which the gate handles by falling back
-        to the prose path.
+        Returns ``(findings, error)``. Exactly one is meaningful:
+
+        - ``(None, None)`` — no analysis was configured at all;
+        - ``([...], None)`` or ``([], None)`` — it ran, and this is what it saw;
+        - ``(None, "reason")`` — it could not run, and the caller must not read
+          that as a clean file (finding G-09).
+
+        A broken analyzer still does not cost the file its model review: the
+        prose is produced either way, and the reader gets both the narrative
+        and the statement that the evidence is missing.
         """
         if self._analysis is None:
-            return None
+            return None, None
         try:
-            return self._analysis.analyze(change.path, full_content or "", change.diff)
+            return self._analysis.analyze(change.path, full_content or "", change.diff), None
         except Exception as exc:
             logger.error(
-                "Static analysis failed; continuing without it",
+                "Static analysis failed; the file is reported as unanalysed",
                 extra={"fields": {"path": change.path, "error": str(exc)}},
                 exc_info=True,
             )
-            return None
+            return None, str(exc)
 
     @staticmethod
     def _render_section(path: str, review_text: str, findings) -> str:

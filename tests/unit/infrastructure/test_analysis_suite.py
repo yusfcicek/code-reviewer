@@ -10,7 +10,7 @@ instead of from prose (finding F-32).
 import textwrap
 import unittest
 
-from code_reviewer.domain.finding import FindingCategory
+from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.policy import QualityPolicy, ReviewPolicy
 from code_reviewer.domain.severity import Severity
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
@@ -135,3 +135,148 @@ class TestOrdering(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRuleIdsAreNamespaced(unittest.TestCase):
+    """A bare id has no namespace for a suppression glob to match (G-08).
+
+    The namespace is added here rather than inside the analyzers: this class is
+    already the anti-corruption layer that translates five private vocabularies
+    into one domain type, and the namespace is part of that translation
+    (decision D-1).
+    """
+
+    SOURCE = textwrap.dedent(
+        """
+        import sqlite3
+
+        class Handler:
+            def run(self, name, rows):
+                query = "SELECT * FROM users WHERE name = '" + name + "'"
+                cursor = sqlite3.connect("db").cursor()
+                cursor.execute(query)
+                for row in rows:
+                    for other in rows:
+                        cursor.execute("SELECT 1")
+                return query
+        """
+    ).strip()
+
+    def setUp(self):
+        self.findings = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", self.SOURCE)
+
+    def test_the_source_produces_something_to_check(self):
+        self.assertTrue(self.findings, "the fixture stopped triggering any analyzer")
+
+    def test_every_rule_id_carries_a_namespace(self):
+        unnamespaced = [f.rule_id for f in self.findings if not f.namespace]
+
+        self.assertEqual(unnamespaced, [], f"un-namespaced rule ids: {unnamespaced}")
+
+    def test_every_namespace_is_one_of_the_declared_ones(self):
+        declared = {"SAST", "QUALITY", "PERFORMANCE", "SEMANTIC"}
+        seen = {f.namespace for f in self.findings}
+
+        self.assertTrue(seen <= declared, f"unexpected namespaces: {seen - declared}")
+
+    def test_the_namespace_matches_the_category(self):
+        expected = {
+            FindingCategory.SECURITY: "SAST",
+            FindingCategory.QUALITY: "QUALITY",
+            FindingCategory.PERFORMANCE: "PERFORMANCE",
+            FindingCategory.SEMANTIC: "SEMANTIC",
+        }
+
+        for finding in self.findings:
+            with self.subTest(rule=finding.rule_id):
+                self.assertEqual(finding.namespace, expected[finding.category])
+
+    def test_rule_ids_are_upper_case(self):
+        """So `SAST.*` reads the same way in a policy file and in a report."""
+        for finding in self.findings:
+            with self.subTest(rule=finding.rule_id):
+                self.assertEqual(finding.rule_id, finding.rule_id.upper())
+
+
+class TestDeduplication(unittest.TestCase):
+    """One problem at one place under one rule is one finding.
+
+    Found against a live model: a database cursor reported both as "used
+    without `with`" and as "may not be properly closed" — one line, one rule,
+    two findings. Duplicates are noise in the report and they inflate the
+    per-severity counts the metrics export and the quality score are computed
+    from (G-08).
+    """
+
+    @staticmethod
+    def _finding(rule="SAST.X", line=10, severity=Severity.MEDIUM, description="a"):
+        return Finding(
+            category=FindingCategory.SECURITY,
+            severity=severity,
+            file_path="app.py",
+            line_number=line,
+            title="T",
+            description=description,
+            remediation="fix",
+            rule_id=rule,
+        )
+
+    def test_the_same_rule_at_the_same_line_collapses(self):
+        pair = [
+            self._finding(description="used without 'with'"),
+            self._finding(description="may not be properly closed"),
+        ]
+
+        self.assertEqual(len(StaticAnalysisSuite.deduplicate(pair)), 1)
+
+    def test_the_more_severe_report_survives(self):
+        pair = [
+            self._finding(severity=Severity.LOW),
+            self._finding(severity=Severity.CRITICAL),
+        ]
+
+        self.assertEqual(StaticAnalysisSuite.deduplicate(pair)[0].severity, Severity.CRITICAL)
+
+    def test_severity_order_within_the_pair_does_not_matter(self):
+        first = [self._finding(severity=Severity.CRITICAL), self._finding(severity=Severity.LOW)]
+
+        self.assertEqual(StaticAnalysisSuite.deduplicate(first)[0].severity, Severity.CRITICAL)
+
+    def test_on_a_tie_the_first_report_wins(self):
+        pair = [self._finding(description="first"), self._finding(description="second")]
+
+        self.assertEqual(StaticAnalysisSuite.deduplicate(pair)[0].description, "first")
+
+    def test_different_lines_both_survive(self):
+        pair = [self._finding(line=10), self._finding(line=11)]
+
+        self.assertEqual(len(StaticAnalysisSuite.deduplicate(pair)), 2)
+
+    def test_different_rules_both_survive(self):
+        pair = [self._finding(rule="SAST.X"), self._finding(rule="SAST.Y")]
+
+        self.assertEqual(len(StaticAnalysisSuite.deduplicate(pair)), 2)
+
+    def test_different_files_both_survive(self):
+        other = Finding(
+            category=FindingCategory.SECURITY,
+            severity=Severity.MEDIUM,
+            file_path="other.py",
+            line_number=10,
+            title="T",
+            description="a",
+            remediation="fix",
+            rule_id="SAST.X",
+        )
+
+        self.assertEqual(len(StaticAnalysisSuite.deduplicate([self._finding(), other])), 2)
+
+    def test_an_empty_input_is_handled(self):
+        self.assertEqual(StaticAnalysisSuite.deduplicate([]), [])
+
+    def test_the_suite_returns_deduplicated_findings_most_severe_first(self):
+        findings = StaticAnalysisSuite(ReviewPolicy()).analyze("app.py", TestRuleIdsAreNamespaced.SOURCE)
+
+        keys = [(f.rule_id, f.file_path, f.line_number) for f in findings]
+        self.assertEqual(len(keys), len(set(keys)), "the suite returned a duplicate")
+        self.assertEqual(findings, sorted(findings), "the suite stopped sorting")

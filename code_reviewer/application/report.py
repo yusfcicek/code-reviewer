@@ -27,6 +27,14 @@ def render_review_comment(
     else:
         parts.append("### ✅ Pipeline PASSED\n")
 
+    if outcome.unanalysed_files:
+        # Stated separately and before the model's prose, because the reader's
+        # first question about a file with no findings is whether anything
+        # looked at it (finding G-09).
+        parts.append("\n**Not analysed** — no findings below mean *nothing was examined*\n")
+        for path, reason in outcome.unanalysed_files:
+            parts.append(f"- 🚫 `{path}` — static analysis could not run: {reason}")
+
     if outcome.failed_files:
         parts.append("\n**Not reviewed**\n")
         for path, reason in outcome.failed_files:
