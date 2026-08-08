@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from code_reviewer.domain.evaluation import EvaluationCase
 from code_reviewer.domain.suppression import SuppressionResult
 
 
@@ -130,6 +131,33 @@ class Reviewer(ABC):
         other_files: list[str] | None = None,
     ) -> str:
         """Returns the review report for one file, as markdown."""
+
+
+@dataclass(frozen=True)
+class CaseFixture:
+    """One evaluation case together with the source it is annotated against.
+
+    The case is a domain value and says nothing about where its fixture lives;
+    this pairs it with the bytes, which is what the grader needs and what only
+    an adapter can supply.
+    """
+
+    case: EvaluationCase
+    content: str
+    diff: str = ""
+
+
+class EvaluationDataset(ABC):
+    """The annotated cases the evaluation harness grades against.
+
+    A port rather than a directory walk in the service, because the useful
+    version of this later is not a directory: cases exported from real reviews,
+    or fetched from wherever a team keeps its ground truth.
+    """
+
+    @abstractmethod
+    def cases(self) -> list[CaseFixture]:
+        """Every case, in a stable order, so two runs' reports diff cleanly."""
 
 
 @dataclass(frozen=True)
