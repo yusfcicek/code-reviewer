@@ -34,12 +34,13 @@ Every level follows the same three-step rhythm:
 | [4](level-4/spec.md) | Observability & resilience | ✅ Done |
 | [5](level-5/spec.md) | CI/CD & quality gates | ✅ Done |
 | [6](level-6/spec.md) | Documentation & productisation | ✅ Done |
+| [7](level-7/spec.md) | Dependency & tool-protocol upgrade | ✅ Done |
 
-### Deferred with a reason
+### Deferred, then done
 
-| Item | Why it is not done | Where |
+| Item | Why it waited | Closed by |
 |---|---|---|
-| LangChain 0.1 → 0.3 upgrade | 0.2 relocated `AgentExecutor` and reworked the prompt and scratchpad APIs the Hermes tool loop is written against. It needs its own spec, its own contracts and a run against a live model — not a line change inside a CI level. | F-45, `pyproject.toml` |
+| LangChain 0.1 → 1.x upgrade | 0.2 relocated `AgentExecutor` and 1.0 removed it, and its replacement cannot parse a tool call out of message text — which is the only way the Hermes path works. It needed its own spec and its own contracts, not a line change inside a CI level. | [Level 7](level-7/spec.md): the loop moved in-tree, and the upgrade followed with no source change. 59 advisories → 0. |
 
 The complete inventory of defects that produced these levels is in
 [`findings.md`](findings.md). Each finding carries an ID (`F-NN`) that the

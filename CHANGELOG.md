@@ -7,6 +7,45 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.1.0] — 2026-08-08
+
+Level 7: the agent's tool loop moved into this repository, which unblocked the
+LangChain upgrade that had been deferred since Level 5, and the dependency
+audit that measures it.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| `HermesToolOutputParser` and `format_to_hermes_messages` removed from `infrastructure.llm.review_agent` | Use `infrastructure.llm.tool_calls.ToolCallParser`, which reads both protocols. The old parser matched one `<parameter=>` block and mangled two-argument calls. |
+| `ReviewAgent.agent_executor` removed | The loop is `ReviewAgent.loop`, a `NarrationLoop`. |
+| `ReviewAgent(verbose=...)` removed | Verbosity is a logging concern; set `LOG_LEVEL=DEBUG`. |
+| `langchain-community` no longer a dependency | Nothing, unless you imported it through this package. LangChain 1.x does not require it. |
+| LangChain `0.1.x` → `>=1.3.9`, `openai` `1.12` → `>=2.26`, `python-gitlab` `4.4` → `>=4.13,<6` | Nothing in this project's API changed. Exact pins became ranges; `uv.lock` is what pins CI. |
+
+### Added
+
+- `REVIEW_TOOL_PROTOCOL` — `auto` (default), `native`, `hermes` or `none`,
+  deciding how tools are offered to the model. An unrecognised value raises at
+  startup rather than silently producing a tool-less review.
+- `REVIEW_MAX_ITERATIONS` and `REVIEW_MAX_SECONDS` — the loop's bounds. The time
+  budget is **off by default**: an analysis cut off part-way produces an
+  incomplete report that does not say so.
+- `scripts/audit-deps.sh` and a CI step, distinguishing a real advisory from a
+  network failure so the step can block without being a coin flip.
+- `tests/unit/test_dependencies.py` — no banned distribution reappears, and
+  every third-party import the package makes is declared.
+
+### Fixed
+
+- Tools are now bound natively, so a hosted endpoint (OpenAI, Groq) can actually
+  call one. Previously the model was offered no tool schema and narrated as
+  though it had run the scans (G-02).
+- A multi-argument tool call keeps every argument. The old parser folded the
+  second `<parameter=>` block's raw XML into the first argument's value (G-02).
+- 59 known dependency advisories across 11 packages → **none**, with an empty
+  ignore list (G-01, G-15).
+
 ## [2.0.0] — 2026-08-08
 
 A staged rebuild of the imported prototype. Every file was read, 59 findings

@@ -86,6 +86,27 @@ What it does **not** prevent:
 A merge request touching thousands of files will still take a long time. Bound
 the job with a CI timeout.
 
+## Dependency advisories
+
+CI runs `./scripts/audit-deps.sh` on every push and merge request, and the job
+blocks. The script exists because `pip-audit` exits `1` for a real advisory and
+for a failed connection to PyPI alike: a finding fails immediately, a transport
+error retries with backoff. A blocking step that cannot tell those apart gets
+marked `allow_failure: true` by the first team it inconveniences, and from then
+on the audit means nothing.
+
+**The ignore list is empty.** An entry in it is an accepted known
+vulnerability, which is a decision with a reason — so the reason belongs here,
+next to the identifier, in a table that does not currently exist because there
+is nothing to put in it. A suppression without a written reason is an audit
+that audits nothing.
+
+The tree was carrying 59 advisories across 11 packages before Level 7. The
+LangChain 1.x upgrade closed all of them; six of the eleven packages arrived
+through the LangChain 0.1 pin, and `aiohttp`, `SQLAlchemy` and
+`dataclasses-json` arrived only through `langchain-community`, which nothing in
+this project ever imported.
+
 ## Hardening advice for operators
 
 1. **Give the token the least access that works.** Read the project and post

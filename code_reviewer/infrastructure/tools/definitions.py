@@ -16,7 +16,12 @@ import ast
 import re
 import subprocess
 
-from langchain.tools import StructuredTool
+# `langchain_core` is LangChain's stable core; `langchain.tools` is a shim that
+# forwards to it and, in 0.1.x, warns that the destination is
+# `langchain_community` — a distribution this project does not carry. Importing
+# from the core directly avoids both the warning and the umbrella package's
+# reshuffling between majors.
+from langchain_core.tools import StructuredTool
 
 from .workspace import OutsideWorkspaceError, Workspace
 

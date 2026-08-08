@@ -7,22 +7,35 @@ with the LLM using a structured prompt and memory strategies.
 """
 
 import json
-import re
+import os
 import textwrap
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from langchain.agents import AgentExecutor, AgentOutputParser
-from langchain_core.agents import AgentAction, AgentFinish
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 
 from code_reviewer.application.ports import LLMProvider, MemoryStrategy
+from code_reviewer.infrastructure.llm.narration_loop import (
+    NarrationLoop,
+    max_iterations_from_env,
+    max_seconds_from_env,
+)
 from code_reviewer.infrastructure.llm.token_counter import ModelTokenCounter
 from code_reviewer.infrastructure.observability.logging import get_logger
 from code_reviewer.infrastructure.tools.definitions import get_tools
 
 logger = get_logger(__name__)
+
+#: How tools may be offered to the model.
+#:
+#: The two ends of the range exist because the agent runs in two very different
+#: deployments. A hosted endpoint (OpenAI, Groq) can only call a tool if the
+#: schema was bound through the tool API; an on-prem vLLM started without
+#: ``--enable-auto-tool-choice`` rejects the request if it was. `auto` tries the
+#: first and falls back to the second, which is only safe because
+#: :class:`ToolCallParser` reads whichever dialect comes back (finding G-02).
+TOOL_PROTOCOLS = frozenset({"auto", "native", "hermes", "none"})
 
 
 TOOL_CALL_FORMAT = (
@@ -77,56 +90,6 @@ def render_tool_catalogue(tools: Sequence[Any]) -> str:
         "next call. When you have gathered enough evidence, stop calling tools "
         "and reply with the review report."
     )
-
-
-def format_to_hermes_messages(
-    intermediate_steps: Sequence[tuple[AgentAction, str]],
-) -> list[BaseMessage]:
-    """Renders completed tool calls as the model's own turns plus responses.
-
-    The scratchpad used to be built with ``format_to_openai_function_messages``,
-    which emits OpenAI ``function_call`` payloads. The model never produced
-    those — it produces Hermes XML — so the transcript it was shown did not
-    match the transcript it had written (finding F-03).
-    """
-    messages: list[BaseMessage] = []
-    for action, observation in intermediate_steps:
-        messages.append(AIMessage(content=action.log))
-        messages.append(HumanMessage(content=f"<tool_response>\n{observation}\n</tool_response>"))
-    return messages
-
-
-class HermesToolOutputParser(AgentOutputParser):
-    """Parses Hermes / vLLM XML-style tool calls from LLM output."""
-
-    def parse(self, text: str):
-        # Clean cleanup
-        text = text.strip()
-
-        # Regex for
-        # <tool_call><function=NAME><parameter=ARG>VALUE</parameter></function></tool_call>
-        # Supporting single parameter for now as per observations
-        # <tool_call>\n<function=list_files>\n<parameter=path>\nxxxxx.h\n</parameter>\n</function>\n
-        # </tool_call>
-
-        tool_regex = (
-            r"<tool_call>\s*<function=(.*?)>\s*<parameter=(.*?)>\s*"
-            r"(.*?)\s*</parameter>\s*</function>\s*</tool_call>"
-        )
-        match = re.search(tool_regex, text, re.DOTALL)
-
-        if match:
-            func_name = match.group(1).strip()
-            param_name = match.group(2).strip()
-            param_value = match.group(3).strip()
-
-            # Construct dictionary input
-            tool_input = {param_name: param_value}
-
-            return AgentAction(tool=func_name, tool_input=tool_input, log=text)
-
-        # If no tool call, assume final answer
-        return AgentFinish(return_values={"output": text}, log=text)
 
 
 class ReviewAgent:
@@ -266,20 +229,24 @@ class ReviewAgent:
     CONTEXT_WINDOW_TOKENS = 131072
     #: Point at which the model is told to summarise before reading anything else.
     MEMORY_PRESSURE_TOKENS = 90000
-    #: Upper bound on tool calls for a single file, so one review cannot run away.
-    MAX_TOOL_ITERATIONS = 10
 
     def __init__(
         self,
         llm_provider: LLMProvider,
         memory_strategy: MemoryStrategy,
         token_counter: Callable[[str], int] | None = None,
-        verbose: bool = False,
+        tool_protocol: str | None = None,
     ):
         self.llm = llm_provider.get_chat_model()
         self.memory_strategy = memory_strategy
-        self.tools = get_tools()
         self.count_tokens = token_counter or ModelTokenCounter(self.llm)
+
+        self.tool_protocol = self._resolve_protocol(tool_protocol)
+        # Under `none` the model narrates from the diff alone. Registering the
+        # tools and then not binding them would leave the catalogue advertising
+        # calls the loop would refuse.
+        self.tools = [] if self.tool_protocol == "none" else get_tools()
+        self.model = self._bind_tools(self.llm)
 
         # The tool catalogue is a literal SystemMessage rather than a template
         # string: it contains JSON braces, which a template would try to
@@ -293,29 +260,64 @@ class ReviewAgent:
                     "REVIEW MEMORY (carried over from files already analysed):\n{memory_context}",
                 ),
                 ("user", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
             ]
         )
 
-        self.agent_runnable = (
-            {
-                "input": lambda x: x["input"],
-                "memory_context": lambda x: x.get("memory_context", ""),
-                "agent_scratchpad": lambda x: format_to_hermes_messages(x["intermediate_steps"]),
-            }
-            | self.prompt
-            | self.llm
-            | HermesToolOutputParser()
+        # The loop belongs to this project rather than to LangChain: 1.0
+        # removed AgentExecutor, and its replacement offers no hook for
+        # parsing a tool call out of message text, which is the only way the
+        # Hermes path works at all (decision D-1, finding F-45).
+        self.loop = NarrationLoop(
+            model=self.model,
+            tools=self.tools,
+            max_iterations=max_iterations_from_env(),
+            max_seconds=max_seconds_from_env(),
+            log=logger.debug,
         )
 
-        # Executor
-        self.agent_executor = AgentExecutor(
-            agent=self.agent_runnable,
-            tools=self.tools,
-            verbose=verbose,
-            handle_parsing_errors=True,
-            max_iterations=self.MAX_TOOL_ITERATIONS,
-        )
+    # -- tool protocol ------------------------------------------------------
+
+    @staticmethod
+    def _resolve_protocol(explicit: str | None) -> str:
+        """Reads the tool protocol, rejecting a value it does not recognise.
+
+        Falling back to a default on an unknown value would turn a typo into a
+        silently tool-less review — the exact failure this level exists to
+        remove, arriving through a different door.
+        """
+        protocol = (explicit or os.getenv("REVIEW_TOOL_PROTOCOL") or "auto").strip().lower()
+
+        if protocol not in TOOL_PROTOCOLS:
+            raise ValueError(
+                f"Unknown REVIEW_TOOL_PROTOCOL {protocol!r}. "
+                f"Expected one of: {', '.join(sorted(TOOL_PROTOCOLS))}."
+            )
+        return protocol
+
+    def _bind_tools(self, llm: Any) -> Any:
+        """Offers the tools to the model according to the declared protocol.
+
+        ``auto`` binds and falls back to the prompt catalogue when the server
+        refuses. The fallback is safe because the parser reads both dialects;
+        without that, falling back would mean silently losing the tools.
+        """
+        if self.tool_protocol in ("hermes", "none"):
+            logger.info(
+                "Tools are not bound natively",
+                extra={"fields": {"protocol": self.tool_protocol}},
+            )
+            return llm
+
+        try:
+            return llm.bind_tools(self.tools)
+        except Exception as exc:
+            if self.tool_protocol == "native":
+                raise
+            logger.warning(
+                "Native tool binding unavailable; falling back to prompt-based Hermes calls",
+                extra={"fields": {"error": str(exc)}},
+            )
+            return llm
 
     def review_diff(
         self,
@@ -358,8 +360,6 @@ class ReviewAgent:
         # The user requires us to find "outside files" affected by this change.
         # We do this programmatically to ensure it's not skipped by the Agent.
         try:
-            import os  # Fix: Ensure os is imported locally if not global
-
             from code_reviewer.infrastructure.tools.definitions import DependencyAnalysisTools
 
             # 1. Start with imports of the modified file
@@ -432,8 +432,8 @@ class ReviewAgent:
         # Run Agent
         try:
             logger.info("Reviewing file", extra={"fields": {"path": filename}})
-            result = self.agent_executor.invoke({"input": user_input, "memory_context": context_str})
-            output = result["output"]
+            messages = self.prompt.format_messages(input=user_input, memory_context=context_str)
+            output = self.loop.run(messages)
 
             # Check for memory updates (ADD_MEMORY pattern) in the output
             if "ADD_MEMORY:" in output:
