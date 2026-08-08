@@ -23,14 +23,12 @@ import subprocess
 # reshuffling between majors.
 from langchain_core.tools import StructuredTool
 
+from .safe_search import EXCLUDED_DIRS, InvalidPatternError, build_grep_command
 from .workspace import OutsideWorkspaceError, Workspace
 
 #: Longest tool output handed back to the model. Beyond this the observation
 #: crowds out the diff it is supposed to explain.
 MAX_OUTPUT_CHARS = 2000
-
-#: Directories never worth searching.
-EXCLUDED_DIRS = ("build", ".git", "__pycache__", "node_modules", ".gradle", ".idea", ".venv")
 
 _workspace: Workspace | None = None
 
@@ -98,18 +96,25 @@ class FileSystemTools:
 class CodeSearchTools:
     @staticmethod
     def grep_search(pattern: str, path: str = ".") -> str:
-        """Searches for a text pattern inside the workspace."""
+        """Searches for a literal string inside the workspace.
+
+        The pattern is a *fixed string*, not a regular expression: it comes
+        from the model, which got it from the diff, so a crafted one would
+        otherwise backtrack catastrophically inside a blocking CI job and match
+        the wrong things when it did not (finding G-06). Files that carry
+        credentials are excluded, because a matching line ends up in a
+        merge-request comment.
+        """
         workspace = get_workspace()
         try:
             root = workspace.resolve(path)
         except OutsideWorkspaceError as exc:
             return f"Refused: {exc}"
 
-        command = ["grep", "-rnI"]
-        command += [f"--exclude-dir={name}" for name in EXCLUDED_DIRS]
-        # `--` and a literal pattern: the pattern comes from the model, and
-        # shell=False means it is an argument rather than a command fragment.
-        command += ["--", pattern, str(root)]
+        try:
+            command = build_grep_command(pattern, [str(root)])
+        except InvalidPatternError as exc:
+            return f"Refused: {exc}"
 
         try:
             output = subprocess.check_output(command, stderr=subprocess.DEVNULL).decode("utf-8")
