@@ -17,6 +17,9 @@ from enum import Enum
 
 from code_reviewer.domain.policy import QualityPolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class IssueCategory(Enum):
@@ -152,8 +155,8 @@ class QualityAnalyzer:
                 report.solid_report = self.check_solid_principles(tree, content)
                 report.testability = self.analyze_testability(tree, content)
                 report.error_handling = self.check_error_handling(tree)
-            except SyntaxError:
-                pass
+            except SyntaxError as exc:
+                logger.debug("Unparseable source; AST checks skipped", extra={"fields": {"error": str(exc)}})
 
         # Duplication is text-level, so it works for any language
         report.duplicates = self.detect_duplicates(content)

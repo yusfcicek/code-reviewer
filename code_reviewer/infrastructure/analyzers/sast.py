@@ -296,7 +296,11 @@ class SASTAnalyzer:
                 "CWE-327",
             ),
             (
-                r"DES\s*\(|Blowfish\s*\(",
+                # `\b` before DES is load-bearing: the pattern is matched
+                # case-insensitively, so without it `ast.iter_child_nodes(`
+                # is DES encryption — and so is `modes(`, `includes(`,
+                # `decodes(` and `overrides(` (finding G-16).
+                r"\bDES\s*\(|\bBlowfish\s*\(",
                 Severity.HIGH,
                 "Weak encryption algorithm detected",
                 "Use AES-256 or ChaCha20",

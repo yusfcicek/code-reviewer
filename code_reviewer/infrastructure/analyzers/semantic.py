@@ -12,6 +12,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar
 
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class ChangeType(Enum):
     """What kind of change a diff represents."""
@@ -206,8 +210,8 @@ class SemanticChangeAnalyzer:
             try:
                 tree = ast.parse(full_content)
                 symbols.extend(self._extract_python_symbols(tree, added_lines, removed_lines))
-            except SyntaxError:
-                pass
+            except SyntaxError as exc:
+                logger.debug("Unparseable source; no symbols read", extra={"fields": {"error": str(exc)}})
 
         # Regex catches other languages, and Python that no longer parses
         symbols.extend(self._extract_symbols_regex(added_lines, removed_lines, file_path))

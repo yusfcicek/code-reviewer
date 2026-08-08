@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from typing import ClassVar
 
 from code_reviewer.domain.finding import AffectedCode, DependencyType
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -240,9 +243,9 @@ class DependencyTracker:
                         )
 
         except subprocess.TimeoutExpired:
-            pass
-        except Exception:
-            pass
+            logger.debug("Symbol search timed out", extra={"fields": {"symbol": symbol_name}})
+        except Exception as exc:
+            logger.debug("Symbol search failed", extra={"fields": {"error": str(exc)}})
 
         return affected
 
@@ -281,10 +284,11 @@ class DependencyTracker:
                 content = self._read_file_cached(file_path)
                 if content:
                     return self._find_python_function(content, target_line)
-        except (OSError, SyntaxError, ValueError):
+        except (OSError, SyntaxError, ValueError) as exc:
             # An unreadable or unparseable file means "no containing function",
-            # not a failed review.
-            pass
+            # not a failed review — but the reason is recorded rather than
+            # discarded, which is what the empty-handler rule is about.
+            logger.debug("Cannot locate the containing function", extra={"fields": {"error": str(exc)}})
 
         return ""
 
@@ -299,9 +303,10 @@ class DependencyTracker:
                         if node.lineno <= target_line <= (node.end_lineno or node.lineno + 100):
                             return node.name
 
-        except SyntaxError:
-            # Half-finished code on a branch is normal; report nothing.
-            pass
+        except SyntaxError as exc:
+            # Half-finished code on a branch is normal; report nothing, but
+            # record why nothing was reported.
+            logger.debug("Unparseable source; no symbols read", extra={"fields": {"error": str(exc)}})
 
         return ""
 
@@ -378,8 +383,8 @@ class DependencyTracker:
                                     callees.append(child.func.attr)
                         break
 
-        except SyntaxError:
-            pass
+        except SyntaxError as exc:
+            logger.debug("Unparseable source; no callees read", extra={"fields": {"error": str(exc)}})
 
         return list(set(callees))
 

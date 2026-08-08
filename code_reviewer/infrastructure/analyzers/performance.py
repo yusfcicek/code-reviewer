@@ -14,6 +14,9 @@ from typing import ClassVar
 
 from code_reviewer.domain.policy import PerformancePolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PerformanceIssueType(Enum):
@@ -199,8 +202,11 @@ class PerformanceAnalyzer:
                 # Quadratic string building
                 report.issues.extend(self._detect_string_concat_in_loop(tree))
 
-            except SyntaxError:
-                pass
+            except SyntaxError as exc:
+                # Unparseable source means the AST pass contributes nothing;
+                # the text pass below still runs. The reason is recorded
+                # rather than discarded.
+                logger.debug("Unparseable source; AST checks skipped", extra={"fields": {"error": str(exc)}})
 
         # Text patterns, for anything the AST pass could not cover
         report.issues.extend(self._analyze_patterns(content))
