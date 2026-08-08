@@ -14,6 +14,13 @@ from dataclasses import dataclass, field
 from typing import ClassVar
 
 from code_reviewer.domain.finding import AffectedCode, DependencyType
+from code_reviewer.infrastructure.observability.logging import get_logger
+from code_reviewer.infrastructure.tools.safe_search import (
+    InvalidPatternError,
+    build_grep_command,
+)
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -180,7 +187,8 @@ class DependencyTracker:
                 for code in codes[:5]:  # at most five usages per file
                     output.append(
                         f"  - Line {code.line_number}: "
-                        f"`{code.symbol_name or 'usage'}` ({code.dependency_type.value})"
+                        f"`{code.symbol_name or 'usage'}` "
+                        f"({code.dependency_type.value if code.dependency_type else 'unknown'})"
                     )
                     if code.context:
                         output.append(f"    ```{code.context[:100]}...```")
@@ -195,25 +203,30 @@ class DependencyTracker:
         """Finds usages with grep, which is fast enough across a repository."""
         affected = []
 
+        # Built through the shared helper rather than by hand. This call site
+        # was missed when G-06 fixed the one in the tool module: it had no
+        # `--`, so a symbol starting with a dash was read as a flag; no `-F`,
+        # so the symbol was a regular expression; and no exclusion of
+        # credential files, so a matching line from `.env` came back. The
+        # symbol reaches here from the model, which got it from the diff.
         try:
-            cmd = [
-                "grep",
-                "-rnI",
-                "--include=*.py",
-                "--include=*.cpp",
-                "--include=*.h",
-                "--include=*.cc",
-                "--include=*.hpp",
-                "--include=*.js",
-                "--exclude-dir=build",
-                "--exclude-dir=.git",
-                "--exclude-dir=__pycache__",
-                "--exclude-dir=node_modules",
-                symbol_name,
-                self.root_path,
-            ]
+            cmd = build_grep_command(symbol_name, [self.root_path])
+        except InvalidPatternError as exc:
+            logger.debug(
+                "Refused a usage search",
+                extra={"fields": {"symbol": symbol_name, "reason": str(exc)}},
+            )
+            return []
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        try:
+            # `cmd` is built by build_grep_command, which validates the
+            # pattern and places it after `--`.
+            result = subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
 
             if result.returncode == 0 and result.stdout:
                 for line in result.stdout.strip().split("\n")[:50]:  # at most 50 hits
@@ -240,9 +253,9 @@ class DependencyTracker:
                         )
 
         except subprocess.TimeoutExpired:
-            pass
-        except Exception:
-            pass
+            logger.debug("Symbol search timed out", extra={"fields": {"symbol": symbol_name}})
+        except Exception as exc:
+            logger.debug("Symbol search failed", extra={"fields": {"error": str(exc)}})
 
         return affected
 
@@ -281,10 +294,11 @@ class DependencyTracker:
                 content = self._read_file_cached(file_path)
                 if content:
                     return self._find_python_function(content, target_line)
-        except (OSError, SyntaxError, ValueError):
+        except (OSError, SyntaxError, ValueError) as exc:
             # An unreadable or unparseable file means "no containing function",
-            # not a failed review.
-            pass
+            # not a failed review — but the reason is recorded rather than
+            # discarded, which is what the empty-handler rule is about.
+            logger.debug("Cannot locate the containing function", extra={"fields": {"error": str(exc)}})
 
         return ""
 
@@ -299,9 +313,10 @@ class DependencyTracker:
                         if node.lineno <= target_line <= (node.end_lineno or node.lineno + 100):
                             return node.name
 
-        except SyntaxError:
-            # Half-finished code on a branch is normal; report nothing.
-            pass
+        except SyntaxError as exc:
+            # Half-finished code on a branch is normal; report nothing, but
+            # record why nothing was reported.
+            logger.debug("Unparseable source; no symbols read", extra={"fields": {"error": str(exc)}})
 
         return ""
 
@@ -357,7 +372,7 @@ class DependencyTracker:
 
     def _find_callees(self, func_name: str, file_path: str) -> list[str]:
         """The functions one function calls, from its AST."""
-        callees = []
+        callees: list[str] = []
 
         content = self._read_file_cached(file_path)
         if not content or not file_path.endswith(".py"):
@@ -378,8 +393,8 @@ class DependencyTracker:
                                     callees.append(child.func.attr)
                         break
 
-        except SyntaxError:
-            pass
+        except SyntaxError as exc:
+            logger.debug("Unparseable source; no callees read", extra={"fields": {"error": str(exc)}})
 
         return list(set(callees))
 
@@ -400,6 +415,8 @@ class DependencyTracker:
         # Breakdown by how the symbol is used
         type_counts: dict[DependencyType, int] = {}
         for code in report.affected_codes:
+            if code.dependency_type is None:
+                continue
             type_counts[code.dependency_type] = type_counts.get(code.dependency_type, 0) + 1
 
         if type_counts:

@@ -98,8 +98,12 @@ class VLLMProvider(LLMProvider):
             },
         )
 
-        return ChatOpenAI(
-            model=self.model_name,
+        # `openai_api_base`, `openai_api_key` and `request_timeout` are
+        # pydantic aliases that langchain-openai accepts at runtime but does
+        # not declare in its signature, and `model_name` is validated as
+        # present by LLMFactory before this is reached.
+        return ChatOpenAI(  # type: ignore[call-arg]
+            model=self.model_name,  # type: ignore[arg-type]
             openai_api_base=self.api_url,
             openai_api_key=self.api_key,
             temperature=temperature,

@@ -6,18 +6,19 @@ module only wires them together, which is why it is the one place allowed to
 import from every layer.
 
 Usage:
-    ai-code-review --project-id <ID> --mr-iid <IID> [--policy <path>]
+    ai-code-review --project-id <ID> --mr-iid <IID> [options]
 """
 
 import sys
 import warnings
 
+from code_reviewer.application.ports import Reviewer
 from code_reviewer.application.review_service import ReviewService
 from code_reviewer.cli import parse_args
 from code_reviewer.domain.triage import ReviewTriage
+from code_reviewer.errors import ConfigurationError, ReviewError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.config.loader import load_policy
-from code_reviewer.infrastructure.forge.gitlab_client import MissingCredentialsError
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
@@ -26,8 +27,17 @@ from code_reviewer.infrastructure.metrics.collector import MetricsCollector, Rev
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
 from code_reviewer.infrastructure.tools import Workspace, set_workspace
 
-#: Where GitLab CI picks up the metrics report artifact.
-METRICS_PATH = "metrics.txt"
+#: Exit codes. The split exists because "the gate blocked the merge request"
+#: and "the agent fell over" both used to be `1`, so no pipeline could tell
+#: them apart — and that is the distinction someone needs before they will set
+#: `allow_failure: false` (finding G-13).
+#:
+#: `1` is a *successful* run with a negative verdict. `3` is a run that did
+#: not happen.
+EXIT_OK = 0
+EXIT_BLOCKED = 1
+EXIT_CONFIG_ERROR = 2
+EXIT_RUNTIME_ERROR = 3
 
 logger = get_logger(__name__)
 
@@ -41,7 +51,24 @@ def _quieten_dependencies() -> None:
     warnings.filterwarnings("ignore", message=".*model not found.*")
 
 
-def _export_metrics(result, project_id, merge_request_iid) -> None:
+class _NoNarration(Reviewer):
+    """A reviewer that produces no prose, for `--no-llm`.
+
+    A null object rather than a `None` check inside `ReviewService`: the
+    workflow should not learn that a reviewer is optional. The verdict is
+    unaffected either way, because it comes from the analyzers
+    (ADR 0004) — so this is not a degraded mode, it is the same decision with
+    a shorter report.
+    """
+
+    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None) -> str:
+        return (
+            "_Narration was not requested (`--no-llm`). The verdict below comes "
+            "from static analysis, which is where it always comes from._"
+        )
+
+
+def _export_metrics(result, project_id, merge_request_iid, metrics_path: str) -> None:
     """Translates the workflow's facts into the exporter's format."""
     collector = MetricsCollector()
     for metric in result.metrics:
@@ -58,7 +85,7 @@ def _export_metrics(result, project_id, merge_request_iid) -> None:
                 duration_ms=metric.duration_ms,
             )
         )
-    collector.export_gitlab_metrics(METRICS_PATH)
+    collector.export_gitlab_metrics(metrics_path)
 
 
 def run(args) -> int:
@@ -73,24 +100,39 @@ def run(args) -> int:
 
     # Every file the agent can read is confined to the checkout it is
     # reviewing; the paths it asks for come from the diff (finding F-21).
-    workspace = Workspace()
+    workspace = Workspace.from_environment(args.repo_root)
     set_workspace(workspace)
-    logger.info("Tools confined", extra={"fields": {"workspace": str(workspace.root)}})
-
-    provider = LLMFactory.create_provider("vllm")
-    memory = SmartMemoryStrategy(provider)
+    logger.info(
+        "Tools confined",
+        extra={
+            "fields": {
+                "workspace": str(workspace.root),
+                "read_budget_bytes": workspace.total_read_budget_bytes,
+            }
+        },
+    )
 
     service = ReviewService(
         forge=GitLabForge(),
-        reviewer=ReviewAgent(provider, memory),
+        reviewer=_build_reviewer(args),
         triage=ReviewTriage(policy),
         policy=policy,
         analysis=StaticAnalysisSuite(policy),
+        # The workspace records what it refused. A refused read is evidence
+        # about the diff — the agent asked for that path because the content
+        # under review led it to — so it reaches the gate as a finding.
+        access_auditor=workspace,
     )
 
-    result = service.review(args.project_id, args.mr_iid)
+    result = service.review(args.project_id, args.mr_iid, publish=not args.dry_run)
 
-    if result.comment:
+    if result.comment and args.dry_run:
+        # Printed rather than posted. The exit code is still the real one: a
+        # dry run answers "what would this do", and that includes "would it
+        # stop the merge" (decision D-3).
+        print(result.comment)  # stdout: the program's output, not a diagnostic
+        logger.info("Dry run: the report above was not posted")
+    elif result.comment:
         logger.info(
             "Review posted",
             extra={"fields": {"files": len(result.metrics), "findings": len(result.findings)}},
@@ -98,8 +140,8 @@ def run(args) -> int:
     else:
         logger.info("Nothing to review; no comment posted")
 
-    _export_metrics(result, args.project_id, args.mr_iid)
-    logger.info("Metrics exported", extra={"fields": {"path": METRICS_PATH}})
+    _export_metrics(result, args.project_id, args.mr_iid, args.metrics_path)
+    logger.info("Metrics exported", extra={"fields": {"path": args.metrics_path}})
 
     if result.outcome.is_blocking:
         for issue in result.outcome.blocking_issues:
@@ -110,26 +152,53 @@ def run(args) -> int:
     return result.exit_code
 
 
+def _build_reviewer(args) -> Reviewer:
+    """The narrator, or a stand-in that produces none.
+
+    Constructing the provider is deferred to here so that `--no-llm` needs no
+    model endpoint at all — not merely an unused one.
+    """
+    if args.no_llm:
+        logger.info("Running without a model; the verdict comes from static analysis either way")
+        return _NoNarration()
+
+    provider = LLMFactory.create_provider("vllm")
+    return ReviewAgent(provider, SmartMemoryStrategy(provider))
+
+
 def main() -> None:
-    configure_logging()
-    _quieten_dependencies()
     args = parse_args()
+    configure_logging(args.log_level)
+    _quieten_dependencies()
 
     if not args.project_id or not args.mr_iid:
         logger.error(
             "Missing project ID or merge request IID. Pass --project-id/--mr-iid "
             "or set CI_PROJECT_ID/CI_MERGE_REQUEST_IID."
         )
-        sys.exit(2)
+        sys.exit(EXIT_CONFIG_ERROR)
 
     try:
         sys.exit(run(args))
-    except MissingCredentialsError as exc:
-        logger.error("Cannot reach the forge", extra={"fields": {"error": str(exc)}})
-        sys.exit(2)
+    except ConfigurationError as exc:
+        # Nothing was reviewed and nothing will be until someone changes the
+        # configuration, so retrying is pointless and the code says so.
+        logger.error("Configuration error", extra={"fields": {"error": str(exc)}})
+        sys.exit(EXIT_CONFIG_ERROR)
+    except ReviewError as exc:
+        logger.error("Review failed", extra={"fields": {"error": str(exc)}}, exc_info=True)
+        sys.exit(EXIT_RUNTIME_ERROR)
     except Exception as exc:
+        # Deliberately not EXIT_BLOCKED. A crash reported as a verdict is the
+        # defect this taxonomy exists to remove (finding G-13).
         logger.critical("Review run failed", extra={"fields": {"error": str(exc)}}, exc_info=True)
-        sys.exit(1)
+        sys.exit(EXIT_RUNTIME_ERROR)
+    except BaseException as exc:
+        # KeyboardInterrupt and SystemExit from below are not verdicts either.
+        if isinstance(exc, SystemExit):
+            raise
+        logger.critical("Review run interrupted", extra={"fields": {"error": repr(exc)}})
+        sys.exit(EXIT_RUNTIME_ERROR)
 
 
 if __name__ == "__main__":

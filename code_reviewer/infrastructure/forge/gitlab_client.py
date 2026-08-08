@@ -9,21 +9,30 @@ accepting any certificate for every request that carries ``GITLAB_TOKEN``
 environment, and turning it off is noisy.
 """
 
+# review-ignore-file: SAST.INSECURE_HTTP - this module's docstring documents
+# the ssl_verify=False default it exists to have removed (F-20). The rule reads
+# prose it cannot tell from code; the code below turns verification *on*.
 import os
 import warnings
 
 import gitlab
+
+from code_reviewer.errors import ConfigurationError
 
 #: Values accepted as "yes, really disable certificate verification".
 _FALSEY = {"false", "0", "no", "off"}
 _TRUTHY = {"true", "1", "yes", "on"}
 
 
-class MissingCredentialsError(RuntimeError):
+class MissingCredentialsError(ConfigurationError):
     """Raised when the GitLab URL or token is absent.
 
     The previous code only printed a warning and continued, so a missing token
     surfaced later as an opaque 401 in the middle of a review.
+
+    A ``ConfigurationError``: nothing was reviewed, and nothing will be until
+    someone sets the variable, so the exit code should say "fix your setup"
+    rather than "the code has a problem" (finding G-13).
     """
 
 

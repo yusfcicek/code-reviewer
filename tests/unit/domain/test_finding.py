@@ -107,3 +107,88 @@ class TestAffectedCode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFindingIsAValue(unittest.TestCase):
+    """Deduplication needs a key, and a key needs to be hashable.
+
+    Two detectors reporting the same problem at the same line under the same
+    rule is one problem (finding G-08). Collapsing them needs `Finding` to
+    behave as a value: equal by content, usable in a set or as a dict key.
+    """
+
+    @staticmethod
+    def _finding(**overrides):
+        defaults = {
+            "category": FindingCategory.SECURITY,
+            "severity": Severity.HIGH,
+            "file_path": "src/app.py",
+            "line_number": 12,
+            "title": "SQL Injection",
+            "description": "Concatenated query",
+            "remediation": "Parameterise it",
+            "rule_id": "SAST.SQL_INJECTION",
+        }
+        return Finding(**{**defaults, **overrides})
+
+    def test_two_identical_findings_are_equal(self):
+        self.assertEqual(self._finding(), self._finding())
+
+    def test_identical_findings_hash_alike(self):
+        self.assertEqual(len({self._finding(), self._finding()}), 1)
+
+    def test_findings_differing_by_line_are_distinct(self):
+        self.assertEqual(len({self._finding(), self._finding(line_number=13)}), 2)
+
+    def test_a_finding_cannot_be_mutated_after_construction(self):
+        finding = self._finding()
+
+        with self.assertRaises(Exception):
+            finding.severity = Severity.LOW
+
+    def test_the_metrics_mapping_cannot_be_mutated(self):
+        """A mutable field inside a value object is a value object in name only."""
+        finding = self._finding(metrics={"depth": 3})
+
+        with self.assertRaises(TypeError):
+            finding.metrics["depth"] = 4
+
+    def test_metrics_are_still_readable_as_a_mapping(self):
+        finding = self._finding(metrics={"depth": 3})
+
+        self.assertEqual(finding.metrics["depth"], 3)
+        self.assertEqual(dict(finding.metrics), {"depth": 3})
+
+    def test_findings_with_different_metrics_are_still_hashable(self):
+        pair = {self._finding(metrics={"a": 1}), self._finding(metrics={"b": 2})}
+
+        self.assertEqual(len(pair), 2)
+
+
+class TestRuleNamespace(unittest.TestCase):
+    """A bare id has no namespace for a glob to match (finding G-08)."""
+
+    @staticmethod
+    def _with_rule(rule_id):
+        return Finding(
+            category=FindingCategory.SECURITY,
+            severity=Severity.LOW,
+            file_path="a.py",
+            line_number=1,
+            title="t",
+            description="d",
+            remediation="r",
+            rule_id=rule_id,
+        )
+
+    def test_the_namespace_is_the_segment_before_the_first_dot(self):
+        self.assertEqual(self._with_rule("SAST.SQL_INJECTION").namespace, "SAST")
+
+    def test_a_further_dot_does_not_extend_the_namespace(self):
+        self.assertEqual(self._with_rule("QUALITY.SOLID.SRP").namespace, "QUALITY")
+
+    def test_an_unnamespaced_id_has_no_namespace(self):
+        self.assertEqual(self._with_rule("sql_injection").namespace, "")
+
+    def test_an_absent_id_has_no_namespace(self):
+        self.assertEqual(self._with_rule("").namespace, "")

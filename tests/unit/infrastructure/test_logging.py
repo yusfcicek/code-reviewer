@@ -184,6 +184,10 @@ class TestFormattersDirectly(unittest.TestCase):
         self.assertEqual(record["ratio"], 0.5)
 
 
+#: Marks a `print` that is the program's output rather than a diagnostic.
+STDOUT_MARKER = "# stdout:"
+
+
 class TestNoPrints(unittest.TestCase):
     def test_the_package_does_not_print(self):
         """Regression for F-47.
@@ -199,11 +203,38 @@ class TestNoPrints(unittest.TestCase):
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 stripped = line.strip()
                 if stripped.startswith("print(") or " print(" in stripped:
-                    if stripped.startswith("#"):
+                    if stripped.startswith("#") or STDOUT_MARKER in line:
                         continue
                     offenders.append(f"{path.name}:{number}")
 
         self.assertEqual(offenders, [])
+
+    def test_the_exemption_is_used_sparingly(self):
+        """One marked line, in the composition root, and no more.
+
+        The rule is about *diagnostics*: a print cannot be levelled, filtered
+        or shipped. It is not about a program's own output — `--dry-run` puts
+        the report on stdout so it can be piped, and a logger would prefix it
+        with a timestamp and a level and make it useless for that.
+
+        Distinguishing the two is worth an explicit marker rather than a
+        blanket exception, because the second an unmarked print is allowed the
+        first kind comes back.
+        """
+        from pathlib import Path
+
+        package = Path(__file__).resolve().parents[3] / "code_reviewer"
+        # Asserted on the file and the count, not the line number: a test
+        # that breaks when something above it moves is a test that gets
+        # deleted rather than understood.
+        marked = [
+            str(path.relative_to(package))
+            for path in package.rglob("*.py")
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if STDOUT_MARKER in line and "print(" in line
+        ]
+
+        self.assertEqual(marked, ["__main__.py"], marked)
 
 
 if __name__ == "__main__":

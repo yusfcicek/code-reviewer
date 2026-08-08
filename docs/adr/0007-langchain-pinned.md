@@ -1,6 +1,6 @@
 # 7. LangChain is held at 0.1.x
 
-- **Status**: Accepted, revisit
+- **Status**: Superseded by [0009](0009-agent-loop-in-tree.md)
 - **Level**: [5](../roadmap/level-5/spec.md)
 
 ## Context
@@ -32,3 +32,10 @@ while the real dialect breaks.
 - "It is old" is a finding; "it is old and here is exactly what blocks it" is a
   decision someone can act on.
 - The status is *revisit*: this ADR is expected to be superseded.
+
+## Superseded
+
+Level 7 removed the blocker by moving the tool loop into this repository
+(ADR [0009](0009-agent-loop-in-tree.md)), and the upgrade to LangChain 1.x
+followed with no source change. The pins are gone; the record stays,
+because "why was this old" is a question the answer outlives.

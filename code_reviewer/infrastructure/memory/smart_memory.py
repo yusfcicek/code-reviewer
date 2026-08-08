@@ -315,7 +315,7 @@ class SmartMemoryStrategy(MemoryStrategy):
 
         lines = content.split("\n")
         chunks = []
-        current_chunk = []
+        current_chunk: list[str] = []
         current_size = 0
 
         for line in lines:

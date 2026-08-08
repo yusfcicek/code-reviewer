@@ -5,10 +5,13 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.0.0.** Rebuilt from an imported prototype across seven levels of
-> work. 59 defects were found and recorded, 58 fixed, one deferred with its
-> reason. 433 tests at 87 % coverage; lint, formatting, types and tests all
-> gate on CI. What each level did, and what it found, is in
+> **Status: 2.5.0.** Rebuilt from an imported prototype across twelve levels of
+> work. 59 defects were found and recorded and all 59 are now fixed — the last
+> deferred one closed in Level 7. 804 tests at 92 % coverage; lint, formatting,
+> types, tests and a dependency audit with an empty ignore list all gate on CI.
+> Levels 7-11 closed a further nineteen gaps found by comparing against a sibling
+> implementation.
+> What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
 
 ---
@@ -47,13 +50,53 @@ Classifies each changed file before any LLM call:
 - `gate.blocking_severity` sets how severe a finding has to be to fail a
   pipeline. It defaults to `critical`.
 
-### 🔒 4. Confinement
-Every file the agent reads is resolved against the checkout under review and
-refused if it lands outside — including through `..` and symlinks. The paths the
-agent asks for ultimately come from the diff, so anyone who can open a merge
-request could otherwise attempt to steer them.
+### 🔒 4. Defences against the content under review
+The diff is written by whoever opened the merge request, so it is treated as
+hostile input in five places
+([ADR 0010](docs/adr/0010-untrusted-input-defences.md)):
 
-### 📈 5. Metrics and logging
+- **A declared trust boundary.** The diff and the file content are wrapped in
+  `<untrusted_diff>` / `<untrusted_file_content>`, both tag forms escaped
+  inside the content, and the system prompt opens by declaring everything
+  inside them to be data rather than instructions.
+- **Confinement.** Every path is resolved against the checkout and refused if
+  it lands outside, including through `..` and symlinks.
+- **A deny-list and a read budget.** `.env`, `id_rsa`, `*.pem`, `*.key` and
+  anything under `.git/` are refused at any depth, and listings omit them
+  rather than naming them. A per-review total read budget means an
+  exfiltration cannot proceed one ordinary file at a time.
+- **Fixed-string search.** `grep` runs with `-F` after `--`, bounded, with
+  credential files excluded, so a model-supplied pattern is data rather than a
+  program.
+- **Redaction.** The review text is masked on the way out — the values of the
+  secrets this process holds first, then known secret shapes.
+
+**A refused access becomes a `CRITICAL` finding**, so an injection attempt can
+fail the pipeline rather than merely be mentioned in the report.
+
+### 🔇 5. Suppressing a false positive
+Every static analyzer produces them; one that does not is not looking hard
+enough. Without a way to say "this one is wrong", a team's only options are to
+turn the rule off or stop the gate blocking — so suppression exists to keep the
+narrow answer available
+([ADR 0013](docs/adr/0013-suppression-is-narrow-and-counted.md)):
+
+```python
+verify = False  # review-ignore: SAST.INSECURE_HTTP - reached only behind an env flag
+
+# review-ignore: QUALITY.DRY - generated code, regenerated on every build
+def generated_thing(): ...
+
+# review-ignore-file: SAST.* - vendored third-party source
+```
+
+Scope is one line — or the line *after* a standalone comment — or one file.
+`SAST.*` covers a namespace; a bare `*` is refused, because suppressing
+everything is the second off-switch arriving through another door. The reason
+is captured, and the report states how many findings were suppressed, where,
+and why, naming any written without one.
+
+### 📈 6. Metrics and logging
 - The whole review is exported as OpenMetrics text for GitLab's `metrics`
   report: files and lines analysed, findings per severity, triage decisions,
   gate result, total and slowest duration — each with `# HELP` and `# TYPE`.
@@ -62,7 +105,7 @@ request could otherwise attempt to steer them.
 - A file the reviewer cannot process is reported as *not reviewed* rather than
   ending the run or passing silently.
 
-### 🧠 6. Token-aware memory
+### 🧠 7. Token-aware memory
 `SmartMemoryStrategy` keeps findings in priority buckets, never summarises
 `SECURITY` or `BREAKING` insights, and compresses lower-priority context first.
 
@@ -79,18 +122,28 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Semantic / SAST / quality / performance analyzers | ✅ Work | Exposed as agent tools and covered by tests at 83–93 % |
 | Dependency impact tracking | ✅ Works | Run automatically for every reviewed file |
 | Review gate | ✅ Works | A failing gate blocks the run and exits non-zero when the policy asks for it |
-| Agent tool loop | ✅ Works | Tool catalogue and scratchpad both use the Hermes dialect the parser reads; exercised end to end against a scripted model |
+| Agent tool loop | ✅ Works | Both protocols — native `tool_calls` and Hermes XML — reach the tools, with every argument; the loop is in-tree and exercised end to end in each dialect |
 | Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
 | Policy file | ✅ Works | The bundled `review_policy.yaml` is the default, and its thresholds change what the analyzers report |
 | Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
-| Tool sandboxing | ✅ Works | Every file tool resolves against a workspace root and refuses paths outside it, including traversal and symlinks |
+| Fail-closed decisions | ✅ Works | An analysis that could not run blocks; an unrecognised policy key refuses to load; manifests and CI definitions are always reviewed in full |
+| Finding deduplication | ✅ Works | One rule at one location is one finding, so severity counts and the quality score are not inflated |
+| Idempotent reporting | ✅ Works | Repeated runs update one comment; an oversized report is truncated rather than rejected |
+| Exit codes | ✅ Works | A blocked gate exits `1`, a configuration error `2`, a crash `3` |
+| Suppression | ✅ Works | Narrow, reasoned, counted and reported; a bare `*` is refused |
+| Dogfooding | ✅ Works | The agent analyses its own source on every push: 0 critical, 0 high, 5 reasoned suppressions |
+| Tool sandboxing | ✅ Works | Confinement, a credential deny-list, a per-review read budget and an audit log; a refusal becomes a CRITICAL finding |
+| Prompt-injection containment | ✅ Works | Reviewed content is delimited and declared untrusted, and cannot close its own delimiter |
+| Secret redaction | ✅ Works | Environment secret values and known secret shapes are masked before the review is published |
 | Metrics | ✅ Works | The whole review is aggregated and exported as valid OpenMetrics; every field is derived from something the review produced |
 | Logging | ✅ Works | Structured `logging` with `LOG_LEVEL` and an optional JSON format |
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
+| Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
 
-Remaining items are scheduled in [Levels 3 and 4](docs/roadmap/README.md) of
-the roadmap.
+Every gap the variant comparison found is closed. What the levels did, and
+what each one found while doing it, is in
+[`docs/roadmap/`](docs/roadmap/README.md).
 
 ---
 
@@ -139,6 +192,13 @@ uv sync
 | `LLM_TIMEOUT_SECONDS` | no | Request timeout for the model, default `120` |
 | `LLM_MAX_RETRIES` | no | Retries on timeout or 5xx, default `2` |
 | `LLM_TEMPERATURE` | no | Sampling temperature, default `0.3` |
+| `REVIEW_TOOL_PROTOCOL` | no | How tools are offered: `auto` (default), `native`, `hermes`, `none` |
+| `REVIEW_MAX_ITERATIONS` | no | Tool rounds allowed per file, default `10` |
+| `REVIEW_MAX_SECONDS` | no | Wall-clock budget for one file. Unset means none — see below |
+| `WORKSPACE_MAX_FILE_BYTES` | no | Per-file truncation threshold, default `200000` |
+| `WORKSPACE_TOTAL_READ_BUDGET` | no | Bytes one review may read in total, default `20000000` |
+| `REVIEW_MAX_COMMENT_CHARS` | no | Comment size bound, default `900000` (under GitLab's limit) |
+| `REVIEW_METRICS_PATH` | no | Fallback for `--metrics-path` |
 
 ```bash
 export GITLAB_URL="https://gitlab.example.com"
@@ -187,13 +247,33 @@ gate:
   blocking_severity: "critical"   # critical | high | medium | low | info
   quality_score_threshold: 60
   fail_pipeline_on_critical: true
-  fail_on_review_error: false     # a file the reviewer could not process
+  fail_on_review_error: false          # the model failed on a file — warns
+  fail_pipeline_on_analysis_error: true  # analysis could not run — blocks
 ```
 
-Documentation, generated lock files, binary assets and vendored trees are
-skipped by default. Dockerfiles, pipeline definitions, Kubernetes manifests,
-Terraform and dependency manifests are **not** — that is where a privilege
-escalation or a changed base image hides.
+**An unknown key is an error, not a warning.** A policy file either describes
+the running configuration or refuses to load: `block_on_critcal: false` used to
+be logged and ignored, leaving the rule on under a name its author thought they
+had turned off. The message names the file, the key and what would have worked.
+Finding *no* policy file is still fine — silence is not a claim, a typo is
+([ADR 0011](docs/adr/0011-unknown-means-blocked.md)).
+
+**Analysis failure blocks; narration failure warns.** They are different
+events. If the analyzers could not run, zero findings means the file was not
+examined — and for a gate, "unknown" must not mean "pass". If only the model
+failed, the evidence is already in and the report is merely missing its prose;
+blocking there would let an exhausted API quota stop a clean merge request.
+
+Documentation, binary assets and vendored trees are skipped by default.
+Dockerfiles, pipeline definitions, Kubernetes manifests, Terraform, dependency
+manifests **and lock files** are not — that is where a privilege escalation, a
+changed base image or a swapped transitive dependency hides.
+
+`triage.manifest_patterns` goes further: a path matching one is reviewed **in
+full regardless of how little of it changed**. Supply-chain and
+pipeline-poisoning changes are small by nature — a version bump and a
+`curl … | sh` added to a CI job are both one line — so size is the wrong axis
+for this class of file.
 
 Selected values can be overridden from the environment with `REVIEW_POLICY_*`
 variables — see `ReviewPolicyLoader._load_from_env` for the supported keys.
@@ -213,6 +293,33 @@ uv run ai-code-review --project-id <PROJECT_ID> --mr-iid <MR_IID>
 | `--project-id` | `$CI_PROJECT_ID` | GitLab project ID |
 | `--mr-iid` | `$CI_MERGE_REQUEST_IID` | Merge request IID |
 | `--policy` | bundled `review_policy.yaml` | Path to a policy YAML file |
+| `--repo-root` | `$CI_PROJECT_DIR` or `.` | Workspace root; the agent cannot read outside it |
+| `--metrics-path` | `metrics.txt` | Where to write the OpenMetrics report |
+| `--log-level` | `$LOG_LEVEL` or `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--dry-run` | off | Print the report instead of posting it |
+| `--no-llm` | off | Static analysis only; no model endpoint needed |
+
+**Exit codes**
+
+| Code | Meaning |
+|---|---|
+| `0` | The review ran; the gate did not block |
+| `1` | The review ran; the gate **blocked** |
+| `2` | Configuration error — a missing credential, an unloadable policy |
+| `3` | Runtime error — the review did not complete |
+
+`1` is a *successful* run with a negative verdict; `3` is a run that did not
+happen. Keeping them apart is what makes `allow_failure: false` safe
+([ADR 0012](docs/adr/0012-one-comment-per-merge-request.md)).
+
+`--dry-run` still exits with the real code, because "what would this do"
+includes "would it block". `--no-llm` reaches the **same verdict** as a normal
+run — the verdict has never come from the model — and simply produces a shorter
+report.
+
+Repeated runs on one merge request update a single comment rather than adding
+to the thread, and a report too large for the platform is truncated with a
+notice rather than being rejected.
 
 ### GitLab CI
 
@@ -237,9 +344,50 @@ ai-code-review:
 ```
 
 `allow_failure: true` keeps a review that cannot run from blocking a merge.
-Set it to `false` once you trust the verdict, and use
+Since Level 10 the exit codes make the finer distinction available: `1` means
+the gate blocked, while `2` and `3` mean the agent could not do its job. A
+pipeline that wants a blocking gate without being hostage to a flaky runner can
+set `allow_failure: false` and rely on that split. Use
 `gate.fail_pipeline_on_critical` and `gate.blocking_severity` to decide what
 "trust" means.
+
+### Tool calling
+
+The agent runs against two kinds of endpoint, and they carry a tool call
+differently:
+
+| Endpoint | How a tool call arrives |
+|---|---|
+| On-prem vLLM with a Hermes template | XML in the message text: `<tool_call><function=…>` |
+| OpenAI, Groq, most hosted APIs | a structured `tool_calls` field on the message |
+
+The parser reads both, and `REVIEW_TOOL_PROTOCOL` decides how tools are
+offered:
+
+- `auto` (default) — bind natively; if the server refuses, fall back to the
+  prompt catalogue and Hermes calls. Works on either kind of endpoint.
+- `native` — require native binding, and fail loudly if it is unsupported.
+- `hermes` — never bind. For a vLLM started without
+  `--enable-auto-tool-choice`, where the model emits XML instead.
+- `none` — no tools; the model narrates from the diff alone.
+
+The loop that drives them is `infrastructure/llm/narration_loop.py` rather than
+LangChain's: 1.0 removed `AgentExecutor`, and its replacement offers no
+output-parser hook, so it cannot support the Hermes path at all
+([ADR 0009](docs/adr/0009-agent-loop-in-tree.md)).
+
+**Cost.** With tools bound the model actually reads files and runs scans, so a
+review takes materially longer than one without. The verdict never depends on
+this — it comes from static analysis either way — so `none` is a legitimate
+choice when only the gate is wanted.
+
+**There is no wall-clock limit by default.** `REVIEW_MAX_SECONDS` is unset,
+because cutting an analysis off part-way produces an incomplete report that
+does not say it is incomplete, and that error points towards approval. The loop
+is still bounded: `REVIEW_MAX_ITERATIONS` (default 10) caps the tool rounds and
+the provider applies a per-request timeout (default 120 s), so the worst case is
+finite. Set `REVIEW_MAX_SECONDS` to a positive number if your CI needs a hard
+ceiling; `0` or unset means no limit.
 
 ---
 
@@ -254,13 +402,16 @@ uv run ruff format code_reviewer tests         # format
 uv run mypy                                    # types (domain + application)
 uv run pytest                                  # tests
 uv run pytest --cov                            # tests with the coverage floor
+uv run pytest tests/unit/test_dogfooding.py    # the agent against its own source
+./scripts/audit-deps.sh                        # dependency advisories
 ```
 
-CI runs exactly these four checks — `.github/workflows/ci.yml` on GitHub and
+CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-433 tests, 87 % coverage with an enforced floor of 85 %. The domain and
+804 tests, 92 % coverage with an enforced floor of 91 %. The dependency
+audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
 GitLab. Every behaviour change from Level 1 onwards is written test-first: the
@@ -278,6 +429,7 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── finding.py           Finding, FindingCategory, AffectedCode
 │   │   ├── policy.py            ReviewPolicy and its sections
 │   │   ├── triage.py            triage decisions
+│   │   ├── suppression.py       `review-ignore` directives
 │   │   ├── gate.py              per-file PASS / WARN / FAIL
 │   │   └── outcome.py           merge-request-level verdict
 │   ├── application/             the workflow and the ports it needs
@@ -288,11 +440,13 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
 │   │   ├── forge/               GitLab client and CodeForge adapter
-│   │   ├── llm/                 vLLM provider, review agent, token counting
+│   │   ├── llm/                 vLLM provider, review agent, tool loop, token counting
 │   │   ├── memory/              SmartMemoryStrategy
 │   │   ├── metrics/             Prometheus / GitLab exporter
-│   │   └── tools/               tool definitions + workspace confinement
+│   │   ├── security/            secret redaction on the way out
+│   │   └── tools/               tool definitions, workspace limits, safe search
 │   ├── cli.py                   argument parsing
+│   ├── errors.py                operational error categories
 │   └── __main__.py              composition root
 ├── tests/
 │   ├── unit/{domain,application,infrastructure}/

@@ -7,10 +7,12 @@ and the gate had to recover numbers by parsing the model's prose instead of
 reading the values the analyzers had already computed (findings F-28, F-32).
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import total_ordering
+from types import MappingProxyType
+from typing import Any
 
 from .severity import Severity
 
@@ -36,10 +38,20 @@ class DependencyType(Enum):
     DATA_STRUCTURE = "data_structure"
 
 
+#: Shared empty mapping for findings that carry no rule-specific numbers.
+_NO_METRICS: Mapping[str, Any] = MappingProxyType({})
+
+
 @total_ordering
-@dataclass
+@dataclass(frozen=True)
 class Finding:
-    """One problem, at one place, with one suggested remedy."""
+    """One problem, at one place, with one suggested remedy.
+
+    A *value*: immutable, equal by content and hashable. Deduplication needs a
+    key, and a key needs to hash — two detectors reporting one problem at one
+    line under one rule is one problem, and collapsing them is only possible if
+    findings behave like values (finding G-08).
+    """
 
     category: FindingCategory
     severity: Severity
@@ -57,8 +69,32 @@ class Finding:
     owasp_category: str = ""
     #: The source line that triggered the rule, trimmed for display.
     evidence: str = ""
-    #: Rule-specific numbers, e.g. loop depth or method count.
-    metrics: dict = field(default_factory=dict)
+    #: Rule-specific numbers, e.g. loop depth or method count. Stored as an
+    #: immutable mapping: a mutable field inside a value object makes it a
+    #: value object in name only, and an unhashable one in practice.
+    metrics: Mapping[str, Any] = field(default_factory=lambda: _NO_METRICS)
+
+    def __post_init__(self) -> None:
+        # Callers pass an ordinary dict, which is the convenient thing to
+        # write. It is wrapped here rather than at every construction site.
+        if not isinstance(self.metrics, MappingProxyType):
+            object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
+
+    def __hash__(self) -> int:
+        # `metrics` is a mapping and mappings are not hashable, so it is left
+        # out of the hash. Equality still considers it — findings that differ
+        # only in their metrics collide in a bucket and are told apart by
+        # `__eq__`, which is exactly what a hash is allowed to do.
+        return hash((self.rule_id, self.file_path, self.line_number, self.title, self.severity))
+
+    @property
+    def namespace(self) -> str:
+        """The leading segment of the rule id, e.g. ``SAST``.
+
+        Empty when the id carries no namespace. Level 11's suppression globs
+        match on this, and a bare id gives them nothing to match.
+        """
+        return self.rule_id.split(".", 1)[0] if "." in self.rule_id else ""
 
     @property
     def location(self) -> str:

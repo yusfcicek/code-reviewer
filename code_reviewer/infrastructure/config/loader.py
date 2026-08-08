@@ -9,7 +9,9 @@ The packaged file used to be unreachable because every candidate path was
 relative to the working directory (finding F-04).
 """
 
+import dataclasses
 import os
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 from typing import ClassVar
@@ -19,9 +21,59 @@ import yaml
 from code_reviewer.domain.policy import (
     ReviewPolicy,
 )
+from code_reviewer.errors import ConfigurationError
 from code_reviewer.infrastructure.observability.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _matches(value: object, annotation: object) -> bool:
+    """Whether ``value`` fits ``annotation``, loosely but usefully.
+
+    Dataclass annotations arrive as type objects when the module does not use
+    postponed evaluation, and as strings when it does. Both are normalised to
+    text here, so the check does not depend on which style the policy
+    dataclasses happen to be written in.
+
+    The check is deliberately shallow: it catches a string where an int
+    belongs and a list where a bool belongs, which is what a policy typo
+    actually looks like. It does not verify the contents of a list.
+
+    `bool` is tested before `int` because `True` *is* an `int` in Python, and
+    a policy file should not inherit that surprise: `max_class_methods: true`
+    is a mistake, not a threshold of one.
+    """
+    expected = getattr(annotation, "__name__", None) or str(annotation)
+    expected = expected.lower()
+
+    if "bool" in expected:
+        return isinstance(value, bool)
+    if "int" in expected:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if "list" in expected:
+        return isinstance(value, list)
+    if "dict" in expected:
+        return isinstance(value, dict)
+    if "str" in expected:
+        return isinstance(value, str)
+    return True
+
+
+class PolicyLoadError(ConfigurationError):
+    """A policy file was found but could not be trusted.
+
+    Raised rather than logged, and the distinction is the whole design. A
+    policy engine that quietly falls back to defaults is worse than one that
+    has none, because it is *believed*: `block_on_critcal: false` leaves the
+    rule on under a name its author thinks they turned off, and nothing says
+    so (finding G-10).
+
+    The cost of failing closed is one startup error the first time someone
+    typos a key — which is exactly the moment they want to hear about it.
+
+    A ``ConfigurationError``, so the entry point exits `2`: nothing was
+    reviewed, and retrying will not change that until the file is fixed.
+    """
 
 
 class ReviewPolicyLoader:
@@ -75,7 +127,9 @@ class ReviewPolicyLoader:
         # 2. Try to load from file
         file_policy = self._load_from_file(policy_path)
         if file_policy:
-            policy = self._merge_policies(policy, file_policy)
+            # The source is named in every error, because "which file said
+            # this" is the first thing anyone needs when a policy is refused.
+            policy = self._merge_policies(policy, file_policy, self.source or "<policy file>")
 
         # 3. Override with environment variables
         env_overrides = self._load_from_env()
@@ -97,11 +151,9 @@ class ReviewPolicyLoader:
     def _candidate_paths(self, policy_path: str | None = None) -> list[str]:
         """Ordered candidates: explicit, working directory, then packaged.
 
-        An explicit path that does not exist falls through rather than
-        aborting, so a stale ``--policy`` in a pipeline definition degrades to
-        the shipped rules instead of to no rules at all. The chosen source is
-        recorded in :attr:`source` and printed, because "which policy actually
-        applied" is the first question when a review surprises someone.
+        The chosen source is recorded in :attr:`source` and printed, because
+        "which policy actually applied" is the first question when a review
+        surprises someone.
         """
         candidates = []
         if policy_path:
@@ -115,9 +167,24 @@ class ReviewPolicyLoader:
         return candidates
 
     def _load_from_file(self, policy_path: str | None = None) -> dict | None:
-        """Reads the first candidate file that parses as a mapping."""
+        """Reads the first candidate file, refusing one it cannot trust.
+
+        Absence is permissive, content is not (decision D-4). Finding no
+        policy file is a deployment that has not configured one — a valid
+        state with a documented default. Naming a file that is not there, or
+        finding one that does not parse, is a claim that turned out to be
+        false, and a false claim about a security policy is worth stopping
+        for.
+
+        Raises:
+            PolicyLoadError: if ``policy_path`` is named and absent, or a
+                candidate file is unreadable, unparseable, or not a mapping.
+        """
         if policy_path and not os.path.exists(policy_path):
-            logger.warning("Policy file not found; falling back", extra={"fields": {"path": policy_path}})
+            raise PolicyLoadError(
+                f"Policy file not found: {policy_path}. Naming a policy file is a claim "
+                f"that it exists; falling back silently would run rules nobody chose."
+            )
 
         for path in self._candidate_paths(policy_path):
             if not path or not os.path.exists(path):
@@ -125,18 +192,22 @@ class ReviewPolicyLoader:
             try:
                 with open(path, encoding="utf-8") as f:
                     data = yaml.safe_load(f)
-            except Exception as e:
-                logger.warning(
-                    "Could not read policy file", extra={"fields": {"path": path, "error": str(e)}}
-                )
-                continue
+            except OSError as exc:
+                raise PolicyLoadError(f"Cannot read policy file {path}: {exc}") from exc
+            except yaml.YAMLError as exc:
+                raise PolicyLoadError(f"Invalid YAML in policy file {path}: {exc}") from exc
+
+            if data is None:
+                # An entirely empty file states nothing, which is the same as
+                # having no file: silence, not a wrong claim.
+                logger.info("Policy file is empty; using built-in defaults", extra={"fields": {"path": path}})
+                self.source = path
+                return None
 
             if not isinstance(data, dict):
-                logger.warning(
-                    "Ignoring policy file: expected a YAML mapping",
-                    extra={"fields": {"path": path}},
+                raise PolicyLoadError(
+                    f"Policy file {path} must contain a YAML mapping at its root, got {type(data).__name__}."
                 )
-                continue
 
             self.source = path
             logger.info("Policy loaded", extra={"fields": {"source": path}})
@@ -147,10 +218,10 @@ class ReviewPolicyLoader:
 
     def _load_from_env(self) -> dict:
         """Collects the REVIEW_POLICY_* overrides that are set."""
-        overrides = {}
+        overrides: dict[str, dict[str, object]] = {}
 
         # Only these variables are recognised; anything else is ignored.
-        env_mappings = {
+        env_mappings: dict[str, tuple[str, str, Callable[[str], object]]] = {
             "REVIEW_POLICY_MAX_LINES_AUTO": ("triage", "max_lines_for_auto", int),
             "REVIEW_POLICY_MAX_LINES_QUICK": ("triage", "max_lines_for_quick", int),
             "REVIEW_POLICY_BLOCK_CRITICAL": ("security", "block_on_critical", self._parse_bool),
@@ -185,8 +256,23 @@ class ReviewPolicyLoader:
         """Reads a boolean from an environment string."""
         return value.lower() in ("true", "1", "yes", "on")
 
-    def _merge_policies(self, base: ReviewPolicy, overrides: dict) -> ReviewPolicy:
-        """Applies a mapping of overrides onto a policy in place."""
+    #: Sections a policy file may declare, besides `version` and `custom_rules`.
+    POLICY_SECTIONS = ("triage", "security", "quality", "performance", "gate")
+
+    def _merge_policies(
+        self, base: ReviewPolicy, overrides: dict, source: str = "<environment>"
+    ) -> ReviewPolicy:
+        """Applies a mapping of overrides onto a policy in place.
+
+        Every name is checked against the dataclass that owns it, and an
+        unrecognised one stops the load. It used to be logged and skipped,
+        which meant a typo produced a configuration nobody had chosen and
+        nobody was told about (finding G-10).
+
+        Raises:
+            PolicyLoadError: on an unknown section or key, a section that is
+                not a mapping, or a value of the wrong type.
+        """
         if not overrides:
             return base
 
@@ -195,34 +281,68 @@ class ReviewPolicyLoader:
         if "version" in overrides:
             base.version = str(overrides["version"])
 
+        self._reject_unknown_sections(overrides, source)
+
         # A YAML section that is present but empty parses as None, not as an
         # empty mapping. The shipped policy ends with a `custom_rules:` heading
         # followed only by comments, which used to make merging raise
-        # TypeError the moment the file was actually loaded.
-        for section in ("triage", "security", "quality", "performance", "gate"):
-            values = overrides.get(section)
-            if not isinstance(values, dict):
-                if values is not None:
-                    logger.warning(
-                        "Ignoring policy section: expected a mapping",
-                        extra={"fields": {"section": section, "got": type(values).__name__}},
-                    )
+        # TypeError the moment the file was actually loaded. An empty section
+        # states nothing, so it is accepted and skipped.
+        for section in self.POLICY_SECTIONS:
+            if section not in overrides:
                 continue
+
+            values = overrides[section]
+            if values is None:
+                continue
+            if not isinstance(values, dict):
+                raise PolicyLoadError(
+                    f"{source}: section '{section}' must be a mapping, got {type(values).__name__}."
+                )
 
             target = getattr(base, section)
             for key, value in values.items():
-                if hasattr(target, key):
-                    setattr(target, key, value)
-                else:
-                    logger.warning(
-                        "Ignoring unknown policy key", extra={"fields": {"key": f"{section}.{key}"}}
-                    )
+                self._assign(target, section, key, value, source)
 
         custom_rules = overrides.get("custom_rules")
-        if isinstance(custom_rules, dict):
+        if custom_rules is not None:
+            if not isinstance(custom_rules, dict):
+                raise PolicyLoadError(
+                    f"{source}: 'custom_rules' must be a mapping, got {type(custom_rules).__name__}."
+                )
+            # The one section whose keys are the user's own vocabulary, so
+            # there is nothing to validate them against.
             base.custom_rules.update(custom_rules)
 
         return base
+
+    def _reject_unknown_sections(self, overrides: dict, source: str) -> None:
+        known = {*self.POLICY_SECTIONS, "version", "custom_rules"}
+        unknown = sorted(set(overrides) - known)
+        if unknown:
+            raise PolicyLoadError(
+                f"{source}: unknown policy section(s) {', '.join(repr(s) for s in unknown)}. "
+                f"Expected one of: {', '.join(sorted(known))}."
+            )
+
+    @staticmethod
+    def _assign(target: object, section: str, key: str, value: object, source: str) -> None:
+        """Sets one key, refusing an unknown name or a wrongly typed value."""
+        declared = {f.name: f.type for f in dataclasses.fields(target)}  # type: ignore[arg-type]
+
+        if key not in declared:
+            raise PolicyLoadError(
+                f"{source}: unknown key '{section}.{key}'. Expected one of: {', '.join(sorted(declared))}."
+            )
+
+        expected = declared[key]
+        if not _matches(value, expected):
+            wanted = getattr(expected, "__name__", None) or str(expected)
+            raise PolicyLoadError(
+                f"{source}: '{section}.{key}' must be a {wanted}, got {type(value).__name__} ({value!r})."
+            )
+
+        setattr(target, key, value)
 
     def get_cached(self) -> ReviewPolicy | None:
         """The policy from the last successful load, if there was one."""

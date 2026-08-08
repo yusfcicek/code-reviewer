@@ -10,13 +10,22 @@ directly and therefore had no tests at all (findings F-25, F-27).
 import logging
 from dataclasses import dataclass, field
 
-from code_reviewer.domain.finding import Finding
+from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.gate import ReviewGate
 from code_reviewer.domain.outcome import ReviewOutcome
 from code_reviewer.domain.policy import ReviewPolicy
+from code_reviewer.domain.severity import Severity
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
 
-from .ports import CodeForge, FileChange, MergeRequestRef, Reviewer, StaticAnalysis
+from .ports import (
+    AccessAuditor,
+    AccessViolation,
+    CodeForge,
+    FileChange,
+    MergeRequestRef,
+    Reviewer,
+    StaticAnalysis,
+)
 from .report import render_review_comment
 
 # Standard logging, not the infrastructure helper: the application layer may
@@ -68,6 +77,7 @@ class ReviewService:
         policy: ReviewPolicy,
         analysis: StaticAnalysis | None = None,
         gate: ReviewGate | None = None,
+        access_auditor: AccessAuditor | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -78,11 +88,22 @@ class ReviewService:
         # then falls back to reading the model's prose.
         self._analysis = analysis
         self._gate = gate or ReviewGate(policy)
+        # Optional so a caller without a sandbox still reviews. When present,
+        # a refused file access becomes a finding on the file being reviewed.
+        self._access_auditor = access_auditor
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
-    def review(self, project_id: int, merge_request_iid: int) -> ReviewResult:
-        """Runs the full workflow and returns what happened."""
+    def review(self, project_id: int, merge_request_iid: int, publish: bool = True) -> ReviewResult:
+        """Runs the full workflow and returns what happened.
+
+        Args:
+            project_id: The forge's project identifier.
+            merge_request_iid: The merge request under review.
+            publish: Whether to post the comment. ``False`` runs everything
+                else unchanged, including the gate — a dry run answers "what
+                would this do", and that includes "would it block".
+        """
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
         changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
 
@@ -123,7 +144,8 @@ class ReviewService:
 
         if sections:
             result.comment = render_review_comment(self._policy.version, outcome, sections, result.findings)
-            self._forge.publish_comment(reference, result.comment)
+            if publish:
+                self._forge.publish_comment(reference, result.comment)
 
         result.exit_code = outcome.exit_code(self._policy)
         return result
@@ -157,7 +179,9 @@ class ReviewService:
         section = None
         gate_result = "pass"
         quality_score = None
-        findings = []
+        # `None` and `[]` mean different things to the gate: the first is "no
+        # analysis ran", the second is "it ran and found nothing" (F-32).
+        findings: list[Finding] | None = []
 
         if decision.decision is ReviewDecision.AUTO_APPROVE:
             section = f"## ✅ Auto-Approved: `{change.path}`\n> {decision.reason}\n\n---\n"
@@ -165,9 +189,23 @@ class ReviewService:
         elif decision.decision in NEEDS_REVIEWER:
             # Analysis runs first and unconditionally: whether a file gets a
             # security scan must not depend on the model deciding to ask for
-            # one (finding F-32). A failing analyzer degrades the review to
-            # prose rather than losing the file entirely.
-            findings = self._analyse(change, full_content)
+            # one (finding F-32).
+            analysis, analysis_error = self._analyse(change, full_content)
+            findings = list(analysis.findings) if analysis is not None else None
+            if analysis is not None and analysis.suppressed:
+                # Counted on the outcome so the report can state it. A
+                # suppression nobody can see is indistinguishable from a rule
+                # that never fired (finding G-07).
+                outcome.record_suppressions(change.path, analysis.suppressed)
+            if analysis_error is not None:
+                # Not "the review found nothing". Nothing was examined, and a
+                # gate that reads those as the same thing answers "pass" to a
+                # question it never asked (finding G-09).
+                outcome.record_unanalysed(change.path, analysis_error)
+
+            # Counted before the reviewer runs, so what it triggers is
+            # attributable to *this* file rather than to the whole run.
+            violations_before = self._violation_count()
 
             review_text = self._reviewer.review_diff(
                 change.path,
@@ -175,6 +213,11 @@ class ReviewService:
                 full_content,
                 other_files=sibling_paths,
             )
+
+            refusals = self._refusal_findings(change.path, violations_before)
+            if refusals:
+                findings = list(findings or []) + refusals
+
             section = self._render_section(change.path, review_text, findings)
 
             evaluation = self._gate.evaluate(review_text, findings)
@@ -197,24 +240,77 @@ class ReviewService:
         )
         return section, metric, findings or []
 
-    def _analyse(self, change: FileChange, full_content):
-        """Runs the analysis suite, returning None when none ran.
+    def _violation_count(self) -> int:
+        """How many refusals the auditor has seen so far, or zero without one."""
+        if self._access_auditor is None:
+            return 0
+        return len(self._access_auditor.access_violations())
 
-        A broken analyzer must not cost the file its model review: the result
-        is a review with less evidence, which the gate handles by falling back
-        to the prose path.
+    def _refusal_findings(self, file_path: str, seen_before: int) -> list[Finding]:
+        """Turns refusals raised while reviewing ``file_path`` into findings.
+
+        The agent asked for those paths because something in this file's diff
+        led it to, so the refusal is evidence about the merge request. Making
+        it a `Finding` is what puts it in front of the gate: prose warns,
+        findings block (ADR 0004), and an injection attempt is worth blocking.
+        """
+        if self._access_auditor is None:
+            return []
+
+        new_violations = self._access_auditor.access_violations()[seen_before:]
+        return [self._to_finding(file_path, violation) for violation in new_violations]
+
+    @staticmethod
+    def _to_finding(file_path: str, violation: AccessViolation) -> Finding:
+        return Finding(
+            category=FindingCategory.SECURITY,
+            severity=Severity.CRITICAL,
+            file_path=file_path,
+            line_number=0,
+            title="Refused File Access",
+            description=(
+                f"While reviewing this file the agent attempted to read "
+                f"'{violation.path}', which was refused: {violation.reason}. The paths "
+                f"the agent asks for come from the content under review, so this is a "
+                f"likely prompt-injection attempt in the diff."
+            ),
+            remediation=(
+                "Read the diff for text addressed to an automated reviewer. If the "
+                "attempt is deliberate, treat the merge request as hostile; if it is "
+                "not, the file path came from somewhere and that source is worth finding."
+            ),
+            rule_id="SANDBOX.VIOLATION",
+            cwe_id="CWE-77",
+            owasp_category="LLM01:2025 Prompt Injection",
+            evidence=violation.path,
+        )
+
+    def _analyse(self, change: FileChange, full_content):
+        """Runs the analysis suite.
+
+        Returns ``(result, error)``. Exactly one is meaningful:
+
+        - ``(None, None)`` — no analysis was configured at all;
+        - ``(result, None)`` — it ran, and this is what it saw *and* what the
+          file asked it to ignore;
+        - ``(None, "reason")`` — it could not run, and the caller must not read
+          that as a clean file (finding G-09).
+
+        A broken analyzer still does not cost the file its model review: the
+        prose is produced either way, and the reader gets both the narrative
+        and the statement that the evidence is missing.
         """
         if self._analysis is None:
-            return None
+            return None, None
         try:
-            return self._analysis.analyze(change.path, full_content or "", change.diff)
+            return self._analysis.analyze(change.path, full_content or "", change.diff), None
         except Exception as exc:
             logger.error(
-                "Static analysis failed; continuing without it",
+                "Static analysis failed; the file is reported as unanalysed",
                 extra={"fields": {"path": change.path, "error": str(exc)}},
                 exc_info=True,
             )
-            return None
+            return None, str(exc)
 
     @staticmethod
     def _render_section(path: str, review_text: str, findings) -> str:

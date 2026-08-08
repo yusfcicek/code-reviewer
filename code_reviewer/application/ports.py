@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from code_reviewer.domain.finding import Finding
+from code_reviewer.domain.suppression import SuppressionResult
 
 
 @dataclass(frozen=True)
@@ -106,8 +106,16 @@ class StaticAnalysis(ABC):
     """
 
     @abstractmethod
-    def analyze(self, file_path: str, content: str, diff: str = "") -> list[Finding]:
-        """Returns findings for one file, most severe first."""
+    def analyze(self, file_path: str, content: str, diff: str = "") -> SuppressionResult:
+        """What was found, and what the file asked to be ignored.
+
+        Returns both halves rather than the findings alone. A rule silenced by
+        a ``review-ignore`` directive and a rule that never fired look
+        identical from the outside otherwise, which is the state suppression
+        exists to avoid creating (finding G-07).
+
+        Findings come back most severe first.
+        """
 
 
 class Reviewer(ABC):
@@ -122,3 +130,31 @@ class Reviewer(ABC):
         other_files: list[str] | None = None,
     ) -> str:
         """Returns the review report for one file, as markdown."""
+
+
+@dataclass(frozen=True)
+class AccessViolation:
+    """One refused attempt to read something.
+
+    Deliberately not the infrastructure's ``AccessRecord``: the workflow needs
+    the path and the reason, and nothing else. Allowed reads are the sandbox's
+    own business.
+    """
+
+    path: str
+    reason: str
+
+
+class AccessAuditor(ABC):
+    """Reports the file accesses that were refused during a review.
+
+    The paths the agent asks for come from the diff, so a refused read is
+    evidence about the merge request rather than about the model: it is the
+    loudest available signal that the reviewed content contains an injection.
+    The workflow turns each one into a ``Finding``, which is what puts it in
+    front of the gate instead of into a paragraph of prose (ADR 0004).
+    """
+
+    @abstractmethod
+    def access_violations(self) -> list[AccessViolation]:
+        """Every refusal so far, oldest first."""

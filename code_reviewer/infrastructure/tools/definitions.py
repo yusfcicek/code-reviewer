@@ -15,17 +15,21 @@ review continues, with the model told why it cannot have the file.
 import ast
 import re
 import subprocess
+from pathlib import Path
 
-from langchain.tools import StructuredTool
+# `langchain_core` is LangChain's stable core; `langchain.tools` is a shim that
+# forwards to it and, in 0.1.x, warns that the destination is
+# `langchain_community` — a distribution this project does not carry. Importing
+# from the core directly avoids both the warning and the umbrella package's
+# reshuffling between majors.
+from langchain_core.tools import StructuredTool
 
+from .safe_search import EXCLUDED_DIRS, InvalidPatternError, build_grep_command
 from .workspace import OutsideWorkspaceError, Workspace
 
 #: Longest tool output handed back to the model. Beyond this the observation
 #: crowds out the diff it is supposed to explain.
 MAX_OUTPUT_CHARS = 2000
-
-#: Directories never worth searching.
-EXCLUDED_DIRS = ("build", ".git", "__pycache__", "node_modules", ".gradle", ".idea", ".venv")
 
 _workspace: Workspace | None = None
 
@@ -69,45 +73,57 @@ class FileSystemTools:
 
     @staticmethod
     def list_files(path: str = ".") -> str:
-        """Lists files in a directory inside the workspace."""
+        """Lists files in a directory inside the workspace.
+
+        The listing goes through the workspace rather than walking the tree
+        here, so the deny-list applies: a credential file is omitted, not
+        named. Naming it tells a model that has been talked into looking
+        exactly what to ask for next.
+        """
         workspace = get_workspace()
         try:
-            target = workspace.resolve(path)
+            entries = workspace.entries(path)
         except OutsideWorkspaceError as exc:
             return f"Refused: {exc}"
-
-        if not target.is_dir():
+        except NotADirectoryError:
             return f"Error: {path} is not a directory."
 
-        entries = []
-        for item in sorted(target.rglob("*")):
-            if any(part in EXCLUDED_DIRS for part in item.parts):
-                continue
-            entries.append(workspace.relative(item))
+        visible = [entry for entry in entries if not any(part in EXCLUDED_DIRS for part in Path(entry).parts)]
 
-        if not entries:
+        if not visible:
             return f"No files under {path}."
-        return _truncate("\n".join(entries))
+        return _truncate("\n".join(visible))
 
 
 class CodeSearchTools:
     @staticmethod
     def grep_search(pattern: str, path: str = ".") -> str:
-        """Searches for a text pattern inside the workspace."""
+        """Searches for a literal string inside the workspace.
+
+        The pattern is a *fixed string*, not a regular expression: it comes
+        from the model, which got it from the diff, so a crafted one would
+        otherwise backtrack catastrophically inside a blocking CI job and match
+        the wrong things when it did not (finding G-06). Files that carry
+        credentials are excluded, because a matching line ends up in a
+        merge-request comment.
+        """
         workspace = get_workspace()
         try:
             root = workspace.resolve(path)
         except OutsideWorkspaceError as exc:
             return f"Refused: {exc}"
 
-        command = ["grep", "-rnI"]
-        command += [f"--exclude-dir={name}" for name in EXCLUDED_DIRS]
-        # `--` and a literal pattern: the pattern comes from the model, and
-        # shell=False means it is an argument rather than a command fragment.
-        command += ["--", pattern, str(root)]
+        try:
+            command = build_grep_command(pattern, [str(root)])
+        except InvalidPatternError as exc:
+            return f"Refused: {exc}"
 
         try:
-            output = subprocess.check_output(command, stderr=subprocess.DEVNULL).decode("utf-8")
+            # `command` is built by build_grep_command, which validates the
+            # pattern and places it after `--`.
+            output = subprocess.check_output(  # noqa: S603
+                command, stderr=subprocess.DEVNULL
+            ).decode("utf-8")
         except subprocess.CalledProcessError:
             return "No matches found."
         except Exception as exc:
@@ -119,19 +135,31 @@ class CodeSearchTools:
 class SmartFileTools:
     @staticmethod
     def find_file(filename: str) -> str:
-        """Locates a file by name inside the workspace."""
+        """Locates a file by name inside the workspace.
+
+        Matches are drawn from the workspace's own listing, so a search for
+        ``env`` cannot surface ``.env``: locating a credential file is the
+        first half of reading one.
+        """
         workspace = get_workspace()
 
         # Tolerate the model passing "name, path"; only the name is used.
         if "," in filename:
             filename = filename.split(",")[0].strip()
 
-        matches = []
-        for candidate in sorted(workspace.root.rglob(f"*{filename}*")):
-            if any(part in EXCLUDED_DIRS for part in candidate.parts):
-                continue
-            if candidate.is_file():
-                matches.append(workspace.relative(candidate))
+        try:
+            entries = workspace.entries(".")
+        except OutsideWorkspaceError as exc:  # pragma: no cover - the root always resolves
+            return f"Refused: {exc}"
+
+        needle = filename.lower()
+        matches = [
+            entry
+            for entry in entries
+            if needle in Path(entry).name.lower()
+            and not any(part in EXCLUDED_DIRS for part in Path(entry).parts)
+            and (workspace.root / entry).is_file()
+        ]
 
         if not matches:
             return f"No file found matching '{filename}' in the workspace."
@@ -175,7 +203,13 @@ class SmartFileTools:
 class DependencyAnalysisTools:
     @staticmethod
     def get_file_imports(file_path: str) -> str:
-        """Lists imported modules. Supports Python (AST) and C/C++ (regex)."""
+        """Lists imported modules. Supports Python (AST) and C/C++ (regex).
+
+        Split into per-language helpers because the combined form reached a
+        cyclomatic complexity of 16 — flagged by the agent against its own
+        source (finding G-16). Adding a third language to the original would
+        have made it worse; adding one now is another small function.
+        """
         try:
             content = get_workspace().read(file_path)
         except OutsideWorkspaceError as exc:
@@ -186,30 +220,39 @@ class DependencyAnalysisTools:
             return f"Error analyzing imports: {exc}"
 
         if file_path.endswith((".cpp", ".cc", ".h", ".hpp", ".c")):
-            includes = re.findall(r'#include\s+[<"](.+?)[>"]', content)
-            if not includes:
-                return "No includes found."
-            return "Includes found:\n" + "\n".join(f"#include {name}" for name in includes)
-
+            return DependencyAnalysisTools._c_includes(content)
         if file_path.endswith(".py"):
-            try:
-                tree = ast.parse(content, filename=file_path)
-            except SyntaxError as exc:
-                return f"Error analyzing imports: {exc}"
-
-            imports = []
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    imports.extend(f"import {alias.name}" for alias in node.names)
-                elif isinstance(node, ast.ImportFrom):
-                    module = node.module or ""
-                    imports.extend(f"from {module} import {alias.name}" for alias in node.names)
-
-            if not imports:
-                return "No imports found."
-            return "Imports found:\n" + "\n".join(imports)
+            return DependencyAnalysisTools._python_imports(content, file_path)
 
         return "File type not supported for static dependency analysis."
+
+    @staticmethod
+    def _c_includes(content: str) -> str:
+        """`#include` directives, by pattern — C has no cheap parser here."""
+        includes = re.findall(r'#include\s+[<"](.+?)[>"]', content)
+        if not includes:
+            return "No includes found."
+        return "Includes found:\n" + "\n".join(f"#include {name}" for name in includes)
+
+    @staticmethod
+    def _python_imports(content: str, file_path: str) -> str:
+        """Imports read from the AST, so a commented-out one does not count."""
+        try:
+            tree = ast.parse(content, filename=file_path)
+        except SyntaxError as exc:
+            return f"Error analyzing imports: {exc}"
+
+        imports: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.extend(f"import {alias.name}" for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                imports.extend(f"from {module} import {alias.name}" for alias in node.names)
+
+        if not imports:
+            return "No imports found."
+        return "Imports found:\n" + "\n".join(imports)
 
     @staticmethod
     def find_references(symbol_name: str, root_path: str = ".") -> str:

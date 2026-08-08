@@ -19,9 +19,11 @@ directly would be a large change with no behavioural gain, and their tests pin
 the current output (decision D-2).
 """
 
+from code_reviewer.application.ports import StaticAnalysis
 from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.domain.suppression import SuppressionResult, apply_suppressions
 
 from .performance import PerformanceAnalyzer
 from .quality import QualityAnalyzer
@@ -35,7 +37,20 @@ _SEMANTIC_SEVERITY = {
 }
 
 
-class StaticAnalysisSuite:
+def _rule_id(namespace: str, raw) -> str:
+    """Qualifies an analyzer's private rule name with the domain namespace.
+
+    Each analyzer keeps its own enum and its own vocabulary; this module is
+    already the anti-corruption layer that translates them, and the namespace
+    is part of that translation (decision D-1). The result — `SAST.SQL_INJECTION`
+    rather than `sql_injection` — is what gives a suppression glob something to
+    match and a dedup key something stable to key on (finding G-08).
+    """
+    value = getattr(raw, "value", raw)
+    return f"{namespace}.{str(value).upper()}"
+
+
+class StaticAnalysisSuite(StaticAnalysis):
     """Every analyzer, one call, one vocabulary."""
 
     def __init__(self, policy: ReviewPolicy | None = None):
@@ -45,12 +60,14 @@ class StaticAnalysisSuite:
         self._performance = PerformanceAnalyzer(policy.performance if policy else None)
         self._semantic = SemanticChangeAnalyzer()
 
-    def analyze(self, file_path: str, content: str, diff: str = "") -> list[Finding]:
-        """Analyses one file, returning findings most severe first.
+    def analyze(self, file_path: str, content: str, diff: str = "") -> SuppressionResult:
+        """Analyses one file, returning what stands and what was silenced.
 
         An analyzer that cannot handle the input contributes nothing rather
         than failing the review: a syntax error in a half-finished branch is a
-        reason to say less, not a reason to abort.
+        reason to say less, not a reason to abort. A failure of the *suite*
+        is a different event and reaches the caller as an exception
+        (finding G-09).
         """
         findings: list[Finding] = []
 
@@ -62,7 +79,39 @@ class StaticAnalysisSuite:
         if diff:
             findings.extend(self._semantic_findings(file_path, content, diff))
 
-        return sorted(findings)
+        # Deduplicated before suppression, so one directive silences one
+        # finding rather than a duplicate pair — otherwise the count would
+        # report two silences where the author wrote one.
+        result = apply_suppressions(sorted(self.deduplicate(findings)), content)
+        return SuppressionResult(findings=sorted(result.findings), suppressed=result.suppressed)
+
+    @staticmethod
+    def deduplicate(findings: list[Finding]) -> list[Finding]:
+        """Collapses reports of one problem, at one place, under one rule.
+
+        Object identity is not enough: two *different* detectors can describe
+        the same problem in different words. A database cursor was reported
+        both as "used without `with`" and as "may not be properly closed" —
+        one line, one rule, one problem, two findings. That is noise in the
+        report, and it inflates the per-severity counts the metrics export and
+        the quality score are computed from (finding G-08).
+
+        Keyed on location rather than on message, because the messages differ
+        by construction — that is the case this exists for (decision D-2). The
+        more severe report survives; on a tie, the first one seen.
+        """
+        best: dict[tuple[str, str, int], Finding] = {}
+
+        for finding in findings:
+            key = (finding.rule_id, finding.file_path, finding.line_number)
+            current = best.get(key)
+            # `Severity` orders most-severe-first — CRITICAL sorts *below*
+            # INFO — so `<` here reads "strictly more severe". `is_at_least`
+            # would accept a tie, and on a tie the first report should win.
+            if current is None or finding.severity < current.severity:
+                best[key] = finding
+
+        return list(best.values())
 
     # -- per-analyzer adapters ----------------------------------------------
 
@@ -81,7 +130,7 @@ class StaticAnalysisSuite:
                 title=item.vulnerability_type.value.replace("_", " ").title(),
                 description=item.description,
                 remediation=item.recommendation,
-                rule_id=item.vulnerability_type.value,
+                rule_id=_rule_id("SAST", item.vulnerability_type),
                 cwe_id=item.cwe_id,
                 owasp_category=item.owasp_category,
                 evidence=item.line_content,
@@ -104,7 +153,7 @@ class StaticAnalysisSuite:
                 title=issue.category.value.replace("_", " ").upper(),
                 description=issue.description,
                 remediation=issue.suggestion,
-                rule_id=issue.category.value,
+                rule_id=_rule_id("QUALITY", issue.category),
                 evidence=issue.symbol_name,
                 metrics=dict(issue.metrics),
             )
@@ -126,7 +175,7 @@ class StaticAnalysisSuite:
                 title=issue.issue_type.value.replace("_", " ").title(),
                 description=issue.description,
                 remediation=issue.suggestion,
-                rule_id=issue.issue_type.value,
+                rule_id=_rule_id("PERFORMANCE", issue.issue_type),
                 evidence=issue.complexity or issue.symbol_name,
                 metrics=dict(issue.metrics),
             )
@@ -152,7 +201,7 @@ class StaticAnalysisSuite:
                     title="Breaking Change",
                     description=breaking.reason,
                     remediation="Update every caller, or keep a deprecated shim for one release",
-                    rule_id="breaking_change",
+                    rule_id="SEMANTIC.BREAKING_CHANGE",
                     evidence=breaking.symbol.name,
                 )
             )
@@ -167,7 +216,7 @@ class StaticAnalysisSuite:
                     title=issue.issue_type.replace("_", " ").title(),
                     description=issue.description,
                     remediation=issue.suggestion,
-                    rule_id=issue.issue_type,
+                    rule_id=_rule_id("SEMANTIC", issue.issue_type),
                 )
             )
 

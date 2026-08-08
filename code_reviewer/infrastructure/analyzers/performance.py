@@ -14,6 +14,9 @@ from typing import ClassVar
 
 from code_reviewer.domain.policy import PerformancePolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.infrastructure.observability.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PerformanceIssueType(Enum):
@@ -116,16 +119,32 @@ class PerformanceAnalyzer:
     RESOURCE_CLOSERS: ClassVar[set[str]] = {"close", "release", "disconnect", "shutdown"}
 
     # Calls that cross a process boundary
+    #: Calls that mean a round trip, matched by *receiver* as well as by name.
+    #:
+    #: The receiver is what makes this usable. `.get(`, `.find(` and `.all(`
+    #: were once matched on the method alone, and in Python those are far more
+    #: often `dict.get`, `str.find` and the `all()` builtin than they are
+    #: queries: dogfooding found seventeen hits across this package and not one
+    #: touched a database (finding G-16). A rule that flags every `dict.get()`
+    #: in a loop is a rule teams switch off, and switching it off costs them
+    #: the real N+1 detections too.
+    #:
+    #: Unambiguous method names still match on any receiver; ambiguous ones
+    #: require a receiver that names a client, a session or a cursor.
     DB_QUERY_PATTERNS: ClassVar[list[str]] = [
+        # Unambiguous: these are not builtins or common container methods.
         r"\.execute\s*\(",
-        r"\.query\s*\(",
-        r"\.find\s*\(",
-        r"\.get\s*\(",
-        r"\.filter\s*\(",
-        r"\.all\s*\(",
-        r"requests\.\w+\s*\(",
+        r"\.executemany\s*\(",
+        r"\.fetchone\s*\(",
+        r"\.fetchall\s*\(",
         r"\.fetch\s*\(",
-        r"\.select\s*\(",
+        r"\brequests\.\w+\s*\(",
+        r"\bhttpx\.\w+\s*\(",
+        r"\burlopen\s*\(",
+        # Ambiguous method names, qualified by a receiver that means I/O.
+        r"\b\w*(?:conn|connection|cursor|session|client|db|database|repo|repository|"
+        r"query|queryset|objects|api|http|store)\w*"
+        r"\.(?:get|find|filter|all|select|query|first|one|count|exists|delete|save)\s*\(",
     ]
 
     # Patterns that materialise more than they need to
@@ -183,8 +202,11 @@ class PerformanceAnalyzer:
                 # Quadratic string building
                 report.issues.extend(self._detect_string_concat_in_loop(tree))
 
-            except SyntaxError:
-                pass
+            except SyntaxError as exc:
+                # Unparseable source means the AST pass contributes nothing;
+                # the text pass below still runs. The reason is recorded
+                # rather than discarded.
+                logger.debug("Unparseable source; AST checks skipped", extra={"fields": {"error": str(exc)}})
 
         # Text patterns, for anything the AST pass could not cover
         report.issues.extend(self._analyze_patterns(content))
@@ -212,7 +234,9 @@ class PerformanceAnalyzer:
 
         return reports
 
-    def _analyze_function_complexity(self, func_node: ast.FunctionDef) -> ComplexityReport:
+    def _analyze_function_complexity(
+        self, func_node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> ComplexityReport:
         """Estimates one function's complexity from its loops and recursion."""
         max_depth = 0
         is_recursive = False
@@ -291,7 +315,7 @@ class PerformanceAnalyzer:
 
         return max_depth
 
-    def _is_recursive(self, func_node: ast.FunctionDef) -> bool:
+    def _is_recursive(self, func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """True when the function calls itself."""
         func_name = func_node.name
 
@@ -307,7 +331,7 @@ class PerformanceAnalyzer:
 
     def _detect_memory_leaks(self, tree: ast.AST) -> list[MemoryLeakRisk]:
         """Finds resources that may never be released."""
-        risks = []
+        risks: list[MemoryLeakRisk] = []
 
         for node in ast.walk(tree):
             # open() without context manager
@@ -403,6 +427,11 @@ class PerformanceAnalyzer:
         patterns = []
         lines = content.split("\n")
 
+        # Matching is done against the *line*, and a chained expression such
+        # as `session.query(Model).first()` is several Call nodes on one line.
+        # Without this, one round trip would be reported once per node.
+        reported: set[tuple[int, int]] = set()
+
         for node in ast.walk(tree):
             if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
                 loop_line = node.lineno
@@ -410,10 +439,13 @@ class PerformanceAnalyzer:
                 # Does anything inside this loop cross a process boundary?
                 for child in ast.walk(node):
                     if isinstance(child, ast.Call) and hasattr(child, "lineno"):
+                        if (loop_line, child.lineno) in reported:
+                            continue
                         call_line_content = lines[child.lineno - 1] if child.lineno <= len(lines) else ""
 
                         for pattern in self.DB_QUERY_PATTERNS:
                             if re.search(pattern, call_line_content):
+                                reported.add((loop_line, child.lineno))
                                 patterns.append(
                                     NPlusOnePattern(
                                         loop_line=loop_line,
@@ -608,7 +640,7 @@ class PerformanceAnalyzer:
             parts.append(f"\n💾 **Memory Leak Risks**: {len(report.memory_leak_risks)}")
 
         # Issue breakdown
-        issue_types = {}
+        issue_types: dict[str, int] = {}
         for issue in report.issues:
             issue_types[issue.issue_type.value] = issue_types.get(issue.issue_type.value, 0) + 1
 

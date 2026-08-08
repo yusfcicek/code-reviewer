@@ -14,6 +14,12 @@ from typing import ClassVar
 
 from code_reviewer.domain.severity import Severity
 
+# review-ignore-file: SAST.COMMAND_INJECTION - this module *is* the rule
+# table, so its own descriptions ('eval() executes arbitrary code') match
+# the patterns they describe. Scoped to the file rather than to four lines
+# because the strings are spread through the table; it is safe here because
+# this module runs no subprocess and calls neither eval nor exec.
+
 
 class VulnerabilityType(Enum):
     """The classes of vulnerability this analyzer recognises."""
@@ -22,7 +28,7 @@ class VulnerabilityType(Enum):
     XSS = "xss"
     COMMAND_INJECTION = "command_injection"
     PATH_TRAVERSAL = "path_traversal"
-    HARDCODED_SECRET = "hardcoded_secret"
+    HARDCODED_SECRET = "hardcoded_secret"  # noqa: S105 - a rule name, not a credential
     INSECURE_RANDOM = "insecure_random"
     INSECURE_DESERIALIZATION = "insecure_deserialization"
     WEAK_CRYPTO = "weak_crypto"
@@ -296,7 +302,11 @@ class SASTAnalyzer:
                 "CWE-327",
             ),
             (
-                r"DES\s*\(|Blowfish\s*\(",
+                # `\b` before DES is load-bearing: the pattern is matched
+                # case-insensitively, so without it `ast.iter_child_nodes(`
+                # is DES encryption — and so is `modes(`, `includes(`,
+                # `decodes(` and `overrides(` (finding G-16).
+                r"\bDES\s*\(|\bBlowfish\s*\(",
                 Severity.HIGH,
                 "Weak encryption algorithm detected",
                 "Use AES-256 or ChaCha20",
@@ -587,6 +597,9 @@ class SASTAnalyzer:
             return "\n".join(parts)
 
         risk = report.risk_score
+        if risk is None:  # pragma: no cover - a report with findings always scores
+            parts.append("⚠️ Findings were reported without a risk score.")
+            return "\n".join(parts)
 
         # Any critical finding makes the file critical, whatever the total emoji
         risk_emoji = {"critical": "🚨", "high": "⚠️", "medium": "⚡", "low": "ℹ️", "safe": "✅"}

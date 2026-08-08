@@ -1,6 +1,6 @@
 [project]
 name = "enterprise-ai-code-reviewer"
-version = "2.0.0"
+version = "2.5.0"
 description = "Enterprise-grade AI Code Review Agent with CI/CD integration"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,26 +17,31 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    # Pins are exact where the API this project builds on is version-sensitive.
+    # Ranges rather than exact pins: `uv.lock` is what makes CI reproducible,
+    # and an exact pin here only stops a security patch from being installed.
+    # The floors are the versions that close a known advisory.
     #
-    # LangChain is held at 0.1.x deliberately: 0.2 relocated AgentExecutor and
-    # reworked the prompt and scratchpad APIs that the Hermes tool loop in
-    # infrastructure/llm/review_agent.py is written against. Upgrading is a
-    # level's worth of work with its own contracts and its own risk, tracked in
-    # docs/roadmap/README.md, not a line change (finding F-45).
-    "langchain==0.1.0",
-    "langchain-community==0.0.10",
-    "langchain-openai==0.0.2",
-    # Pinned alongside langchain-openai, which constrains the client surface it
-    # uses.
-    "openai==1.12.0",
-    # python-gitlab's 4.x API is stable across minors; the pin is exactness for
-    # reproducible CI rather than a compatibility constraint.
-    "python-gitlab==4.4.0",
-    # Unpinned: used through stable, long-standing interfaces.
-    "requests",
-    "httpx",
-    "PyYAML",
+    # LangChain was held at 0.1.x because `AgentExecutor` disappeared in 1.0
+    # and its replacement cannot parse a tool call out of message text
+    # (findings F-45, G-01). Level 7 moved the loop into this repository, which
+    # is what made the upgrade possible — see docs/roadmap/level-7/.
+    #
+    # `langchain-community` is deliberately absent, and 1.x no longer requires
+    # it: nothing here imported it, and it dragged aiohttp, SQLAlchemy and
+    # dataclasses-json into the tree. An unused dependency is attack surface
+    # acquired for nothing.
+    "langchain>=1.3.9",
+    "langchain-core>=1.2.22",
+    "langchain-openai>=1.1.14",
+    # Not used directly — only through ChatOpenAI — but its floor is what the
+    # audit reads, so it is declared rather than left transitive.
+    "openai>=2.26",
+    "python-gitlab>=4.13,<6",
+    "requests>=2.33",
+    "urllib3>=2.7",
+    "idna>=3.15",
+    "httpx>=0.27",
+    "PyYAML>=6.0",
 ]
 
 [project.urls]
@@ -57,10 +62,14 @@ packages = ["code_reviewer"]
 [dependency-groups]
 dev = [
     "mypy>=2.3.0",
+    "pip-audit>=2.10.1",
     "pre-commit>=4.0",
-    "pytest",
+    # Floors set by the audit, not by an API this project uses.
+    "pytest>=9.0.3",  # PYSEC-2026-1845
     "pytest-cov",
+    "pygments>=2.20.0",  # PYSEC-2026-2987 (AdlLexer ReDoS), reached through pip-audit
     "ruff>=0.16.2",
+    "hypothesis>=6.165.2",
 ]
 
 [tool.pytest.ini_options]
@@ -82,10 +91,10 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-# The floor sits just under the measured value (87 %), so a regression trips it
+# The floor sits just under the measured value (92 %), so a regression trips it
 # while ordinary work does not. Raise it when coverage rises; never lower it to
 # make a red build green.
-fail_under = 85
+fail_under = 91
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
@@ -111,6 +120,7 @@ select = [
     "C4",   # comprehensions
     "SIM",  # simplifications
     "RUF",  # ruff-specific
+    "S",    # flake8-bandit: the rule family for the layer that calls out
 ]
 ignore = [
     # The codebase documents itself partly in Turkish and uses typographic
@@ -129,18 +139,38 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests build deliberately awkward inputs and assert on them; a few
 # simplifications would obscure what is being exercised.
-"tests/**" = ["SIM117", "B017"]
+"tests/**" = [
+    "SIM117",
+    "B017",
+    # Tests assert. That is what they are.
+    "S101",
+    # Test fixtures contain deliberately bad code — hardcoded secrets,
+    # `eval`, insecure URLs — because that is what the analyzers are
+    # being pointed at.
+    "S105",
+    "S106",
+    "S107",
+    "S108",
+    "S307",
+    "S324",
+    "S603",
+    "S607",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["code_reviewer"]
 
 [tool.mypy]
 python_version = "3.12"
-# The domain and application layers carry no framework types and are where a
-# type error would be a genuine design fault. The infrastructure layer is
-# reported but not gating: most of what mypy finds there is LangChain's own
-# missing annotations.
-files = ["code_reviewer/domain", "code_reviewer/application"]
+# The whole package. `infrastructure` is where every subprocess call, every
+# path construction and every network client lives — the layer most worth
+# checking and, until Level 11, the one not checked at all (finding G-18).
+#
+# Checked, not made strict: the five analyzers carry type debt from the
+# imported prototype, and closing it in one pass would mean hundreds of
+# annotations on branches with no tests behind them. Widening finds real
+# errors today; strictness is a separate decision with its own cost.
+files = ["code_reviewer"]
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_ignores = true

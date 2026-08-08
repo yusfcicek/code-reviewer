@@ -7,6 +7,218 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.0] — 2026-08-08
+
+Level 11: what happens when the agent is wrong, and whether it holds against
+real code rather than fixtures.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| `StaticAnalysis.analyze` returns a `SuppressionResult`, not `list[Finding]` | Read `.findings`. The result also carries `.suppressed`, which is the point: a silenced rule and an inert rule looked identical before. |
+| `StaticAnalysisSuite` and `ReviewAgent` now inherit their ports | Nothing. They always implemented them; nothing checked. |
+| `configure_logging` — see 2.4.0 | — |
+
+### Added
+
+- **Suppression.** `# review-ignore: RULE - reason` on a line or the line
+  after a standalone comment, `# review-ignore-file:` for a whole file,
+  namespace globs (`SAST.*`). A bare `*` is refused. The report states how
+  many findings were suppressed, where and why, naming any without a reason.
+- **Dogfooding.** `tests/unit/test_dogfooding.py` runs the analyzers over
+  this package on every push and asserts no CRITICAL and no HIGH, with a cap
+  on suppressions and a reason required for each.
+- **Property-based tests.** `hypothesis` generates diff-shaped input; triage,
+  the semantic analyzer and the suppression parser must not raise on any of it.
+- `mypy` now covers the whole package, and `ruff` selects the `S`
+  (flake8-bandit) family.
+
+### Fixed
+
+Found by running the analyzers against this codebase for the first time —
+none of these is specific to it:
+
+- The N+1 rule matched `.get(` on the method name alone, so every
+  `dict.get()` inside a loop was a database round trip. Ambiguous names now
+  require a receiver that means I/O.
+- A chained call (`session.query(M).filter(...).first()`) was reported once
+  per AST node on the line.
+- `DES\s*\(` matched case-insensitively with no word boundary, so
+  `ast.iter_child_nodes(` was DES encryption.
+- Eight `except ...: pass` handlers discarded the reason; each now logs it.
+- Three functions at cyclomatic complexity 21, 17 and 16 are split.
+
+Found by turning on `ruff`'s `S` family:
+
+- `DependencyTracker` built its own `grep` command with no `--`, no `-F` and
+  no exclusion of credential files — the same three defects Level 8 fixed in
+  the tool module, in a second call site reachable from an agent tool whose
+  symbol comes from the diff.
+
+Found by widening `mypy`:
+
+- An Optional `risk_score` used unconditionally, `end_lineno` guarded by
+  `hasattr` (which does not narrow `Optional`), and a `DependencyType | None`
+  used as a dict key.
+
+## [2.4.0] — 2026-08-08
+
+Level 10: nothing here changes what the agent decides; all of it changes
+whether a team can live with the agent that decides it.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| A crash now exits `3`, not `1` | `1` means the gate blocked, and nothing else. A pipeline treating `1` as "the agent broke" needs updating — the previous meaning was ambiguous, which is the finding. |
+| A configuration error exits `2` | Already true for missing credentials; now also for an unloadable policy. |
+| `configure_logging()` takes `level` as its first argument | It was `stream`. `configure_logging(stream=...)` still works by keyword. |
+| `MissingCredentialsError` and `PolicyLoadError` are now `ConfigurationError` subclasses | Nothing, unless you caught them by their old base (`RuntimeError`, `Exception`). |
+| Repeated runs update one comment instead of posting a new one | Nothing. The agent edits only a note carrying its own marker; human replies are untouched. |
+
+### Added
+
+- `--dry-run`: runs the whole review and prints the report instead of posting
+  it, keeping the real exit code.
+- `--no-llm`: static analysis only, with no model endpoint constructed at all.
+  The verdict is unchanged — it has never come from the model.
+- `--repo-root`, `--metrics-path`, `--log-level`, each with an environment
+  fallback.
+- `REVIEW_MAX_COMMENT_CHARS` (default 900 000): the report is truncated
+  head-first with a notice rather than rejected by the platform.
+- `code_reviewer.errors`: `ReviewError`, `ConfigurationError`, `ForgeError`,
+  `ReviewAgentError`.
+- `ReviewService.review(..., publish=False)`.
+
+### Fixed
+
+- Five pipeline runs left five reports, with the oldest at the top of the
+  thread (G-12).
+- A review of many files produced a body GitLab rejects, so the merge request
+  showed nothing at all (G-19).
+- `configure_logging("DEBUG")` would have passed the string as the output
+  stream — found by replacing a mocked assertion with a real call.
+
+## [2.3.0] — 2026-08-08
+
+Level 9: four places where the code met something it did not understand and
+answered "fine, then". All four pointed towards approval.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| An unrecognised policy section, key, or wrongly typed value now raises `PolicyLoadError` at startup | Fix the key. The message names the file, the key and what would have worked. This is the point: `block_on_critcal: false` used to leave the rule on under a name you thought you had turned off. |
+| `--policy` naming a file that does not exist now raises | It used to fall through to the packaged policy, running rules nobody asked for. |
+| A policy file that does not parse now raises | Same reasoning. |
+| A file whose static analysis could not run now **fails the pipeline** | Set `gate.fail_pipeline_on_analysis_error: false` to keep the old behaviour. The file is still reported as unanalysed either way. |
+| Lock files (`uv.lock`, `package-lock.json`, `go.sum`, …) are no longer skipped, and reach `FULL_REVIEW` | Put them back in your own `skip_patterns` if the cost outweighs the coverage. A lock file is the only place a changed transitive dependency is visible. |
+| `requirements*.txt` no longer matches the `.txt` documentation skip | Nothing; it is a dependency manifest. |
+| Manifests and CI definitions reach `FULL_REVIEW` regardless of diff size | Nothing, unless you were relying on a one-line CI change being auto-approved. |
+| `Finding` is frozen; `metrics` is an immutable mapping | Construct a new one instead of mutating. Reading is unchanged. |
+| Rule ids are namespaced: `SAST.SQL_INJECTION`, not `sql_injection` | Update anything matching on them. |
+
+### Added
+
+- `gate.fail_pipeline_on_analysis_error` (default `true`).
+- `triage.manifest_patterns`, and `DEFAULT_MANIFEST_PATTERNS` covering
+  dependency manifests, lock files, container definitions and CI configuration.
+- `ReviewOutcome.record_unanalysed`, and a **Not analysed** section in the
+  published comment stating that absent findings there mean nothing was
+  examined.
+- `Finding.namespace`, and `StaticAnalysisSuite.deduplicate`.
+
+### Fixed
+
+- Two detectors reporting one problem at one line under one rule produced two
+  findings, inflating the per-severity counts the metrics export and the
+  quality score are computed from (G-08).
+- A crashed analyzer produced an empty list, indistinguishable from a clean
+  file (G-09).
+- An unrecognised policy key was logged and ignored (G-10).
+- A three-line change to a CI definition was auto-approved: the logic-change
+  guard looks for `if`/`for`/`def`, which no YAML line contains (G-11).
+- The last Turkish comments in `domain/triage.py`, which the language guard
+  misses because they carry no Turkish-specific characters (ADR 0008).
+
+## [2.2.0] — 2026-08-08
+
+Level 8: the reviewed content is treated as hostile input, which is what it is.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| Files named `.env`, `.env.*`, `.netrc`, `.npmrc`, `.pypirc`, `credentials`, `id_rsa`/`id_*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, and anything under `.git/`, are no longer readable by the agent | Nothing, unless a review legitimately needed one. `.env.example` is caught by the glob; that trade is deliberate. |
+| `grep_search` refuses a pattern with a leading `-`, control characters, `..`, or shell metacharacters, and treats the pattern as a fixed string | Regular-expression searches no longer work. They never worked *correctly* — the pattern was a BRE by accident. |
+| A refused file access fails the pipeline | It is a `CRITICAL` finding, so `gate.blocking_severity` governs it like any other. |
+| `ReviewService` gained an `access_auditor` argument | Optional; omitting it keeps the previous behaviour. |
+
+### Added
+
+- A trust boundary: the diff and file content are delimited by
+  `<untrusted_diff>` / `<untrusted_file_content>`, escaped so the content
+  cannot close its own tag, with a trust-boundary section at the top of the
+  system prompt.
+- Secret redaction before publishing, in two layers: the values of the
+  secret-bearing environment variables this process holds, then known secret
+  shapes.
+- A per-review read budget (`WORKSPACE_TOTAL_READ_BUDGET`, default 20 MB) and
+  a settable per-file cap (`WORKSPACE_MAX_FILE_BYTES`).
+- An audit log of every file-access attempt, and an `AccessAuditor` port that
+  carries the refusals to the workflow.
+- `code_reviewer.infrastructure.security` and
+  `code_reviewer.infrastructure.tools.safe_search`.
+
+### Fixed
+
+- A path containing a NUL byte made `Path.resolve()` raise `ValueError`, which
+  escaped the workspace's own error contract: the access was neither refused
+  nor recorded (G-05).
+- `list_files` and `find_file` walked the tree themselves, so the deny-list did
+  not apply to discovery. Locating a credential file is the first half of
+  reading one (G-05).
+
+## [2.1.0] — 2026-08-08
+
+Level 7: the agent's tool loop moved into this repository, which unblocked the
+LangChain upgrade that had been deferred since Level 5, and the dependency
+audit that measures it.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| `HermesToolOutputParser` and `format_to_hermes_messages` removed from `infrastructure.llm.review_agent` | Use `infrastructure.llm.tool_calls.ToolCallParser`, which reads both protocols. The old parser matched one `<parameter=>` block and mangled two-argument calls. |
+| `ReviewAgent.agent_executor` removed | The loop is `ReviewAgent.loop`, a `NarrationLoop`. |
+| `ReviewAgent(verbose=...)` removed | Verbosity is a logging concern; set `LOG_LEVEL=DEBUG`. |
+| `langchain-community` no longer a dependency | Nothing, unless you imported it through this package. LangChain 1.x does not require it. |
+| LangChain `0.1.x` → `>=1.3.9`, `openai` `1.12` → `>=2.26`, `python-gitlab` `4.4` → `>=4.13,<6` | Nothing in this project's API changed. Exact pins became ranges; `uv.lock` is what pins CI. |
+
+### Added
+
+- `REVIEW_TOOL_PROTOCOL` — `auto` (default), `native`, `hermes` or `none`,
+  deciding how tools are offered to the model. An unrecognised value raises at
+  startup rather than silently producing a tool-less review.
+- `REVIEW_MAX_ITERATIONS` and `REVIEW_MAX_SECONDS` — the loop's bounds. The time
+  budget is **off by default**: an analysis cut off part-way produces an
+  incomplete report that does not say so.
+- `scripts/audit-deps.sh` and a CI step, distinguishing a real advisory from a
+  network failure so the step can block without being a coin flip.
+- `tests/unit/test_dependencies.py` — no banned distribution reappears, and
+  every third-party import the package makes is declared.
+
+### Fixed
+
+- Tools are now bound natively, so a hosted endpoint (OpenAI, Groq) can actually
+  call one. Previously the model was offered no tool schema and narrated as
+  though it had run the scans (G-02).
+- A multi-argument tool call keeps every argument. The old parser folded the
+  second `<parameter=>` block's raw XML into the first argument's value (G-02).
+- 59 known dependency advisories across 11 packages → **none**, with an empty
+  ignore list (G-01, G-15).
+
 ## [2.0.0] — 2026-08-08
 
 A staged rebuild of the imported prototype. Every file was read, 59 findings
