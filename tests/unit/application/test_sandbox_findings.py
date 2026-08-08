@@ -25,6 +25,7 @@ from code_reviewer.application.review_service import ReviewService
 from code_reviewer.domain.finding import FindingCategory
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.domain.suppression import SuppressionResult
 from code_reviewer.domain.triage import ReviewTriage
 
 DIFF = "\n".join(f"+ line {n}" for n in range(60))
@@ -62,7 +63,7 @@ class _Reviewer(Reviewer):
 
 class _NoFindings(StaticAnalysis):
     def analyze(self, file_path, content, diff=""):
-        return []
+        return SuppressionResult()
 
 
 class _Auditor(AccessAuditor):

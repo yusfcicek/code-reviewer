@@ -5,11 +5,11 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.4.0.** Rebuilt from an imported prototype across eleven levels of
+> **Status: 2.5.0.** Rebuilt from an imported prototype across twelve levels of
 > work. 59 defects were found and recorded and all 59 are now fixed — the last
-> deferred one closed in Level 7. 722 tests at 90 % coverage; lint, formatting,
+> deferred one closed in Level 7. 804 tests at 92 % coverage; lint, formatting,
 > types, tests and a dependency audit with an empty ignore list all gate on CI.
-> Levels 7-10 closed a further sixteen gaps found by comparing against a sibling
+> Levels 7-11 closed a further nineteen gaps found by comparing against a sibling
 > implementation.
 > What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
@@ -74,7 +74,29 @@ hostile input in five places
 **A refused access becomes a `CRITICAL` finding**, so an injection attempt can
 fail the pipeline rather than merely be mentioned in the report.
 
-### 📈 5. Metrics and logging
+### 🔇 5. Suppressing a false positive
+Every static analyzer produces them; one that does not is not looking hard
+enough. Without a way to say "this one is wrong", a team's only options are to
+turn the rule off or stop the gate blocking — so suppression exists to keep the
+narrow answer available
+([ADR 0013](docs/adr/0013-suppression-is-narrow-and-counted.md)):
+
+```python
+verify = False  # review-ignore: SAST.INSECURE_HTTP - reached only behind an env flag
+
+# review-ignore: QUALITY.DRY - generated code, regenerated on every build
+def generated_thing(): ...
+
+# review-ignore-file: SAST.* - vendored third-party source
+```
+
+Scope is one line — or the line *after* a standalone comment — or one file.
+`SAST.*` covers a namespace; a bare `*` is refused, because suppressing
+everything is the second off-switch arriving through another door. The reason
+is captured, and the report states how many findings were suppressed, where,
+and why, naming any written without one.
+
+### 📈 6. Metrics and logging
 - The whole review is exported as OpenMetrics text for GitLab's `metrics`
   report: files and lines analysed, findings per severity, triage decisions,
   gate result, total and slowest duration — each with `# HELP` and `# TYPE`.
@@ -83,7 +105,7 @@ fail the pipeline rather than merely be mentioned in the report.
 - A file the reviewer cannot process is reported as *not reviewed* rather than
   ending the run or passing silently.
 
-### 🧠 6. Token-aware memory
+### 🧠 7. Token-aware memory
 `SmartMemoryStrategy` keeps findings in priority buckets, never summarises
 `SECURITY` or `BREAKING` insights, and compresses lower-priority context first.
 
@@ -108,6 +130,8 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Finding deduplication | ✅ Works | One rule at one location is one finding, so severity counts and the quality score are not inflated |
 | Idempotent reporting | ✅ Works | Repeated runs update one comment; an oversized report is truncated rather than rejected |
 | Exit codes | ✅ Works | A blocked gate exits `1`, a configuration error `2`, a crash `3` |
+| Suppression | ✅ Works | Narrow, reasoned, counted and reported; a bare `*` is refused |
+| Dogfooding | ✅ Works | The agent analyses its own source on every push: 0 critical, 0 high, 5 reasoned suppressions |
 | Tool sandboxing | ✅ Works | Confinement, a credential deny-list, a per-review read budget and an audit log; a refusal becomes a CRITICAL finding |
 | Prompt-injection containment | ✅ Works | Reviewed content is delimited and declared untrusted, and cannot close its own delimiter |
 | Secret redaction | ✅ Works | Environment secret values and known secret shapes are masked before the review is published |
@@ -117,8 +141,9 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
 
-Work still queued against the variant gap analysis is scheduled in
-[Level 11](docs/roadmap/README.md).
+Every gap the variant comparison found is closed. What the levels did, and
+what each one found while doing it, is in
+[`docs/roadmap/`](docs/roadmap/README.md).
 
 ---
 
@@ -377,6 +402,7 @@ uv run ruff format code_reviewer tests         # format
 uv run mypy                                    # types (domain + application)
 uv run pytest                                  # tests
 uv run pytest --cov                            # tests with the coverage floor
+uv run pytest tests/unit/test_dogfooding.py    # the agent against its own source
 ./scripts/audit-deps.sh                        # dependency advisories
 ```
 
@@ -384,7 +410,7 @@ CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-722 tests, 90 % coverage with an enforced floor of 89 %. The dependency
+804 tests, 92 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -403,6 +429,7 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── finding.py           Finding, FindingCategory, AffectedCode
 │   │   ├── policy.py            ReviewPolicy and its sections
 │   │   ├── triage.py            triage decisions
+│   │   ├── suppression.py       `review-ignore` directives
 │   │   ├── gate.py              per-file PASS / WARN / FAIL
 │   │   └── outcome.py           merge-request-level verdict
 │   ├── application/             the workflow and the ports it needs

@@ -11,6 +11,7 @@ policy rather than from an ad-hoc flag.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from .gate import GateEvaluation, ReviewGateResult
 from .policy import ReviewPolicy
@@ -41,6 +42,10 @@ class ReviewOutcome:
     #: from `failed_files`: the narration failing costs the report its prose,
     #: while the analysis failing costs it its evidence (finding G-09).
     unanalysed_files: list[tuple[str, str]] = field(default_factory=list)
+    #: Findings a `review-ignore` directive silenced, by file. Recorded so the
+    #: report can state the count: a suppression nobody can see is
+    #: indistinguishable from a rule that never fired (finding G-07).
+    suppressions: list[tuple[str, Any]] = field(default_factory=list)
 
     def record(self, file_path: str, evaluation: GateEvaluation) -> None:
         self.evaluations.append((file_path, evaluation))
@@ -51,6 +56,10 @@ class ReviewOutcome:
     def record_failure(self, file_path: str, reason: str) -> None:
         """Records that a file could not be reviewed at all."""
         self.failed_files.append((file_path, reason))
+
+    def record_suppressions(self, file_path: str, suppressed) -> None:
+        """Records what a file's `review-ignore` directives silenced."""
+        self.suppressions.extend((file_path, item) for item in suppressed)
 
     def record_unanalysed(self, file_path: str, reason: str) -> None:
         """Records that static analysis could not run on a file.
@@ -90,6 +99,15 @@ class ReviewOutcome:
     @property
     def has_unanalysed(self) -> bool:
         return bool(self.unanalysed_files)
+
+    @property
+    def suppressed_count(self) -> int:
+        return len(self.suppressions)
+
+    @property
+    def unexplained_suppressions(self) -> list[tuple[str, Any]]:
+        """Suppressions written without a reason. Worth naming in the report."""
+        return [(path, item) for path, item in self.suppressions if not item.directive.is_explained]
 
     @property
     def blocking_issues(self) -> list[str]:

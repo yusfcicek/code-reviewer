@@ -29,7 +29,7 @@ from .severity import Severity
 class ReviewGateResult(Enum):
     """Pipeline karar sonucu."""
 
-    PASS = "pass"
+    PASS = "pass"  # noqa: S105 - a verdict, not a credential
     WARN = "warn"
     FAIL = "fail"
 

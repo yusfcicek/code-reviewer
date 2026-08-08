@@ -1,6 +1,6 @@
 [project]
 name = "enterprise-ai-code-reviewer"
-version = "2.4.0"
+version = "2.5.0"
 description = "Enterprise-grade AI Code Review Agent with CI/CD integration"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -69,6 +69,7 @@ dev = [
     "pytest-cov",
     "pygments>=2.20.0",  # PYSEC-2026-2987 (AdlLexer ReDoS), reached through pip-audit
     "ruff>=0.16.2",
+    "hypothesis>=6.165.2",
 ]
 
 [tool.pytest.ini_options]
@@ -90,10 +91,10 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-# The floor sits just under the measured value (90 %), so a regression trips it
+# The floor sits just under the measured value (92 %), so a regression trips it
 # while ordinary work does not. Raise it when coverage rises; never lower it to
 # make a red build green.
-fail_under = 89
+fail_under = 91
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
@@ -119,6 +120,7 @@ select = [
     "C4",   # comprehensions
     "SIM",  # simplifications
     "RUF",  # ruff-specific
+    "S",    # flake8-bandit: the rule family for the layer that calls out
 ]
 ignore = [
     # The codebase documents itself partly in Turkish and uses typographic
@@ -137,18 +139,38 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests build deliberately awkward inputs and assert on them; a few
 # simplifications would obscure what is being exercised.
-"tests/**" = ["SIM117", "B017"]
+"tests/**" = [
+    "SIM117",
+    "B017",
+    # Tests assert. That is what they are.
+    "S101",
+    # Test fixtures contain deliberately bad code — hardcoded secrets,
+    # `eval`, insecure URLs — because that is what the analyzers are
+    # being pointed at.
+    "S105",
+    "S106",
+    "S107",
+    "S108",
+    "S307",
+    "S324",
+    "S603",
+    "S607",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["code_reviewer"]
 
 [tool.mypy]
 python_version = "3.12"
-# The domain and application layers carry no framework types and are where a
-# type error would be a genuine design fault. The infrastructure layer is
-# reported but not gating: most of what mypy finds there is LangChain's own
-# missing annotations.
-files = ["code_reviewer/domain", "code_reviewer/application"]
+# The whole package. `infrastructure` is where every subprocess call, every
+# path construction and every network client lives — the layer most worth
+# checking and, until Level 11, the one not checked at all (finding G-18).
+#
+# Checked, not made strict: the five analyzers carry type debt from the
+# imported prototype, and closing it in one pass would mean hundreds of
+# annotations on branches with no tests behind them. Widening finds real
+# errors today; strictness is a separate decision with its own cost.
+files = ["code_reviewer"]
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_ignores = true

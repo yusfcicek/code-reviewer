@@ -150,3 +150,38 @@ class TestLanguageSelection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWeakCryptoPrecision(unittest.TestCase):
+    """`DES` must be a word, not a substring.
+
+    Found by dogfooding (finding G-16): `ast.iter_child_nodes(node)` was
+    reported as DES encryption, because the pattern matched case-insensitively
+    with no word boundary and `nodes(` ends in `des(`. So does `modes(`,
+    `includes(`, `decodes(` and `overrides(` — this would have fired on
+    essentially every Python codebase.
+    """
+
+    @staticmethod
+    def _weak_crypto(source):
+        report = SASTAnalyzer().analyze(source, "m.py")
+        return [f for f in report.findings if f.vulnerability_type is VulnerabilityType.WEAK_CRYPTO]
+
+    def test_an_identifier_ending_in_des_is_not_weak_crypto(self):
+        for source in (
+            "for child in ast.iter_child_nodes(node):\n    pass\n",
+            "value = self.modes()\n",
+            "if name.includes(other):\n    pass\n",
+            "data = payload.decodes()\n",
+        ):
+            with self.subTest(source=source.strip()):
+                self.assertEqual(self._weak_crypto(source), [])
+
+    def test_a_real_des_call_is_still_weak_crypto(self):
+        self.assertEqual(len(self._weak_crypto("cipher = DES(key)\n")), 1)
+
+    def test_blowfish_is_still_weak_crypto(self):
+        self.assertEqual(len(self._weak_crypto("cipher = Blowfish(key)\n")), 1)
+
+    def test_md5_is_still_weak_crypto(self):
+        self.assertEqual(len(self._weak_crypto("digest = hashlib.md5(data)\n")), 1)

@@ -119,7 +119,11 @@ class CodeSearchTools:
             return f"Refused: {exc}"
 
         try:
-            output = subprocess.check_output(command, stderr=subprocess.DEVNULL).decode("utf-8")
+            # `command` is built by build_grep_command, which validates the
+            # pattern and places it after `--`.
+            output = subprocess.check_output(  # noqa: S603
+                command, stderr=subprocess.DEVNULL
+            ).decode("utf-8")
         except subprocess.CalledProcessError:
             return "No matches found."
         except Exception as exc:
@@ -199,7 +203,13 @@ class SmartFileTools:
 class DependencyAnalysisTools:
     @staticmethod
     def get_file_imports(file_path: str) -> str:
-        """Lists imported modules. Supports Python (AST) and C/C++ (regex)."""
+        """Lists imported modules. Supports Python (AST) and C/C++ (regex).
+
+        Split into per-language helpers because the combined form reached a
+        cyclomatic complexity of 16 — flagged by the agent against its own
+        source (finding G-16). Adding a third language to the original would
+        have made it worse; adding one now is another small function.
+        """
         try:
             content = get_workspace().read(file_path)
         except OutsideWorkspaceError as exc:
@@ -210,30 +220,39 @@ class DependencyAnalysisTools:
             return f"Error analyzing imports: {exc}"
 
         if file_path.endswith((".cpp", ".cc", ".h", ".hpp", ".c")):
-            includes = re.findall(r'#include\s+[<"](.+?)[>"]', content)
-            if not includes:
-                return "No includes found."
-            return "Includes found:\n" + "\n".join(f"#include {name}" for name in includes)
-
+            return DependencyAnalysisTools._c_includes(content)
         if file_path.endswith(".py"):
-            try:
-                tree = ast.parse(content, filename=file_path)
-            except SyntaxError as exc:
-                return f"Error analyzing imports: {exc}"
-
-            imports = []
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    imports.extend(f"import {alias.name}" for alias in node.names)
-                elif isinstance(node, ast.ImportFrom):
-                    module = node.module or ""
-                    imports.extend(f"from {module} import {alias.name}" for alias in node.names)
-
-            if not imports:
-                return "No imports found."
-            return "Imports found:\n" + "\n".join(imports)
+            return DependencyAnalysisTools._python_imports(content, file_path)
 
         return "File type not supported for static dependency analysis."
+
+    @staticmethod
+    def _c_includes(content: str) -> str:
+        """`#include` directives, by pattern — C has no cheap parser here."""
+        includes = re.findall(r'#include\s+[<"](.+?)[>"]', content)
+        if not includes:
+            return "No includes found."
+        return "Includes found:\n" + "\n".join(f"#include {name}" for name in includes)
+
+    @staticmethod
+    def _python_imports(content: str, file_path: str) -> str:
+        """Imports read from the AST, so a commented-out one does not count."""
+        try:
+            tree = ast.parse(content, filename=file_path)
+        except SyntaxError as exc:
+            return f"Error analyzing imports: {exc}"
+
+        imports: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.extend(f"import {alias.name}" for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                imports.extend(f"from {module} import {alias.name}" for alias in node.names)
+
+        if not imports:
+            return "No imports found."
+        return "Imports found:\n" + "\n".join(imports)
 
     @staticmethod
     def find_references(symbol_name: str, root_path: str = ".") -> str:

@@ -19,9 +19,11 @@ directly would be a large change with no behavioural gain, and their tests pin
 the current output (decision D-2).
 """
 
+from code_reviewer.application.ports import StaticAnalysis
 from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.domain.suppression import SuppressionResult, apply_suppressions
 
 from .performance import PerformanceAnalyzer
 from .quality import QualityAnalyzer
@@ -48,7 +50,7 @@ def _rule_id(namespace: str, raw) -> str:
     return f"{namespace}.{str(value).upper()}"
 
 
-class StaticAnalysisSuite:
+class StaticAnalysisSuite(StaticAnalysis):
     """Every analyzer, one call, one vocabulary."""
 
     def __init__(self, policy: ReviewPolicy | None = None):
@@ -58,12 +60,14 @@ class StaticAnalysisSuite:
         self._performance = PerformanceAnalyzer(policy.performance if policy else None)
         self._semantic = SemanticChangeAnalyzer()
 
-    def analyze(self, file_path: str, content: str, diff: str = "") -> list[Finding]:
-        """Analyses one file, returning findings most severe first.
+    def analyze(self, file_path: str, content: str, diff: str = "") -> SuppressionResult:
+        """Analyses one file, returning what stands and what was silenced.
 
         An analyzer that cannot handle the input contributes nothing rather
         than failing the review: a syntax error in a half-finished branch is a
-        reason to say less, not a reason to abort.
+        reason to say less, not a reason to abort. A failure of the *suite*
+        is a different event and reaches the caller as an exception
+        (finding G-09).
         """
         findings: list[Finding] = []
 
@@ -75,9 +79,11 @@ class StaticAnalysisSuite:
         if diff:
             findings.extend(self._semantic_findings(file_path, content, diff))
 
-        # Deduplicated before sorting, so the order the caller sees is the
-        # order of the set it actually gets.
-        return sorted(self.deduplicate(findings))
+        # Deduplicated before suppression, so one directive silences one
+        # finding rather than a duplicate pair — otherwise the count would
+        # report two silences where the author wrote one.
+        result = apply_suppressions(sorted(self.deduplicate(findings)), content)
+        return SuppressionResult(findings=sorted(result.findings), suppressed=result.suppressed)
 
     @staticmethod
     def deduplicate(findings: list[Finding]) -> list[Finding]:

@@ -22,6 +22,7 @@ from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.gate import ReviewGateResult
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.domain.suppression import SuppressionResult
 from code_reviewer.domain.triage import ReviewTriage
 
 CLEAN_REVIEW = """
@@ -93,7 +94,7 @@ class RecordingAnalysis(StaticAnalysis):
 
     def analyze(self, file_path, content, diff=""):
         self.analysed.append(file_path)
-        return list(self._findings)
+        return SuppressionResult(findings=list(self._findings))
 
 
 def _finding(severity=Severity.CRITICAL, path="src/app.py"):

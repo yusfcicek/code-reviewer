@@ -124,6 +124,14 @@ def render_review_comment(
         for warning in warnings:
             parts.append(f"- ⚠️ {warning}")
 
+    if outcome.suppressions:
+        # Stated in the report, not only in the source: noticing a silence
+        # should not require already suspecting one (finding G-07).
+        parts.append(f"\n**{outcome.suppressed_count} finding(s) suppressed** by `review-ignore`\n")
+        for path, item in outcome.suppressions:
+            reason = item.directive.reason or "_no reason given_"
+            parts.append(f"- 🔇 `{path}` line {item.directive.line}: `{item.directive.rule_id}` — {reason}")
+
     if findings:
         counts = Finding.count_by_severity(findings)
         breakdown = ", ".join(f"{count} {severity.value}" for severity, count in counts.items() if count)

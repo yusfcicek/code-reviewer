@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from code_reviewer.domain.finding import Finding
+from code_reviewer.domain.suppression import SuppressionResult
 
 
 @dataclass(frozen=True)
@@ -106,8 +106,16 @@ class StaticAnalysis(ABC):
     """
 
     @abstractmethod
-    def analyze(self, file_path: str, content: str, diff: str = "") -> list[Finding]:
-        """Returns findings for one file, most severe first."""
+    def analyze(self, file_path: str, content: str, diff: str = "") -> SuppressionResult:
+        """What was found, and what the file asked to be ignored.
+
+        Returns both halves rather than the findings alone. A rule silenced by
+        a ``review-ignore`` directive and a rule that never fired look
+        identical from the outside otherwise, which is the state suppression
+        exists to avoid creating (finding G-07).
+
+        Findings come back most severe first.
+        """
 
 
 class Reviewer(ABC):
