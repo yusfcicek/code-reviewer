@@ -63,7 +63,8 @@ class TestReviewAgent(unittest.TestCase):
 
         prompt = self._prompt_text()
         self.assertIn("Review the changes in `test.py`", prompt)
-        self.assertIn("DIFF:\n+ change", prompt)
+        # The diff sits inside its trust-boundary tag (finding G-03).
+        self.assertIn("<untrusted_diff>\n+ change\n</untrusted_diff>", prompt)
 
         self.assertEqual(output, "Agent Review Output")
 
