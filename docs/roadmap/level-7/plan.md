@@ -15,9 +15,21 @@ a network failure (decision D-5): output matching a known-vulnerability marker
 fails immediately, anything else retries with backoff up to three attempts. The
 ignore list is empty and the script says so.
 
-**Gate:** the script runs locally and its output is recorded in this plan as
-the level's before-figure. It is expected to be red — that is the point of
-running it first.
+**Gate:** the script runs locally and its output is recorded here as the
+level's before-figure. It is expected to be red — that is the point of running
+it first.
+
+**Before-figure, measured on this branch:**
+
+```
+Found 59 known vulnerabilities in 11 packages
+```
+
+across `aiohttp`, `idna`, `langchain`, `langchain-community`, `langchain-core`,
+`langchain-openai`, `langsmith`, `pygments`, `pytest`, `requests` and
+`urllib3`. Six of the eleven arrive through the LangChain 0.1 pin and one of
+those — `aiohttp` — arrives only through `langchain-community`, which nothing
+imports.
 
 ## Step 2 — Drop `langchain-community` (G-01)
 

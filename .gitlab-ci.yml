@@ -35,6 +35,14 @@ types:
   script:
     - uv run mypy
 
+# A tool that reports other people's vulnerable dependencies has to measure its
+# own. The script separates a real advisory from a failed connection to PyPI, so
+# this can block without being a coin flip.
+audit:
+  stage: check
+  script:
+    - ./scripts/audit-deps.sh
+
 tests:
   stage: check
   script:

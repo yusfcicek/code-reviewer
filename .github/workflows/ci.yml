@@ -48,6 +48,13 @@ jobs:
         if: '!cancelled()'
         run: uv run pytest --cov --cov-report=xml --cov-report=term
 
+      # A tool that reports other people's vulnerable dependencies has to
+      # measure its own. The script separates a real advisory from a failed
+      # connection to PyPI, so this can block without being a coin flip.
+      - name: Audit dependencies
+        if: '!cancelled()'
+        run: ./scripts/audit-deps.sh
+
       - name: Upload coverage
         if: '!cancelled()'
         uses: actions/upload-artifact@v4
