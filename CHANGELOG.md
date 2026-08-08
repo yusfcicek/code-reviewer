@@ -7,6 +7,48 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.0] — 2026-08-08
+
+Level 9: four places where the code met something it did not understand and
+answered "fine, then". All four pointed towards approval.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| An unrecognised policy section, key, or wrongly typed value now raises `PolicyLoadError` at startup | Fix the key. The message names the file, the key and what would have worked. This is the point: `block_on_critcal: false` used to leave the rule on under a name you thought you had turned off. |
+| `--policy` naming a file that does not exist now raises | It used to fall through to the packaged policy, running rules nobody asked for. |
+| A policy file that does not parse now raises | Same reasoning. |
+| A file whose static analysis could not run now **fails the pipeline** | Set `gate.fail_pipeline_on_analysis_error: false` to keep the old behaviour. The file is still reported as unanalysed either way. |
+| Lock files (`uv.lock`, `package-lock.json`, `go.sum`, …) are no longer skipped, and reach `FULL_REVIEW` | Put them back in your own `skip_patterns` if the cost outweighs the coverage. A lock file is the only place a changed transitive dependency is visible. |
+| `requirements*.txt` no longer matches the `.txt` documentation skip | Nothing; it is a dependency manifest. |
+| Manifests and CI definitions reach `FULL_REVIEW` regardless of diff size | Nothing, unless you were relying on a one-line CI change being auto-approved. |
+| `Finding` is frozen; `metrics` is an immutable mapping | Construct a new one instead of mutating. Reading is unchanged. |
+| Rule ids are namespaced: `SAST.SQL_INJECTION`, not `sql_injection` | Update anything matching on them. |
+
+### Added
+
+- `gate.fail_pipeline_on_analysis_error` (default `true`).
+- `triage.manifest_patterns`, and `DEFAULT_MANIFEST_PATTERNS` covering
+  dependency manifests, lock files, container definitions and CI configuration.
+- `ReviewOutcome.record_unanalysed`, and a **Not analysed** section in the
+  published comment stating that absent findings there mean nothing was
+  examined.
+- `Finding.namespace`, and `StaticAnalysisSuite.deduplicate`.
+
+### Fixed
+
+- Two detectors reporting one problem at one line under one rule produced two
+  findings, inflating the per-severity counts the metrics export and the
+  quality score are computed from (G-08).
+- A crashed analyzer produced an empty list, indistinguishable from a clean
+  file (G-09).
+- An unrecognised policy key was logged and ignored (G-10).
+- A three-line change to a CI definition was auto-approved: the logic-change
+  guard looks for `if`/`for`/`def`, which no YAML line contains (G-11).
+- The last Turkish comments in `domain/triage.py`, which the language guard
+  misses because they carry no Turkish-specific characters (ADR 0008).
+
 ## [2.2.0] — 2026-08-08
 
 Level 8: the reviewed content is treated as hostile input, which is what it is.

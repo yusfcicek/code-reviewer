@@ -5,11 +5,11 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.2.0.** Rebuilt from an imported prototype across nine levels of
+> **Status: 2.3.0.** Rebuilt from an imported prototype across ten levels of
 > work. 59 defects were found and recorded and all 59 are now fixed — the last
-> deferred one closed in Level 7. 584 tests at 88 % coverage; lint, formatting,
+> deferred one closed in Level 7. 657 tests at 88 % coverage; lint, formatting,
 > types, tests and a dependency audit with an empty ignore list all gate on CI.
-> Levels 7-8 closed a further nine gaps found by comparing against a sibling
+> Levels 7-9 closed a further thirteen gaps found by comparing against a sibling
 > implementation.
 > What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
@@ -104,6 +104,8 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
 | Policy file | ✅ Works | The bundled `review_policy.yaml` is the default, and its thresholds change what the analyzers report |
 | Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
+| Fail-closed decisions | ✅ Works | An analysis that could not run blocks; an unrecognised policy key refuses to load; manifests and CI definitions are always reviewed in full |
+| Finding deduplication | ✅ Works | One rule at one location is one finding, so severity counts and the quality score are not inflated |
 | Tool sandboxing | ✅ Works | Confinement, a credential deny-list, a per-review read budget and an audit log; a refusal becomes a CRITICAL finding |
 | Prompt-injection containment | ✅ Works | Reviewed content is delimited and declared untrusted, and cannot close its own delimiter |
 | Secret redaction | ✅ Works | Environment secret values and known secret shapes are masked before the review is published |
@@ -114,7 +116,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
 
 Work still queued against the variant gap analysis is scheduled in
-[Levels 9-11](docs/roadmap/README.md).
+[Levels 10-11](docs/roadmap/README.md).
 
 ---
 
@@ -216,13 +218,33 @@ gate:
   blocking_severity: "critical"   # critical | high | medium | low | info
   quality_score_threshold: 60
   fail_pipeline_on_critical: true
-  fail_on_review_error: false     # a file the reviewer could not process
+  fail_on_review_error: false          # the model failed on a file — warns
+  fail_pipeline_on_analysis_error: true  # analysis could not run — blocks
 ```
 
-Documentation, generated lock files, binary assets and vendored trees are
-skipped by default. Dockerfiles, pipeline definitions, Kubernetes manifests,
-Terraform and dependency manifests are **not** — that is where a privilege
-escalation or a changed base image hides.
+**An unknown key is an error, not a warning.** A policy file either describes
+the running configuration or refuses to load: `block_on_critcal: false` used to
+be logged and ignored, leaving the rule on under a name its author thought they
+had turned off. The message names the file, the key and what would have worked.
+Finding *no* policy file is still fine — silence is not a claim, a typo is
+([ADR 0011](docs/adr/0011-unknown-means-blocked.md)).
+
+**Analysis failure blocks; narration failure warns.** They are different
+events. If the analyzers could not run, zero findings means the file was not
+examined — and for a gate, "unknown" must not mean "pass". If only the model
+failed, the evidence is already in and the report is merely missing its prose;
+blocking there would let an exhausted API quota stop a clean merge request.
+
+Documentation, binary assets and vendored trees are skipped by default.
+Dockerfiles, pipeline definitions, Kubernetes manifests, Terraform, dependency
+manifests **and lock files** are not — that is where a privilege escalation, a
+changed base image or a swapped transitive dependency hides.
+
+`triage.manifest_patterns` goes further: a path matching one is reviewed **in
+full regardless of how little of it changed**. Supply-chain and
+pipeline-poisoning changes are small by nature — a version bump and a
+`curl … | sh` added to a CI job are both one line — so size is the wrong axis
+for this class of file.
 
 Selected values can be overridden from the environment with `REVIEW_POLICY_*`
 variables — see `ReviewPolicyLoader._load_from_env` for the supported keys.
@@ -328,7 +350,7 @@ CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-584 tests, 88 % coverage with an enforced floor of 87 %. The dependency
+657 tests, 88 % coverage with an enforced floor of 87 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
