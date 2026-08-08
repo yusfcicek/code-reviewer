@@ -5,10 +5,11 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.0.0.** Rebuilt from an imported prototype across seven levels of
-> work. 59 defects were found and recorded, 58 fixed, one deferred with its
-> reason. 433 tests at 87 % coverage; lint, formatting, types and tests all
-> gate on CI. What each level did, and what it found, is in
+> **Status: 2.1.0.** Rebuilt from an imported prototype across eight levels of
+> work. 59 defects were found and recorded and all 59 are now fixed — the last
+> deferred one closed in Level 7. 489 tests at 87 % coverage; lint, formatting,
+> types, tests and a dependency audit with an empty ignore list all gate on CI.
+> What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
 
 ---
@@ -79,7 +80,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Semantic / SAST / quality / performance analyzers | ✅ Work | Exposed as agent tools and covered by tests at 83–93 % |
 | Dependency impact tracking | ✅ Works | Run automatically for every reviewed file |
 | Review gate | ✅ Works | A failing gate blocks the run and exits non-zero when the policy asks for it |
-| Agent tool loop | ✅ Works | Tool catalogue and scratchpad both use the Hermes dialect the parser reads; exercised end to end against a scripted model |
+| Agent tool loop | ✅ Works | Both protocols — native `tool_calls` and Hermes XML — reach the tools, with every argument; the loop is in-tree and exercised end to end in each dialect |
 | Token-aware memory | ✅ Works | The prompt template declares the memory context, so collected insights reach the model |
 | Policy file | ✅ Works | The bundled `review_policy.yaml` is the default, and its thresholds change what the analyzers report |
 | Analyzer results feeding the gate | ✅ Works | Every reviewed file is analysed unconditionally; the gate blocks on findings and demotes prose to warnings |
@@ -88,9 +89,10 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Logging | ✅ Works | Structured `logging` with `LOG_LEVEL` and an optional JSON format |
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
+| Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
 
-Remaining items are scheduled in [Levels 3 and 4](docs/roadmap/README.md) of
-the roadmap.
+Work still queued against the variant gap analysis is scheduled in
+[Levels 8-11](docs/roadmap/README.md).
 
 ---
 
@@ -139,6 +141,9 @@ uv sync
 | `LLM_TIMEOUT_SECONDS` | no | Request timeout for the model, default `120` |
 | `LLM_MAX_RETRIES` | no | Retries on timeout or 5xx, default `2` |
 | `LLM_TEMPERATURE` | no | Sampling temperature, default `0.3` |
+| `REVIEW_TOOL_PROTOCOL` | no | How tools are offered: `auto` (default), `native`, `hermes`, `none` |
+| `REVIEW_MAX_ITERATIONS` | no | Tool rounds allowed per file, default `10` |
+| `REVIEW_MAX_SECONDS` | no | Wall-clock budget for one file. Unset means none — see below |
 
 ```bash
 export GITLAB_URL="https://gitlab.example.com"
@@ -241,6 +246,44 @@ Set it to `false` once you trust the verdict, and use
 `gate.fail_pipeline_on_critical` and `gate.blocking_severity` to decide what
 "trust" means.
 
+### Tool calling
+
+The agent runs against two kinds of endpoint, and they carry a tool call
+differently:
+
+| Endpoint | How a tool call arrives |
+|---|---|
+| On-prem vLLM with a Hermes template | XML in the message text: `<tool_call><function=…>` |
+| OpenAI, Groq, most hosted APIs | a structured `tool_calls` field on the message |
+
+The parser reads both, and `REVIEW_TOOL_PROTOCOL` decides how tools are
+offered:
+
+- `auto` (default) — bind natively; if the server refuses, fall back to the
+  prompt catalogue and Hermes calls. Works on either kind of endpoint.
+- `native` — require native binding, and fail loudly if it is unsupported.
+- `hermes` — never bind. For a vLLM started without
+  `--enable-auto-tool-choice`, where the model emits XML instead.
+- `none` — no tools; the model narrates from the diff alone.
+
+The loop that drives them is `infrastructure/llm/narration_loop.py` rather than
+LangChain's: 1.0 removed `AgentExecutor`, and its replacement offers no
+output-parser hook, so it cannot support the Hermes path at all
+([ADR 0009](docs/adr/0009-agent-loop-in-tree.md)).
+
+**Cost.** With tools bound the model actually reads files and runs scans, so a
+review takes materially longer than one without. The verdict never depends on
+this — it comes from static analysis either way — so `none` is a legitimate
+choice when only the gate is wanted.
+
+**There is no wall-clock limit by default.** `REVIEW_MAX_SECONDS` is unset,
+because cutting an analysis off part-way produces an incomplete report that
+does not say it is incomplete, and that error points towards approval. The loop
+is still bounded: `REVIEW_MAX_ITERATIONS` (default 10) caps the tool rounds and
+the provider applies a per-request timeout (default 120 s), so the worst case is
+finite. Set `REVIEW_MAX_SECONDS` to a positive number if your CI needs a hard
+ceiling; `0` or unset means no limit.
+
 ---
 
 ## 🧪 Development
@@ -254,13 +297,15 @@ uv run ruff format code_reviewer tests         # format
 uv run mypy                                    # types (domain + application)
 uv run pytest                                  # tests
 uv run pytest --cov                            # tests with the coverage floor
+./scripts/audit-deps.sh                        # dependency advisories
 ```
 
-CI runs exactly these four checks — `.github/workflows/ci.yml` on GitHub and
+CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-433 tests, 87 % coverage with an enforced floor of 85 %. The domain and
+489 tests, 87 % coverage with an enforced floor of 85 %. The dependency
+audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
 GitLab. Every behaviour change from Level 1 onwards is written test-first: the
@@ -288,7 +333,7 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
 │   │   ├── forge/               GitLab client and CodeForge adapter
-│   │   ├── llm/                 vLLM provider, review agent, token counting
+│   │   ├── llm/                 vLLM provider, review agent, tool loop, token counting
 │   │   ├── memory/              SmartMemoryStrategy
 │   │   ├── metrics/             Prometheus / GitLab exporter
 │   │   └── tools/               tool definitions + workspace confinement
