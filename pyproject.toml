@@ -1,6 +1,6 @@
 [project]
 name = "enterprise-ai-code-reviewer"
-version = "2.4.0"
+version = "2.5.0"
 description = "Enterprise-grade AI Code Review Agent with CI/CD integration"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -91,10 +91,10 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-# The floor sits just under the measured value (90 %), so a regression trips it
+# The floor sits just under the measured value (92 %), so a regression trips it
 # while ordinary work does not. Raise it when coverage rises; never lower it to
 # make a red build green.
-fail_under = 89
+fail_under = 91
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",

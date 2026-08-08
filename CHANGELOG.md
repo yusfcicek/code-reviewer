@@ -7,6 +7,61 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.0] — 2026-08-08
+
+Level 11: what happens when the agent is wrong, and whether it holds against
+real code rather than fixtures.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| `StaticAnalysis.analyze` returns a `SuppressionResult`, not `list[Finding]` | Read `.findings`. The result also carries `.suppressed`, which is the point: a silenced rule and an inert rule looked identical before. |
+| `StaticAnalysisSuite` and `ReviewAgent` now inherit their ports | Nothing. They always implemented them; nothing checked. |
+| `configure_logging` — see 2.4.0 | — |
+
+### Added
+
+- **Suppression.** `# review-ignore: RULE - reason` on a line or the line
+  after a standalone comment, `# review-ignore-file:` for a whole file,
+  namespace globs (`SAST.*`). A bare `*` is refused. The report states how
+  many findings were suppressed, where and why, naming any without a reason.
+- **Dogfooding.** `tests/unit/test_dogfooding.py` runs the analyzers over
+  this package on every push and asserts no CRITICAL and no HIGH, with a cap
+  on suppressions and a reason required for each.
+- **Property-based tests.** `hypothesis` generates diff-shaped input; triage,
+  the semantic analyzer and the suppression parser must not raise on any of it.
+- `mypy` now covers the whole package, and `ruff` selects the `S`
+  (flake8-bandit) family.
+
+### Fixed
+
+Found by running the analyzers against this codebase for the first time —
+none of these is specific to it:
+
+- The N+1 rule matched `.get(` on the method name alone, so every
+  `dict.get()` inside a loop was a database round trip. Ambiguous names now
+  require a receiver that means I/O.
+- A chained call (`session.query(M).filter(...).first()`) was reported once
+  per AST node on the line.
+- `DES\s*\(` matched case-insensitively with no word boundary, so
+  `ast.iter_child_nodes(` was DES encryption.
+- Eight `except ...: pass` handlers discarded the reason; each now logs it.
+- Three functions at cyclomatic complexity 21, 17 and 16 are split.
+
+Found by turning on `ruff`'s `S` family:
+
+- `DependencyTracker` built its own `grep` command with no `--`, no `-F` and
+  no exclusion of credential files — the same three defects Level 8 fixed in
+  the tool module, in a second call site reachable from an agent tool whose
+  symbol comes from the diff.
+
+Found by widening `mypy`:
+
+- An Optional `risk_score` used unconditionally, `end_lineno` guarded by
+  `hasattr` (which does not narrow `Optional`), and a `DependencyType | None`
+  used as a dict key.
+
 ## [2.4.0] — 2026-08-08
 
 Level 10: nothing here changes what the agent decides; all of it changes

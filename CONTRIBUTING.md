@@ -101,3 +101,31 @@ Work is organised into levels under [`docs/roadmap/`](docs/roadmap/README.md).
 Each level has a spec written before the plan and a plan written before the
 code. If you find a defect that no level covers, add it to `findings.md` with a
 file:line reference and a severity, then assign it to a level.
+
+
+## Suppressing a finding
+
+The agent analyses its own source on every push, so a finding against this
+repository has to be dealt with before a change lands. There are three
+answers, and they are not equally good:
+
+1. **Fix it.** Most findings are right. Of the 33 the first dogfooding run
+   surfaced, 28 were fixed.
+2. **Suppress it, with a reason.** For a rule that is right in general and
+   wrong here — an analyzer reading its own rule table, a docstring
+   documenting the insecure default it exists to have removed:
+
+   ```python
+   verify = False  # review-ignore: SAST.INSECURE_HTTP - behind an explicit env flag
+   ```
+
+   The reason is not decoration. It is what the next person reads instead of
+   re-deriving your judgement, and `tests/unit/test_dogfooding.py` fails on a
+   directive without one.
+3. **Report the rule.** If it misfires generally, suppressing it here hides
+   the problem from every other user. Open it as its own item.
+
+The suppression cap in the dogfooding test is deliberate. Raising it is a
+visible edit in a diff someone reviews — which is the only thing standing
+between "the package passes its own gate" and "the package has been quietened
+until it does".

@@ -38,6 +38,7 @@ Every level follows the same three-step rhythm:
 | [8](level-8/spec.md) | Untrusted input hardening | ✅ Done |
 | [9](level-9/spec.md) | Fail-closed decisions | ✅ Done |
 | [10](level-10/spec.md) | Operability | ✅ Done |
+| [11](level-11/spec.md) | Verification depth | ✅ Done |
 
 ### Deferred, then done
 
