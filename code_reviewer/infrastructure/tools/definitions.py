@@ -15,6 +15,7 @@ review continues, with the model told why it cannot have the file.
 import ast
 import re
 import subprocess
+from pathlib import Path
 
 # `langchain_core` is LangChain's stable core; `langchain.tools` is a shim that
 # forwards to it and, in 0.1.x, warns that the destination is
@@ -72,25 +73,26 @@ class FileSystemTools:
 
     @staticmethod
     def list_files(path: str = ".") -> str:
-        """Lists files in a directory inside the workspace."""
+        """Lists files in a directory inside the workspace.
+
+        The listing goes through the workspace rather than walking the tree
+        here, so the deny-list applies: a credential file is omitted, not
+        named. Naming it tells a model that has been talked into looking
+        exactly what to ask for next.
+        """
         workspace = get_workspace()
         try:
-            target = workspace.resolve(path)
+            entries = workspace.entries(path)
         except OutsideWorkspaceError as exc:
             return f"Refused: {exc}"
-
-        if not target.is_dir():
+        except NotADirectoryError:
             return f"Error: {path} is not a directory."
 
-        entries = []
-        for item in sorted(target.rglob("*")):
-            if any(part in EXCLUDED_DIRS for part in item.parts):
-                continue
-            entries.append(workspace.relative(item))
+        visible = [entry for entry in entries if not any(part in EXCLUDED_DIRS for part in Path(entry).parts)]
 
-        if not entries:
+        if not visible:
             return f"No files under {path}."
-        return _truncate("\n".join(entries))
+        return _truncate("\n".join(visible))
 
 
 class CodeSearchTools:
@@ -129,19 +131,31 @@ class CodeSearchTools:
 class SmartFileTools:
     @staticmethod
     def find_file(filename: str) -> str:
-        """Locates a file by name inside the workspace."""
+        """Locates a file by name inside the workspace.
+
+        Matches are drawn from the workspace's own listing, so a search for
+        ``env`` cannot surface ``.env``: locating a credential file is the
+        first half of reading one.
+        """
         workspace = get_workspace()
 
         # Tolerate the model passing "name, path"; only the name is used.
         if "," in filename:
             filename = filename.split(",")[0].strip()
 
-        matches = []
-        for candidate in sorted(workspace.root.rglob(f"*{filename}*")):
-            if any(part in EXCLUDED_DIRS for part in candidate.parts):
-                continue
-            if candidate.is_file():
-                matches.append(workspace.relative(candidate))
+        try:
+            entries = workspace.entries(".")
+        except OutsideWorkspaceError as exc:  # pragma: no cover - the root always resolves
+            return f"Refused: {exc}"
+
+        needle = filename.lower()
+        matches = [
+            entry
+            for entry in entries
+            if needle in Path(entry).name.lower()
+            and not any(part in EXCLUDED_DIRS for part in Path(entry).parts)
+            and (workspace.root / entry).is_file()
+        ]
 
         if not matches:
             return f"No file found matching '{filename}' in the workspace."
