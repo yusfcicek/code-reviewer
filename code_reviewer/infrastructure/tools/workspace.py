@@ -30,6 +30,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from code_reviewer.application.ports import AccessAuditor, AccessViolation
+
 #: Files larger than this are truncated before reaching the prompt. A single
 #: oversized file would otherwise consume the context the review needs.
 DEFAULT_MAX_FILE_BYTES = 200_000
@@ -91,7 +93,7 @@ class AccessRecord:
     size: int = 0
 
 
-class Workspace:
+class Workspace(AccessAuditor):
     """The only directory tree the agent may read, and how much of it.
 
     Args:
@@ -127,6 +129,14 @@ class Workspace:
     def violations(self) -> list[AccessRecord]:
         """Refused attempts. Evidence about the diff, not about the model."""
         return [record for record in self.audit_log if not record.allowed]
+
+    def access_violations(self) -> list[AccessViolation]:
+        """The :class:`AccessAuditor` view: what the workflow needs, and no more.
+
+        The workflow gets the path and the reason. Allowed reads and their
+        sizes are this class's own bookkeeping and stay here.
+        """
+        return [AccessViolation(path=record.path, reason=record.reason) for record in self.violations]
 
     def _refuse(self, path: str, reason: str) -> OutsideWorkspaceError:
         """Records a refusal and returns the exception to raise.

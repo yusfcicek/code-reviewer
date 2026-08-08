@@ -86,6 +86,10 @@ def run(args) -> int:
         triage=ReviewTriage(policy),
         policy=policy,
         analysis=StaticAnalysisSuite(policy),
+        # The workspace records what it refused. A refused read is evidence
+        # about the diff — the agent asked for that path because the content
+        # under review led it to — so it reaches the gate as a finding.
+        access_auditor=workspace,
     )
 
     result = service.review(args.project_id, args.mr_iid)
