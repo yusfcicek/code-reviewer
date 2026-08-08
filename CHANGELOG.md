@@ -7,6 +7,57 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.0] — 2026-08-09
+
+Level 12: the first level of a second roadmap, sourced from three published
+role descriptions for agentic AI work in a regulated bank rather than from the
+findings inventory, which is closed. It comes first because everything after it
+changes what the agent *says*, and nothing measured that.
+
+### Added
+
+- **Evaluation harness.** `ai-code-review-eval` grades the analysis suite
+  against annotated cases and reports precision, recall and F1 — overall and
+  per rule — as markdown and as JSON.
+- **`domain/evaluation.py`.** One-to-one matching of produced findings against
+  expectations, a confusion matrix, per-rule aggregation and a threshold.
+  A severity mismatch is a miss and consumes the finding; a rule fired outside
+  the tolerance is charged both ways.
+- **A dataset, not a fixture set.** `evaluation/cases/*.yaml` beside
+  `evaluation/fixtures/`, loaded by `FileSystemDataset`. The loader refuses an
+  unknown key, a missing line, an unparseable severity, a fixture outside the
+  dataset root and two cases sharing a name.
+- **Ungraded findings are counted.** A case may narrow its scope; what falls
+  outside is reported with its rule ids rather than dropped, so narrowing
+  cannot quietly improve a score.
+- **`expect_absent`.** Where a fixed false positive is pinned. The `dict.get`
+  N+1 and the `overrides(` DES match from Level 11 are both pinned.
+- **A CI gate.** `evaluate` on GitLab and a step on GitHub, at precision 0.95,
+  recall 0.85, F1 0.90 — the measured baseline minus a margin — publishing the
+  JSON summary as an artefact.
+- **`EvaluationDataset` port** and the `CaseFixture` value object.
+
+### Documented
+
+- [ADR 0014](docs/adr/0014-evaluation-is-a-dataset-not-a-fixture.md) — why the
+  dataset is data on disk, why scope defaults to everything, and why the floors
+  are measured rather than aspired to.
+- [`docs/roadmap/capability-sources.md`](docs/roadmap/capability-sources.md) —
+  twenty capabilities the role descriptions name, what this repository does
+  about each, and which of levels 12–20 closes it.
+- [`docs/roadmap/level-12/baseline.md`](docs/roadmap/level-12/baseline.md) —
+  the measured baseline, and the two things the instrument found on its first
+  run.
+
+### Known
+
+The dataset ships with one false negative recorded as ground truth:
+`SAST.SQL_INJECTION` is a single-line pattern and misses a query concatenated
+into a local before being executed. That is the whole of the recall gap, and
+closing it is Level 13's work, not this level's.
+
+---
+
 ## [2.5.0] — 2026-08-08
 
 Level 11: what happens when the agent is wrong, and whether it holds against

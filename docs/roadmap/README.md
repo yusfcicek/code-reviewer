@@ -51,14 +51,14 @@ statement and what this repository does today.
 | Level | Theme | Status |
 |---|---|---|
 | [12](level-12/spec.md) | Evaluation harness — measuring review quality | ✅ Done |
-| [13](level-13/spec.md) | Retrieval & RAG over the repository | ⏳ Planned |
-| [14](level-14/spec.md) | Long-term memory across reviews | ⏳ Planned |
-| [15](level-15/spec.md) | Multi-agent orchestration | ⏳ Planned |
-| [16](level-16/spec.md) | Tracing & agent observability | ⏳ Planned |
-| [17](level-17/spec.md) | Asynchronous execution | ⏳ Planned |
-| [18](level-18/spec.md) | Service surface — HTTP API & webhooks | ⏳ Planned |
-| [19](level-19/spec.md) | Containerisation & cloud-native deployment | ⏳ Planned |
-| [20](level-20/spec.md) | Governance, explainability & compliance | ⏳ Planned |
+| 13 | Retrieval & RAG over the repository | ⏳ Planned |
+| 14 | Long-term memory across reviews | ⏳ Planned |
+| 15 | Multi-agent orchestration | ⏳ Planned |
+| 16 | Tracing & agent observability | ⏳ Planned |
+| 17 | Asynchronous execution | ⏳ Planned |
+| 18 | Service surface — HTTP API & webhooks | ⏳ Planned |
+| 19 | Containerisation & cloud-native deployment | ⏳ Planned |
+| 20 | Governance, explainability & compliance | ⏳ Planned |
 
 ### Why *this* order for 12–20
 
