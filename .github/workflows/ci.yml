@@ -55,6 +55,36 @@ jobs:
         if: '!cancelled()'
         run: ./scripts/audit-deps.sh
 
+      # Review quality, measured rather than asserted. The floors are the
+      # measured baseline minus a margin (Level 12, decision D-4).
+      - name: Evaluate review quality
+        if: '!cancelled()'
+        run: >
+          uv run ai-code-review-eval
+          --min-precision 0.95 --min-recall 0.95 --min-f1 0.95
+          --json evaluation-summary.json
+
+      # The second measurement: what the model *said*, graded offline against
+      # the facts it was written about. No endpoint is involved (Level 21).
+      - name: Evaluate narration quality
+        if: '!cancelled()'
+        run: uv run ai-code-review-eval --narration --min-narration 1.0
+
+      - name: Upload evaluation summary
+        if: '!cancelled()'
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-summary
+          path: evaluation-summary.json
+          if-no-files-found: ignore
+
+      # The image is built, not pushed. Where it goes and what deploys it are
+      # decisions belonging to whoever operates it; that it *builds* is a
+      # property of this repository (Level 19).
+      - name: Build the container image
+        if: '!cancelled()'
+        run: docker build --tag ai-code-review:ci .
+
       - name: Upload coverage
         if: '!cancelled()'
         uses: actions/upload-artifact@v4

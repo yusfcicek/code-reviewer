@@ -1,0 +1,15 @@
+# The only rule that needs a diff: a parameter removed from a public function.
+#
+# The scope was one rule until Level 13. `SEMANTIC.UNREFERENCED_IN_FILE` also
+# fired here — a module's only public function is not called inside its own
+# module, which is normal — and was left ungraded rather than blessed as ground
+# truth. Level 13 narrowed the rule to private names (E-02), so the case now
+# grades the whole namespace and the ungraded count drops with it.
+name: breaking-change
+file: fixtures/breaking_change.py
+diff: fixtures/breaking_change.diff
+scope: ["SEMANTIC.*"]
+expect:
+  - rule: SEMANTIC.BREAKING_CHANGE
+    line: 4
+    severity: high

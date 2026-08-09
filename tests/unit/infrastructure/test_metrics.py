@@ -185,3 +185,36 @@ class TestFileExport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPerAgentMetrics(unittest.TestCase):
+    """Level 15 — which agent did what, in the export."""
+
+    def _collector(self) -> MetricsCollector:
+        collector = MetricsCollector()
+        collector.record(ReviewMetrics(project_id="1", mr_id="2", file_path="a.py"))
+        return collector
+
+    def test_agent_totals_are_exported_with_a_label_each(self):
+        output = self._collector().export_prometheus(
+            agents={"security": (2, 1, 7), "architecture": (2, 0, 3)}
+        )
+
+        self.assertIn('code_review_agent_runs{project_id="1",mr_id="2",agent="security"} 2', output)
+        self.assertIn('code_review_agent_failures{project_id="1",mr_id="2",agent="security"} 1', output)
+        self.assertIn('code_review_agent_tool_calls{project_id="1",mr_id="2",agent="security"} 7', output)
+
+    def test_each_agent_series_carries_help_and_type_once(self):
+        output = self._collector().export_prometheus(
+            agents={"security": (1, 0, 1), "architecture": (1, 0, 1)}
+        )
+
+        self.assertEqual(output.count("# HELP code_review_agent_runs "), 1)
+        self.assertEqual(output.count("# TYPE code_review_agent_runs "), 1)
+
+    def test_a_single_agent_run_exports_no_agent_series(self):
+        """With one agent there is nothing to attribute, and an empty series
+        is a series somebody graphs as zero."""
+        output = self._collector().export_prometheus()
+
+        self.assertNotIn("code_review_agent_runs", output)

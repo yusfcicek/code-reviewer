@@ -39,6 +39,7 @@ htmlcov/
 # Agent runtime artifacts
 metrics.txt
 review_metrics.json
+evaluation-summary.json
 
 # Editors / OS / tooling state
 .idea/
@@ -46,3 +47,7 @@ review_metrics.json
 .claude/
 *.swp
 .DS_Store
+
+# Level reports are written for the reader of a level, not for the history.
+# They are deliberately never committed.
+reports/

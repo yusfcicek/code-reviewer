@@ -1,0 +1,36 @@
+# Two injections and a review that names both, with the lines it read them at.
+name: sql-injection
+file: fixtures/sql_injection.py
+findings:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+    title: SQL Injection
+  - rule: SAST.SQL_INJECTION
+    line: 16
+    severity: high
+    title: SQL Injection
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: SQL Injection at `fixtures/sql_injection.py:11` and `fixtures/sql_injection.py:16`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/sql_injection.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - user input reaches the query text
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  Both queries interpolate a caller's value into SQL. Parameterise them.

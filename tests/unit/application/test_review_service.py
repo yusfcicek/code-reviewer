@@ -80,9 +80,9 @@ class ScriptedReviewer(Reviewer):
         self.per_file = per_file or {}
         self.reviewed = []
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None):
-        self.reviewed.append(filename)
-        return self.per_file.get(filename, self.report)
+    def review_diff(self, brief):
+        self.reviewed.append(brief.file_path)
+        return self.per_file.get(brief.file_path, self.report)
 
 
 class RecordingAnalysis(StaticAnalysis):
@@ -400,10 +400,10 @@ class ExplodingReviewer(Reviewer):
         self.report = report
         self.reviewed = []
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None):
-        if filename in self.failing_paths:
+    def review_diff(self, brief):
+        if brief.file_path in self.failing_paths:
             raise RuntimeError("model endpoint timed out")
-        self.reviewed.append(filename)
+        self.reviewed.append(brief.file_path)
         return self.report
 
 

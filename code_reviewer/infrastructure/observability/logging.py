@@ -52,6 +52,31 @@ def _record_fields(record: logging.LogRecord) -> dict[str, Any]:
     return fields
 
 
+class TraceContextFilter(logging.Filter):
+    """Stamps every record with the trace and span it happened inside.
+
+    This is the join between a log line and a trace, and it is what makes two
+    reviews interleaved in one runner's output separable (Level 16, C-4).
+
+    Nothing is added outside a span: a record from before the review started
+    should carry no trace fields at all rather than fields that say "none".
+    A caller's own `trace_id` in `extra` wins, because a caller that set one
+    meant it.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Imported here rather than at module scope: the tracer imports the
+        # domain, and the domain must not depend on a logging module importing
+        # it back at load time.
+        from .tracer import current_trace_context
+
+        trace_id, span_id = current_trace_context()
+        if trace_id:
+            record.__dict__.setdefault("trace_id", trace_id)
+            record.__dict__.setdefault("span_id", span_id)
+        return True
+
+
 class StructuredFormatter(logging.Formatter):
     """Human-readable line with ``key=value`` pairs appended.
 
@@ -130,6 +155,10 @@ def configure_logging(level: str | None = None, stream: TextIO | None = None) ->
     handler = logging.StreamHandler(stream if stream is not None else sys.stderr)
     handler.setFormatter(JsonFormatter() if use_json else StructuredFormatter())
     handler.setLevel(resolved)
+    # On the handler rather than the logger: a filter on a logger does not run
+    # for records that propagate up from a child, and every module here logs
+    # through its own child logger.
+    handler.addFilter(TraceContextFilter())
     logger.addHandler(handler)
 
     if (

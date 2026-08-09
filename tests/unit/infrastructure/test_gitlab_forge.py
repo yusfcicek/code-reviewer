@@ -6,7 +6,7 @@ neutral value objects without a network.
 """
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from code_reviewer.application.ports import CodeForge, FileChange
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
@@ -150,3 +150,129 @@ class TestPublishComment(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPublishingASuggestion(unittest.TestCase):
+    """Level 22 — a note anchored on the line it edits.
+
+    GitLab applies a `suggestion` block only from a note attached to the diff,
+    which needs the three commits it compares. Posting one is still posting a
+    comment: nothing here writes to the repository.
+    """
+
+    def _forge(self):
+        client = MagicMock()
+        merge_request = client.projects.get.return_value.mergerequests.get.return_value
+        merge_request.diff_refs = {
+            "base_sha": "aaa",
+            "start_sha": "bbb",
+            "head_sha": "ccc",
+        }
+        merge_request.sha = "ccc"
+        forge = GitLabForge(client=client)
+        return forge, merge_request
+
+    def test_the_reference_carries_the_commits_a_note_anchors_on(self):
+        forge, _ = self._forge()
+
+        reference = forge.fetch_merge_request(1, 2)
+
+        self.assertEqual((reference.base_sha, reference.start_sha), ("aaa", "bbb"))
+        self.assertEqual(reference.head_sha, "ccc")
+
+    def test_a_merge_request_without_diff_refs_yields_empty_ones(self):
+        """Older instances and unusual states do not report them, and the
+        review is unchanged: it costs the suggestions and nothing else."""
+        forge, merge_request = self._forge()
+        merge_request.diff_refs = None
+
+        reference = forge.fetch_merge_request(1, 2)
+
+        self.assertEqual(reference.base_sha, "")
+
+    def test_the_note_is_created_as_a_discussion_on_the_line(self):
+        from code_reviewer.application.ports import DiffPosition
+
+        forge, merge_request = self._forge()
+        reference = forge.fetch_merge_request(1, 2)
+        position = DiffPosition(path="src/app.py", line=11, base_sha="aaa", start_sha="bbb", head_sha="ccc")
+
+        forge.publish_suggestion(reference, position, "```suggestion:-0+0\nx = 1\n```")
+
+        payload = merge_request.discussions.create.call_args[0][0]
+        self.assertIn("suggestion", payload["body"])
+        self.assertEqual(payload["position"]["new_path"], "src/app.py")
+        self.assertEqual(payload["position"]["new_line"], 11)
+        self.assertEqual(payload["position"]["position_type"], "text")
+
+    def test_the_body_is_redacted_like_every_other_published_text(self):
+        from code_reviewer.application.ports import DiffPosition
+
+        with patch.dict("os.environ", {"GITLAB_TOKEN": "glpat-averyrealisticlookingtoken"}):
+            forge, merge_request = self._forge()
+            reference = forge.fetch_merge_request(1, 2)
+            position = DiffPosition(path="a.py", line=1, base_sha="aaa", start_sha="bbb", head_sha="ccc")
+
+            forge.publish_suggestion(reference, position, "token glpat-averyrealisticlookingtoken")
+
+        body = merge_request.discussions.create.call_args[0][0]["body"]
+        self.assertNotIn("glpat-averyrealisticlookingtoken", body)
+
+
+class TestASuggestionIsPostedOnce(unittest.TestCase):
+    """S-03 — five pipeline runs left five copies of every suggestion.
+
+    Level 5 fixed exactly this for the review comment: the body carries a
+    marker, and the next run finds it and edits rather than adding a second
+    one (finding G-12). Suggestions carried nothing, so a merge request pushed
+    to four times ended with four identical buttons on one line.
+    """
+
+    def _forge(self, existing_bodies=()):
+        client = MagicMock()
+        merge_request = client.projects.get.return_value.mergerequests.get.return_value
+        merge_request.diff_refs = {"base_sha": "aaa", "start_sha": "bbb", "head_sha": "ccc"}
+        merge_request.discussions.list.return_value = [
+            MagicMock(attributes={"notes": [{"body": body}]}) for body in existing_bodies
+        ]
+        forge = GitLabForge(client=client)
+        return forge, merge_request, forge.fetch_merge_request(1, 2)
+
+    def _position(self):
+        from code_reviewer.application.ports import DiffPosition
+
+        return DiffPosition(path="src/app.py", line=11, base_sha="aaa", start_sha="bbb", head_sha="ccc")
+
+    def test_the_note_carries_a_marker_naming_what_it_suggests(self):
+        forge, merge_request, reference = self._forge()
+
+        forge.publish_suggestion(reference, self._position(), "SAST.WEAK_CRYPTO body")
+
+        body = merge_request.discussions.create.call_args[0][0]["body"]
+        self.assertIn("code-reviewer:suggestion:src/app.py:11", body)
+
+    def test_a_suggestion_already_posted_on_that_line_is_not_posted_again(self):
+        marker = "<!-- code-reviewer:suggestion:src/app.py:11 -->"
+        forge, merge_request, reference = self._forge(existing_bodies=[f"old body\n{marker}"])
+
+        forge.publish_suggestion(reference, self._position(), "new body")
+
+        merge_request.discussions.create.assert_not_called()
+
+    def test_a_suggestion_on_another_line_is_still_posted(self):
+        marker = "<!-- code-reviewer:suggestion:src/app.py:4 -->"
+        forge, merge_request, reference = self._forge(existing_bodies=[f"old body\n{marker}"])
+
+        forge.publish_suggestion(reference, self._position(), "new body")
+
+        merge_request.discussions.create.assert_called_once()
+
+    def test_a_forge_that_cannot_list_discussions_still_posts(self):
+        """Losing the idempotency is cosmetic; losing the suggestion is not.
+        The same trade the comment path makes."""
+        forge, merge_request, reference = self._forge()
+        merge_request.discussions.list.side_effect = RuntimeError("no permission")
+
+        forge.publish_suggestion(reference, self._position(), "body")
+
+        merge_request.discussions.create.assert_called_once()

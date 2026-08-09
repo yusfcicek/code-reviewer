@@ -1,0 +1,8 @@
+@@ -1,5 +1,5 @@
+ """A public function whose signature changed."""
+
+
+-def render_invoice(order, currency, locale):
+-    return f"{order}: {currency} ({locale})"
++def render_invoice(order, currency):
++    return f"{order}: {currency}"

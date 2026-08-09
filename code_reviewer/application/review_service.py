@@ -8,25 +8,37 @@ directly and therefore had no tests at all (findings F-25, F-27).
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.gate import ReviewGate
 from code_reviewer.domain.outcome import ReviewOutcome
 from code_reviewer.domain.policy import ReviewPolicy
+from code_reviewer.domain.provenance import AgentCost, SuggestionRecord
+from code_reviewer.domain.remediation import Suggestion
 from code_reviewer.domain.severity import Severity
+from code_reviewer.domain.trace import SpanKind
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
 
+from .governance import DecisionRecorder
 from .ports import (
     AccessAuditor,
     AccessViolation,
     CodeForge,
+    CodeRetriever,
+    DiffPosition,
     FileChange,
     MergeRequestRef,
+    ReviewBrief,
     Reviewer,
     StaticAnalysis,
 )
+from .project_memory import ProjectMemory
+from .remediation_service import SuggestionService, render_suggestion
 from .report import render_review_comment
+from .retrieval_service import query_from_change
+from .tracing import NullTracer, Tracer
 
 # Standard logging, not the infrastructure helper: the application layer may
 # not import downwards. Every module in this package lives under the
@@ -53,6 +65,8 @@ class FileMetric:
     lines_analyzed: int
     duration_ms: int = 0
     findings_by_severity: dict = field(default_factory=dict)
+    #: How many of this file's findings the project had already reported.
+    recurring_findings: int = 0
 
 
 @dataclass
@@ -78,6 +92,12 @@ class ReviewService:
         analysis: StaticAnalysis | None = None,
         gate: ReviewGate | None = None,
         access_auditor: AccessAuditor | None = None,
+        retriever: CodeRetriever | None = None,
+        related_limit: int = 4,
+        memory: ProjectMemory | None = None,
+        tracer: Tracer | None = None,
+        recorder: DecisionRecorder | None = None,
+        suggest_fixes: bool = True,
         clock=None,
     ):
         self._forge = forge
@@ -91,6 +111,22 @@ class ReviewService:
         # Optional so a caller without a sandbox still reviews. When present,
         # a refused file access becomes a finding on the file being reviewed.
         self._access_auditor = access_auditor
+        # Optional, and best-effort when present: retrieval is an improvement
+        # to the prompt, never a precondition for reviewing (Level 13, D-5).
+        self._retriever = retriever
+        self._related_limit = related_limit
+        # Optional, and informational when present: nothing a memory says
+        # reaches the gate (Level 14, decision D-4).
+        self._memory = memory
+        # Defaults to recording nothing, so an uninstrumented caller pays a
+        # function frame per span and nothing else (Level 16, decision D-4).
+        self._tracer = tracer or NullTracer()
+        # Optional, and never able to change a verdict: it records the one
+        # already reached (Level 20, decision D-6).
+        self._recorder = recorder
+        # On by default: a suggestion is additive text that nothing applies,
+        # and a feature nobody sees is a feature nobody has (Level 22).
+        self._suggestions = SuggestionService(version=_recorder_version(recorder)) if suggest_fixes else None
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
@@ -104,6 +140,12 @@ class ReviewService:
                 else unchanged, including the gate — a dry run answers "what
                 would this do", and that includes "would it block".
         """
+        with self._tracer.span(
+            SpanKind.REVIEW, "review", project=str(project_id), merge_request=str(merge_request_iid)
+        ):
+            return self._review(project_id, merge_request_iid, publish)
+
+    def _review(self, project_id: int, merge_request_iid: int, publish: bool) -> ReviewResult:
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
         changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
 
@@ -117,12 +159,19 @@ class ReviewService:
         sibling_paths = [change.path for change in changes]
 
         sections = []
+        # Collected as the files are reviewed and posted after the comment: a
+        # suggestion is an improvement to a review that has already been paid
+        # for, never a precondition for publishing it (Level 22).
+        pending: list[Suggestion] = []
         for change in changes:
             # One file's failure costs that file, not the run: propagating the
             # exception discarded every review completed so far and posted
             # nothing (finding F-58).
             try:
-                section, metric, findings = self._review_one(reference, change, sibling_paths, outcome)
+                with self._tracer.span(SpanKind.FILE, change.path, path=change.path):
+                    section, metric, findings = self._review_one(
+                        reference, change, sibling_paths, outcome, pending
+                    )
             except Exception as exc:
                 logger.error(
                     "Could not review file",
@@ -142,13 +191,125 @@ class ReviewService:
                 result.metrics.append(metric)
             result.findings.extend(findings or [])
 
+        # Computed before the comment is rendered, because the record names it
+        # and the comment quotes the record. The value is the same either way:
+        # it is a function of the outcome and the policy.
+        result.exit_code = outcome.exit_code(self._policy)
+        record = self._record(reference, outcome, result, pending)
+
         if sections:
-            result.comment = render_review_comment(self._policy.version, outcome, sections, result.findings)
+            result.comment = render_review_comment(
+                self._policy.version,
+                outcome,
+                sections,
+                result.findings,
+                recurring=self._recurring(result.findings),
+                trace_id=self._tracer.trace_id,
+                identity=self._recorder.identity if self._recorder else None,
+                decision_summary=record.summary() if record else "",
+                suggestion_count=len(pending),
+            )
             if publish:
                 self._forge.publish_comment(reference, result.comment)
+                self._publish_suggestions(reference, pending)
 
-        result.exit_code = outcome.exit_code(self._policy)
+        # After the comment is built, so what this run found does not turn
+        # itself into its own history.
+        self._remember(outcome, result.findings)
+
         return result
+
+    def _publish_suggestions(self, reference: MergeRequestRef, suggestions: list[Suggestion]) -> None:
+        """Posts each suggestion as a note on the line it edits.
+
+        A suggestion is only applicable in a note anchored on the diff, which
+        needs the three commits the platform compares. A forge that did not
+        report them, or cannot post such a note, costs the suggestions and
+        nothing else: the review is already published by the time this runs
+        (contract C-6).
+        """
+        if not suggestions:
+            return
+        if not all((reference.base_sha, reference.start_sha, reference.head_sha)):
+            logger.warning(
+                "Not posting suggestions: the forge did not report the commits to anchor them on",
+                extra={"fields": {"suggestions": len(suggestions)}},
+            )
+            return
+
+        for suggestion in suggestions:
+            try:
+                position = DiffPosition(
+                    path=suggestion.file_path,
+                    line=suggestion.start_line,
+                    base_sha=reference.base_sha,
+                    start_sha=reference.start_sha,
+                    head_sha=reference.head_sha,
+                )
+                self._forge.publish_suggestion(reference, position, render_suggestion(suggestion))
+            except Exception as error:
+                logger.warning(
+                    "Could not post a suggestion; the finding keeps its written advice",
+                    extra={"fields": {"rule_id": suggestion.rule_id, "error": str(error)}},
+                )
+
+    def _record(
+        self,
+        reference: MergeRequestRef,
+        outcome: ReviewOutcome,
+        result: ReviewResult,
+        suggestions: Sequence[Suggestion] = (),
+    ):
+        """Writes what was decided, if anybody is recording.
+
+        Built from what the review already produced, and unable to change it:
+        the recorder never raises, and a sink that cannot write is a warning.
+        Fifth level with the rule that observability may not fail the review it
+        observes (Level 20, contract C-9).
+        """
+        if self._recorder is None:
+            return None
+
+        threshold = self._gate.blocking_severity
+        return self._recorder.record(
+            outcome,
+            result.findings,
+            lambda finding: finding.severity.is_at_least(threshold),
+            project=reference.project_id,
+            merge_request=reference.merge_request_id,
+            trace_id=self._tracer.trace_id,
+            exit_code=result.exit_code,
+            agent_costs=self._agent_costs(),
+            suggestions=[
+                SuggestionRecord(
+                    rule_id=item.rule_id,
+                    location=f"{item.file_path}:{item.start_line}",
+                    recipe=item.recipe,
+                )
+                for item in suggestions
+            ],
+        )
+
+    def _agent_costs(self) -> list[AgentCost]:
+        """What each specialism spent, if the reviewer counted.
+
+        Read through ``getattr`` because a reviewer is a port with one method:
+        a committee counts, a single agent does not, and neither is obliged to.
+        The metrics file is overwritten by the next review; this is not
+        (contract C-7).
+        """
+        totals = getattr(self._reviewer, "agent_totals", None) or {}
+        return [
+            AgentCost(
+                agent=specialism.value,
+                runs=total.runs,
+                failures=total.failures,
+                tool_calls=total.tool_calls,
+                tokens_allowed=total.tokens_allowed,
+                duration_ms=total.duration_ms,
+            )
+            for specialism, total in totals.items()
+        ]
 
     def _review_one(
         self,
@@ -156,6 +317,7 @@ class ReviewService:
         change: FileChange,
         sibling_paths: list[str],
         outcome: ReviewOutcome,
+        pending: list[Suggestion] | None = None,
     ):
         """Triages one file and, if it warrants it, reviews and gates it."""
         started_at = self._clock()
@@ -187,43 +349,9 @@ class ReviewService:
             section = f"## ✅ Auto-Approved: `{change.path}`\n> {decision.reason}\n\n---\n"
             outcome.record_unevaluated(change.path)
         elif decision.decision in NEEDS_REVIEWER:
-            # Analysis runs first and unconditionally: whether a file gets a
-            # security scan must not depend on the model deciding to ask for
-            # one (finding F-32).
-            analysis, analysis_error = self._analyse(change, full_content)
-            findings = list(analysis.findings) if analysis is not None else None
-            if analysis is not None and analysis.suppressed:
-                # Counted on the outcome so the report can state it. A
-                # suppression nobody can see is indistinguishable from a rule
-                # that never fired (finding G-07).
-                outcome.record_suppressions(change.path, analysis.suppressed)
-            if analysis_error is not None:
-                # Not "the review found nothing". Nothing was examined, and a
-                # gate that reads those as the same thing answers "pass" to a
-                # question it never asked (finding G-09).
-                outcome.record_unanalysed(change.path, analysis_error)
-
-            # Counted before the reviewer runs, so what it triggers is
-            # attributable to *this* file rather than to the whole run.
-            violations_before = self._violation_count()
-
-            review_text = self._reviewer.review_diff(
-                change.path,
-                change.diff,
-                full_content,
-                other_files=sibling_paths,
+            section, findings, gate_result, quality_score = self._analyse_and_review(
+                reference, change, sibling_paths, outcome, pending, full_content
             )
-
-            refusals = self._refusal_findings(change.path, violations_before)
-            if refusals:
-                findings = list(findings or []) + refusals
-
-            section = self._render_section(change.path, review_text, findings)
-
-            evaluation = self._gate.evaluate(review_text, findings)
-            outcome.record(change.path, evaluation)
-            gate_result = evaluation.result.value
-            quality_score = evaluation.scores.get("quality")
 
         metric = FileMetric(
             file_path=change.path,
@@ -237,8 +365,139 @@ class ReviewService:
                 for severity, count in Finding.count_by_severity(findings or []).items()
                 if count
             },
+            recurring_findings=len(self._recurring(findings or [])),
         )
         return section, metric, findings or []
+
+    def _analyse_and_review(
+        self,
+        reference: MergeRequestRef,
+        change: FileChange,
+        sibling_paths: list[str],
+        outcome: ReviewOutcome,
+        pending: list[Suggestion] | None,
+        full_content,
+    ):
+        """The path a file takes when it warrants a model.
+
+        Analysis, then the reviewer, then the gate — in that order and
+        unconditionally: whether a file gets a security scan must not depend on
+        the model deciding to ask for one (finding F-32).
+        """
+        findings = self._analysis_findings(change, full_content, outcome)
+
+        # Counted before the reviewer runs, so what it triggers is attributable
+        # to *this* file rather than to the whole run.
+        violations_before = self._violation_count()
+
+        review_text = self._reviewer.review_diff(
+            ReviewBrief(
+                file_path=change.path,
+                diff=change.diff,
+                full_content=full_content,
+                other_files=tuple(sibling_paths),
+                related=tuple(self._retrieve(change)),
+                recollections=tuple(self._recall(change.path)),
+                # The evidence an orchestrator routes on. The gate reads the
+                # same list, and only the gate turns it into a verdict.
+                findings=tuple(findings or ()),
+            )
+        )
+
+        refusals = self._refusal_findings(change.path, violations_before)
+        if refusals:
+            findings = list(findings or []) + refusals
+
+        section = self._render_section(change.path, review_text, findings)
+        self._collect_suggestions(pending, findings, full_content, change)
+
+        evaluation = self._gate.evaluate(review_text, findings)
+        outcome.record(change.path, evaluation)
+        return section, findings, evaluation.result.value, evaluation.scores.get("quality")
+
+    def _collect_suggestions(
+        self, pending: list[Suggestion] | None, findings, full_content, change: FileChange
+    ) -> None:
+        """Adds this file's applicable edits to the run's list, if any.
+
+        Separate from the review for the reason everything in this level is
+        separate from it: a suggestion may cost itself and nothing else.
+        """
+        if pending is None or self._suggestions is None:
+            return
+        pending.extend(
+            self._suggestions.suggest_for(findings or [], full_content or "", change.path, diff=change.diff)
+        )
+
+    def _retrieve(self, change: FileChange) -> list:
+        """Related code from elsewhere in the checkout, or nothing.
+
+        Never raises and never produces a finding. Level 9 made a failed
+        *analysis* block, because a gate must not read "nothing examined" as
+        "nothing found"; a failed *retrieval* has no such property. The review
+        proceeds with the evidence it had before, and the failure is logged
+        rather than reported as an opinion about the code.
+        """
+        if self._retriever is None:
+            return []
+
+        try:
+            with self._tracer.span(SpanKind.RETRIEVAL, "related code", path=change.path) as span:
+                found = self._retriever.related(
+                    query_from_change(change.path, change.diff),
+                    limit=self._related_limit,
+                    exclude_path=change.path,
+                )
+                # Inside the span: `annotate` only reaches an *open* one, and
+                # a count recorded after the close would be silently dropped.
+                self._tracer.annotate(span, chunks=len(found))
+                return found
+        except Exception as exc:
+            logger.warning(
+                "Retrieval failed; reviewing without repository context",
+                extra={"fields": {"path": change.path, "error": str(exc)}},
+            )
+            return []
+
+    def _recall(self, file_path: str) -> list:
+        """What previous reviews recorded about this file, or nothing."""
+        if self._memory is None:
+            return []
+        try:
+            with self._tracer.span(SpanKind.MEMORY, "recall", path=file_path):
+                return list(self._memory.recall(file_path))
+        except Exception as exc:  # pragma: no cover - ProjectMemory swallows its own
+            logger.warning(
+                "Recall failed; reviewing without project memory",
+                extra={"fields": {"path": file_path, "error": str(exc)}},
+            )
+            return []
+
+    def _recurring(self, findings: list[Finding]) -> dict:
+        """Findings this project has reported before, keyed by file and rule."""
+        if self._memory is None:
+            return {}
+
+        recurring = {}
+        for finding in findings:
+            remembered = self._memory.recurrence_of(finding)
+            if remembered is not None:
+                recurring[(finding.file_path, finding.rule_id)] = remembered
+        return recurring
+
+    def _remember(self, outcome: ReviewOutcome, findings: list[Finding]) -> None:
+        """Adds what this run saw to the project's memory.
+
+        Never raises, and never changes anything already decided: the comment
+        is rendered and the exit code is computed from the findings alone.
+        """
+        if self._memory is None:
+            return
+
+        self._memory.observe_findings(findings)
+        for file_path, item in outcome.suppressions:
+            self._memory.observe_suppressions(file_path, [item])
+        self._memory.persist()
 
     def _violation_count(self) -> int:
         """How many refusals the auditor has seen so far, or zero without one."""
@@ -285,6 +544,34 @@ class ReviewService:
             evidence=violation.path,
         )
 
+    def _analysis_findings(
+        self, change: FileChange, full_content, outcome: ReviewOutcome
+    ) -> list[Finding] | None:
+        """What the analyzers found, and everything they could not do.
+
+        Returns ``None`` when no analysis ran at all — distinct from ``[]``,
+        which is "it ran and found nothing" (finding F-32). Three things are
+        recorded on the outcome on the way past, because each is a fact a
+        reader of a clean report needs and none of them is a finding:
+        suppressions (G-07), an analyzer that crashed (self-review R-02), and
+        an analysis that could not run at all (G-09).
+        """
+        analysis, analysis_error = self._analyse(change, full_content)
+
+        if analysis is not None:
+            if analysis.suppressed:
+                outcome.record_suppressions(change.path, analysis.suppressed)
+            for degraded in analysis.degraded:
+                outcome.record_degraded(change.path, degraded.analyzer, degraded.reason)
+
+        if analysis_error is not None:
+            # Not "the review found nothing". Nothing was examined, and a gate
+            # that reads those as the same thing answers "pass" to a question
+            # it never asked.
+            outcome.record_unanalysed(change.path, analysis_error)
+
+        return list(analysis.findings) if analysis is not None else None
+
     def _analyse(self, change: FileChange, full_content):
         """Runs the analysis suite.
 
@@ -303,7 +590,8 @@ class ReviewService:
         if self._analysis is None:
             return None, None
         try:
-            return self._analysis.analyze(change.path, full_content or "", change.diff), None
+            with self._tracer.span(SpanKind.ANALYSIS, "static analysis", path=change.path):
+                return self._analysis.analyze(change.path, full_content or "", change.diff), None
         except Exception as exc:
             logger.error(
                 "Static analysis failed; the file is reported as unanalysed",
@@ -339,3 +627,13 @@ def _monotonic_milliseconds() -> int:
     import time
 
     return int(time.monotonic() * 1000)
+
+
+def _recorder_version(recorder: DecisionRecorder | None) -> str:
+    """The package version, when a recorder knows it.
+
+    Read for the producer attribution a suggestion is guarded by. Without a
+    recorder the version is empty, which changes the producer's printed name
+    and not whether it is deterministic — the only thing this uses it for.
+    """
+    return recorder.identity.package_version if recorder is not None else ""

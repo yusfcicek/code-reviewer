@@ -12,20 +12,33 @@ Usage:
 import sys
 import warnings
 
+from code_reviewer.application.governance import DecisionRecorder
+from code_reviewer.application.orchestration_service import ReviewOrchestrator
 from code_reviewer.application.ports import Reviewer
+from code_reviewer.application.project_memory import ProjectMemory
 from code_reviewer.application.review_service import ReviewService
+from code_reviewer.application.tasks import SequentialRunner, TaskRunner
 from code_reviewer.cli import parse_args
+from code_reviewer.domain.orchestration import Specialism
 from code_reviewer.domain.triage import ReviewTriage
 from code_reviewer.errors import ConfigurationError, ReviewError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
+from code_reviewer.infrastructure.concurrency.thread_pool import ThreadPoolRunner
 from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
+from code_reviewer.infrastructure.governance.identity import build_run_identity
+from code_reviewer.infrastructure.governance.json_sink import JsonAuditSink
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+from code_reviewer.infrastructure.llm.specialist_agent import SpecialistAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
+from code_reviewer.infrastructure.memory.json_store import DEFAULT_MEMORY_FILENAME, JsonMemoryStore
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 from code_reviewer.infrastructure.metrics.collector import MetricsCollector, ReviewMetrics
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
-from code_reviewer.infrastructure.tools import Workspace, set_workspace
+from code_reviewer.infrastructure.observability.trace_rendering import JsonTraceExporter, render_trace_tree
+from code_reviewer.infrastructure.observability.tracer import SpanRecorder, get_tracer, set_tracer
+from code_reviewer.infrastructure.retrieval.corpus import build_retriever
+from code_reviewer.infrastructure.tools import Workspace, set_retriever, set_workspace
 
 #: Exit codes. The split exists because "the gate blocked the merge request"
 #: and "the agent fell over" both used to be `1`, so no pipeline could tell
@@ -61,15 +74,21 @@ class _NoNarration(Reviewer):
     a shorter report.
     """
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None) -> str:
+    def review_diff(self, brief) -> str:
         return (
             "_Narration was not requested (`--no-llm`). The verdict below comes "
             "from static analysis, which is where it always comes from._"
         )
 
 
-def _export_metrics(result, project_id, merge_request_iid, metrics_path: str) -> None:
-    """Translates the workflow's facts into the exporter's format."""
+def _export_metrics(result, project_id, merge_request_iid, metrics_path: str, reviewer=None) -> None:
+    """Translates the workflow's facts into the exporter's format.
+
+    ``reviewer`` is read for per-agent totals when it has them. Asked of the
+    object rather than threaded through `ReviewService`, because how many
+    agents produced a review is the reviewer's business and the workflow is
+    deliberately unaware of it (Level 15, decision D-1).
+    """
     collector = MetricsCollector()
     for metric in result.metrics:
         collector.record(
@@ -83,18 +102,47 @@ def _export_metrics(result, project_id, merge_request_iid, metrics_path: str) ->
                 quality_score=metric.quality_score,
                 findings_by_severity=metric.findings_by_severity,
                 duration_ms=metric.duration_ms,
+                recurring_findings=metric.recurring_findings,
             )
         )
-    collector.export_gitlab_metrics(metrics_path)
+    collector.export_gitlab_metrics(metrics_path, agents=_agent_totals(reviewer))
 
 
-def run(args) -> int:
-    """Builds the workflow for one run and returns its exit code."""
-    logger.info(
-        "Starting review",
-        extra={"fields": {"project": args.project_id, "merge_request": args.mr_iid}},
-    )
+def _export_trace(tracer, trace_path: str) -> None:
+    """Summarises the run's trace in the log, and writes it if asked.
 
+    Recording is always on, because a trace nobody asked for is the one they
+    want after a failure; writing a file is what the flag controls
+    (decision D-4).
+    """
+    trace = tracer.trace()
+    if not len(trace):
+        return
+
+    logger.info("Trace\n%s", render_trace_tree(trace))
+    if trace_path:
+        JsonTraceExporter(trace_path).export(trace)
+
+
+def _agent_totals(reviewer) -> dict[str, tuple[int, int, int]]:
+    """Runs, failures and tool calls per specialist, or nothing."""
+    totals = getattr(reviewer, "agent_totals", None)
+    if not totals:
+        return {}
+    return {
+        specialism.value: (total.runs, total.failures, total.tool_calls)
+        for specialism, total in totals.items()
+    }
+
+
+def build_review_service(args, tracer=None) -> tuple[ReviewService, Reviewer]:
+    """Assembles the workflow from the arguments, and returns it with its reviewer.
+
+    Extracted so the HTTP service builds exactly what the command line builds
+    (Level 18). The reviewer comes back alongside because the metrics export
+    asks it for its per-agent totals, and only the composition root knows
+    whether there is a committee to ask.
+    """
     policy = load_policy(args.policy)
     logger.info("Policy in effect", extra={"fields": {"version": policy.version}})
 
@@ -112,9 +160,34 @@ def run(args) -> int:
         },
     )
 
+    # Retrieval over the checkout. Built once per run, from the same tree the
+    # tools are confined to, and best-effort throughout: an index that cannot
+    # be built costs the prompt its context and nothing else (Level 13, D-5).
+    retriever = _build_retriever(args.repo_root)
+    set_retriever(retriever)
+
+    # What previous reviews of this repository recorded. Informational only:
+    # nothing it says reaches the gate (Level 14, decision D-4).
+    memory = _build_memory(args, workspace)
+
+    # One recorder for the run: handed to the workflow and the agents, and
+    # set as the ambient one so the tool layer and the log filter can reach it
+    # (Level 16, decision D-3). Under the service the worker sets its own, one
+    # per job, so an injected tracer wins.
+    if tracer is None:
+        tracer = SpanRecorder(trace_id=f"{getattr(args, 'project_id', '')}-{getattr(args, 'mr_iid', '')}")
+        set_tracer(tracer)
+
+    reviewer = _build_reviewer(args, tracer)
+
+    # What this run decided, and under which versions. Written only where an
+    # operator asked for it: a file appearing beside a checkout because a tool
+    # was run is a surprise, and this one names merge requests (Level 20, D-7).
+    recorder = _build_recorder(args, policy)
+
     service = ReviewService(
         forge=GitLabForge(),
-        reviewer=_build_reviewer(args),
+        reviewer=reviewer,
         triage=ReviewTriage(policy),
         policy=policy,
         analysis=StaticAnalysisSuite(policy),
@@ -122,7 +195,26 @@ def run(args) -> int:
         # about the diff — the agent asked for that path because the content
         # under review led it to — so it reaches the gate as a finding.
         access_auditor=workspace,
+        retriever=retriever,
+        memory=memory,
+        tracer=tracer,
+        recorder=recorder,
+        # Proposals, never applications: the flag turns off the offering, and
+        # there has never been anything that applies one (Level 22).
+        suggest_fixes=not getattr(args, "no_suggestions", False),
     )
+    return service, reviewer
+
+
+def run(args) -> int:
+    """Builds the workflow for one run and returns its exit code."""
+    logger.info(
+        "Starting review",
+        extra={"fields": {"project": args.project_id, "merge_request": args.mr_iid}},
+    )
+
+    service, reviewer = build_review_service(args)
+    tracer = get_tracer()
 
     result = service.review(args.project_id, args.mr_iid, publish=not args.dry_run)
 
@@ -140,7 +232,8 @@ def run(args) -> int:
     else:
         logger.info("Nothing to review; no comment posted")
 
-    _export_metrics(result, args.project_id, args.mr_iid, args.metrics_path)
+    _export_metrics(result, args.project_id, args.mr_iid, args.metrics_path, reviewer)
+    _export_trace(tracer, args.trace_path)
     logger.info("Metrics exported", extra={"fields": {"path": args.metrics_path}})
 
     if result.outcome.is_blocking:
@@ -152,7 +245,7 @@ def run(args) -> int:
     return result.exit_code
 
 
-def _build_reviewer(args) -> Reviewer:
+def _build_reviewer(args, tracer=None) -> Reviewer:
     """The narrator, or a stand-in that produces none.
 
     Constructing the provider is deferred to here so that `--no-llm` needs no
@@ -163,7 +256,88 @@ def _build_reviewer(args) -> Reviewer:
         return _NoNarration()
 
     provider = LLMFactory.create_provider("vllm")
-    return ReviewAgent(provider, SmartMemoryStrategy(provider))
+    if args.single_agent:
+        logger.info("Reviewing with one agent (--single-agent)")
+        return ReviewAgent(provider, SmartMemoryStrategy(provider), tracer=tracer)
+
+    # One memory strategy shared by the committee: a specialist that could not
+    # see what the others noticed would repeat their work, and the strategy is
+    # already what carries insight between files.
+    memory_strategy = SmartMemoryStrategy(provider)
+    orchestrator = ReviewOrchestrator(
+        {specialism: SpecialistAgent(specialism, provider, memory_strategy) for specialism in Specialism}
+    )
+    logger.info(
+        "Reviewing with a committee",
+        extra={"fields": {"agents": [specialism.value for specialism in Specialism]}},
+    )
+    return orchestrator
+
+
+def _build_runner(args) -> TaskRunner:
+    """How the committee's members are run.
+
+    One worker selects the sequential runner outright rather than a pool of
+    one, so the old path stays the old path — including its inability to
+    interrupt a hung task, which a pool of one would quietly acquire.
+    """
+    if args.concurrency <= 1:
+        logger.info("Specialists run in sequence (--concurrency 1)")
+        return SequentialRunner()
+
+    logger.info("Specialists run concurrently", extra={"fields": {"workers": args.concurrency}})
+    return ThreadPoolRunner(max_workers=args.concurrency)
+
+
+def _build_recorder(args, policy) -> DecisionRecorder | None:
+    """The decision recorder, or ``None`` when nobody asked for one.
+
+    The identity is assembled here rather than inside the recorder because
+    only the composition root knows which policy, which model and which
+    prompts are actually in use.
+    """
+    path = getattr(args, "audit_path", "")
+    if not path:
+        return None
+
+    logger.info("Recording the decision", extra={"fields": {"path": path}})
+    return DecisionRecorder(JsonAuditSink(path), build_run_identity(policy))
+
+
+def _build_memory(args, workspace) -> ProjectMemory | None:
+    """The project's review history, or ``None`` when it was turned off.
+
+    The default location is inside the workspace, so the history travels with
+    the checkout and a team can see, commit or delete it. `--no-memory`
+    produces exactly the behaviour of every level before this one.
+    """
+    if args.no_memory:
+        logger.info("Project memory disabled by --no-memory")
+        return None
+
+    path = args.memory_path or str(workspace.root / DEFAULT_MEMORY_FILENAME)
+    logger.info("Project memory in use", extra={"fields": {"path": path}})
+    return ProjectMemory(JsonMemoryStore(path))
+
+
+def _build_retriever(repo_root: str):
+    """The repository index, or ``None`` when it could not be built.
+
+    Failing here would trade a whole review for some missing context, which is
+    the wrong trade: this project reviewed merge requests for twelve levels
+    without retrieving anything.
+    """
+    try:
+        retriever = build_retriever(repo_root)
+    except Exception as exc:
+        logger.warning(
+            "Could not index the repository; reviewing without retrieval",
+            extra={"fields": {"repo_root": repo_root, "error": str(exc)}},
+        )
+        return None
+
+    logger.info("Repository indexed for retrieval", extra={"fields": {"repo_root": repo_root}})
+    return retriever
 
 
 def main() -> None:

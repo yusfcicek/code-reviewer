@@ -1,0 +1,8 @@
+# A `dict.get` inside a loop. Not a query, not an N+1, and the rule fired on it
+# until Level 11. Nothing is expected here at all: the whole case is the
+# prohibition.
+name: n-plus-one
+file: fixtures/n_plus_one.py
+scope: ["PERFORMANCE.*"]
+expect_absent:
+  - rule: PERFORMANCE.N_PLUS_ONE

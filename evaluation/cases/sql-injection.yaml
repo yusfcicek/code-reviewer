@@ -1,0 +1,17 @@
+# Two injections, spelled the two ways they are actually written.
+#
+# `find_by_name` builds the query into a local and executes the local, so the
+# concatenation and the `execute(` are on different lines. The single-line SAST
+# pattern missed it, and this case recorded the miss as ground truth for one
+# level — the whole of the committed recall gap — until the Level 13 taint pass
+# closed it (E-01). The expectation did not change; the analyzer did.
+name: sql-injection
+file: fixtures/sql_injection.py
+scope: ["SAST.*"]
+expect:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+  - rule: SAST.SQL_INJECTION
+    line: 16
+    severity: high

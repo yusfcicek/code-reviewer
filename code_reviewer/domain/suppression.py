@@ -94,11 +94,26 @@ class SuppressedFinding:
 
 
 @dataclass(frozen=True)
+class DegradedAnalyzer:
+    """An analyzer that could not run, and why.
+
+    Zero findings from an analyzer that crashed is not the same fact as zero
+    findings from one that ran, and only one of them is evidence (ADR 0011).
+    """
+
+    analyzer: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class SuppressionResult:
-    """What survived, and what did not."""
+    """What survived, what did not, and what never ran."""
 
     findings: list[Finding] = field(default_factory=list)
     suppressed: list[SuppressedFinding] = field(default_factory=list)
+    #: Analyzers that raised. Empty on a healthy run; never a reason to fail
+    #: the analysis of the file, always a reason to say so.
+    degraded: list[DegradedAnalyzer] = field(default_factory=list)
 
     @property
     def suppressed_count(self) -> int:

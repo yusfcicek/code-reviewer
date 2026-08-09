@@ -94,6 +94,11 @@ What it does **not** prevent:
 
 - The GitLab token and the model API key are read from the environment and never
   logged. Log records carry structured fields; no field contains a credential.
+- **Every published comment is redacted at the boundary.** The model's prose was
+  masked where it is produced; the self-review found that a failure message
+  built from an exception -- which can carry a URL, a header dump or a response
+  body -- was not. `GitLabForge.publish_comment` now masks the whole body, on
+  both the create and the edit path, and logs how much it masked.
 - **TLS verification is on by default.** It can only be disabled with an
   explicit `GITLAB_SSL_VERIFY=false`, which emits a warning naming the risk.
   Prefer `GITLAB_CA_BUNDLE` with your internal CA
@@ -103,6 +108,32 @@ What it does **not** prevent:
   reviewed. **If your model is hosted by a third party, your source is leaving
   your network.** Self-hosting through vLLM is the deployment this is designed
   for.
+
+### The decision record
+
+`--audit-path` (or `REVIEW_AUDIT_PATH`) appends one JSON object per review:
+what was decided, under which package, policy, rule set, model and prompt
+digest, which rules blocked, what was suppressed and why, and what each
+specialism cost.
+
+- **It carries identifiers, never content.** Rule ids, locations, severities,
+  counts, versions, CWE citations. Never a diff, a file's contents, a finding's
+  evidence line or a model's prose — an audit file is read by more people than
+  a merge request, and a diff may contain a secret. A test builds a record from
+  a review whose finding carries a credential-shaped string in three fields and
+  asserts the string is absent from the serialised record.
+- **The prompts are a digest, not a text.** Recording them would put the
+  system's instructions into a file read more widely than the repository.
+- **It is not signed, and the file is not append-only against an operator with
+  write access.** Integrity against a hostile operator needs a key nobody in
+  this repository holds and a store nobody has chosen; saying so is more honest
+  than a hash chain anyone can rebuild. `AuditSink` is a port, so a deployment
+  that needs an append-only store has somewhere to put it
+  ([ADR 0022](docs/adr/0022-a-verdict-that-can-be-audited.md)).
+- **Nothing is written unless you ask.** A file appearing beside a checkout
+  because a tool was run is a surprise, and this one names merge requests.
+- Give it a directory whose permissions match who is allowed to read which
+  merge requests exist.
 
 ### Denial of service
 
@@ -119,6 +150,25 @@ What it does **not** prevent:
 
 A merge request touching thousands of files will still take a long time. Bound
 the job with a CI timeout.
+
+## Suggestions are proposals, never changes
+
+Since Level 22 the review can post an applicable fix on a changed line — a
+`suggestion` block a reviewer applies with one click.
+
+- **Nothing in this system applies one.** No file is written, no `git` is run,
+  no API that changes a repository is called. A test parses the remediation
+  modules and fails if they import a way to run a command or call anything that
+  writes ([ADR 0024](docs/adr/0024-propose-never-apply.md)).
+- **Applying one is a commit by the person who clicked**, under their name, in
+  their history. Review it as you would any other diff: the recipes are
+  deterministic and validated against the file, and none of that makes the
+  change *correct for your codebase*. `md5` → `sha256` changes what a stored
+  digest matches.
+- **Only a deterministic producer may author one.** A finding attributed to a
+  model never yields a suggestion, for the reason a model may not block a
+  merge.
+- `--no-suggestions` turns the offering off entirely.
 
 ## Supply-chain changes are never auto-approved
 
@@ -169,6 +219,9 @@ this project ever imported.
    rather than leaving the defaults.
 5. **Read the first few reviews.** The gate blocks on findings, but the prose is
    generated text, and generated text can be wrong in ways that read well.
+6. **Point `--audit-path` at a directory somebody owns.** The record is what
+   answers "why did this merge get blocked in March", and its permissions
+   should match who may know which merge requests exist.
 
 ## What the analyzers are not
 

@@ -1,0 +1,10 @@
+# Three loops deep, reported against the enclosing function. Line attribution is
+# the interesting part: a complexity finding could plausibly be reported at the
+# innermost loop, and this case pins which.
+name: nested-loops
+file: fixtures/nested_loops.py
+scope: ["PERFORMANCE.*"]
+expect:
+  - rule: PERFORMANCE.HIGH_COMPLEXITY
+    line: 4
+    severity: high

@@ -7,6 +7,616 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.16.1] — 2026-08-09
+
+The self-review of levels 21 and 22, and its six findings closed. Recorded in
+[`docs/roadmap/self-review-21-22.md`](docs/roadmap/self-review-21-22.md).
+
+### Fixed
+
+- **The verdict check caught three phrasings of eight.** "This blocks the
+  pipeline", "this merge request is blocked", "LGTM, approved", "the pipeline
+  will be blocked by this" and "do not merge" all passed the check that makes
+  ADR 0004 measurable in the text. Twelve phrasings are caught now, and seven
+  statements of fact are deliberately left alone (S-01).
+- **The severity check fired on ordinary English.** "The function has high
+  complexity" failed a review that said nothing wrong; a claim is now the word
+  shouted, labelled, or parenthesised after a finding (S-04).
+- **Suggestions were proposed on lines the merge request never touched.** A
+  note cannot be anchored outside the diff, so the platform rejected them and
+  the rejection was a warning nobody reads. `domain/diffs.py` reads the hunk
+  headers, and an unreadable diff proposes nothing (S-02).
+- **Suggestions had no idempotency.** Four pushes left four identical buttons
+  on one line — the defect Level 5 fixed for the review comment, reintroduced
+  beside it. The note now carries a marker keyed on its location (S-03).
+- **`--json` was accepted with `--narration` and ignored.** It writes the
+  summary now, naming the stale cases rather than counting them (S-05).
+- **A batch of findings from two files no longer picks a subject by list
+  order** (S-06).
+
+---
+
+## [2.16.0] — 2026-08-09
+
+Level 22: the reviewer proposes a fix, and provably cannot apply one.
+
+### Added
+
+- **`domain/remediation.py` and `domain/fix_recipes.py`.** A `Suggestion` is a
+  replacement for a bounded range of lines in one file, produced by a named
+  recipe. Three recipes ship — `md5`/`sha1` → `sha256`, `yaml.load` →
+  `yaml.safe_load`, a hardcoded literal → `os.environ[...]` — each reading the
+  line its finding named and declining when its pattern is not there.
+- **`application/remediation_service.py`.** A suggestion is applied in memory
+  and the result re-parsed before it is published; an agent-produced finding
+  never yields one; two findings on one line yield at most one.
+- **`publish_suggestion` on the forge port**, implemented as a GitLab
+  discussion anchored on the line — the only place the platform will apply a
+  `suggestion` block. `MergeRequestRef` gained the three commit SHAs a note
+  needs; a merge request without them costs the suggestions and nothing else.
+- **Suggestions in the decision record**: rule, location, recipe. Never the
+  replacement text.
+- `--no-suggestions`, and an architecture test asserting these modules import
+  no way to run a command, call nothing that writes, and that the forge port
+  gained a way to comment rather than a way to push.
+- [ADR 0024](docs/adr/0024-propose-never-apply.md), and C-22 in
+  `capability-sources.md`.
+
+### Changed
+
+- `_review_one` split: the path a file takes when it warrants a model is now
+  `_analyse_and_review`. The project's own gate reported the original at
+  cyclomatic complexity 16 — the sixth time it has blocked its own build.
+
+---
+
+## [2.15.0] — 2026-08-09
+
+Level 21: the model's prose gets a scoreboard, and the roadmap stops claiming
+Level 12 already gave it one.
+
+### Added
+
+- **`domain/narration.py`.** Five checks, all pure functions over a case and its
+  recorded text: grounded citations, no verdict claimed, severity claims backed
+  by findings, critical findings mentioned, required sections present. Each
+  failure names the substring that caused it.
+- **`application/narration_evaluation.py` and `narration_report.py`.** The
+  corpus scored as *agreement with what each case declared*, so a check that
+  stops working shows up as a case that suddenly passes.
+- **`infrastructure/evaluation/narration_dataset.py`.** A strict loader. A
+  recorded review carrying credential-shaped text refuses to load, and the
+  refusal does not quote it.
+- **`evaluation/narration/`** — fourteen cases, five of them deliberately bad
+  and each declaring the check it should break. Authored rather than captured
+  from a model endpoint, which the corpus README says in its first paragraph.
+- **`ai-code-review-eval --narration`**, `--min-narration`, and
+  `EVALUATION_MIN_NARRATION`. Same three exit codes as the analyzer harness.
+- An architecture test asserting that nothing in the review path imports the
+  grader, and that the evaluation entry point does.
+- [ADR 0023](docs/adr/0023-the-prose-is-graded-by-code.md).
+
+### Fixed
+
+- **`capability-sources.md` overstated Level 12.** C-02 and C-03 were recorded
+  as closed by it while Level 12's own non-goals said it did not grade the
+  model's prose. Both rows now name both levels.
+
+---
+
+## [2.14.1] — 2026-08-09
+
+The self-review of levels 12–20, and its eight findings closed. Recorded in
+[`docs/roadmap/self-review-12-20.md`](docs/roadmap/self-review-12-20.md).
+
+### Fixed
+
+- **The drain works under the entry point that is actually deployed.** README
+  and ADR 0021 both said `SIGTERM` drains; that was true of
+  `python -m code_reviewer.serve` and not of
+  `gunicorn code_reviewer.serve:create_app`, which is what the `Dockerfile` and
+  the manifest run. `create_app` registers the drain with `atexit` — under
+  gunicorn the signals belong to gunicorn (R-01).
+- **An analyzer that crashes is named.** The suite caught each analyzer's
+  exception and contributed nothing, silently: no log, no line in the comment,
+  no field in the record. A security analyzer that crashed on every file
+  produced a clean report. Now reported in all three places; the verdict is
+  deliberately unchanged (R-02).
+- **Every published comment is redacted at the boundary.** The model's prose
+  was masked where it is produced; a failure message built from an exception —
+  which can carry a URL, a header dump or a response body — was not (R-03).
+- **A task collected after the group's deadline is no longer called
+  "abandoned".** Four agents were reported as having hung when one did (R-05).
+- **A chunked request gets `411` and the reason** rather than "a body is
+  required" (R-06).
+- **The route table compares its auth kind by value**, not by identity (R-07).
+- **`ThreadPoolRunner` refuses a concurrent caller** rather than racing on its
+  own pool (R-08).
+
+### Added
+
+- Tests pinning that `--trace-path` reaches the exporter. The wiring was
+  correct and nothing asserted it (R-04).
+
+---
+
+## [2.14.0] — 2026-08-09
+
+Level 20: the verdict becomes something that can be audited — and the claim this
+architecture has made since Level 4 becomes a control.
+
+### Added
+
+- **`domain/provenance.py`.** `Producer`, `Provenance`, `RunIdentity`,
+  `SuppressionRecord`, `AgentCost` and `DecisionRecord`. A record whose verdict
+  is blocking and whose blocking findings name a non-deterministic producer is
+  **refused at construction**, naming the finding, the producer and
+  [ADR 0004](docs/adr/0004-findings-drive-the-gate.md).
+- **`application/governance.py`.** The `AuditSink` port, the rule-namespace
+  attribution table and `DecisionRecorder`. Attribution is fail-closed: an
+  unregistered namespace is an agent, and therefore unable to block. A test
+  asserts every namespace the analysis suite emits is registered and that none
+  of its findings carries an empty rule id.
+- **`infrastructure/governance/`.** `build_run_identity` — package, policy,
+  model, rule set, evaluation baseline and a 12-character `blake2b` digest of
+  the five system prompts in use — and `JsonAuditSink`, which appends
+  newline-delimited JSON.
+- **`--audit-path` / `REVIEW_AUDIT_PATH`.** Without it nothing is written. The
+  environment variable is what lets the HTTP service record what the command
+  line records, since a container is configured with variables.
+- **An accountability block in the merge-request comment**: the versions, the
+  model, the prompt digest, the measured accuracy of the analyzers, and the
+  sentence naming what decided. Absent rather than half-filled when there is no
+  identity.
+- **Per-agent cost in the record** — runs, failures, tool calls, tokens allowed
+  and duration per specialism, alongside the decision they paid for. The
+  metrics file is overwritten by the next review; the record is not.
+- [ADR 0022](docs/adr/0022-a-verdict-that-can-be-audited.md).
+
+### Changed
+
+- The exit code is computed before the comment is rendered, because the record
+  names it and the comment quotes the record. The value is unchanged: it is a
+  function of the outcome and the policy.
+- `tests/unit/test_evaluation_baseline.py` now pins the baseline string the
+  record carries against the floors it claims, so the two cannot drift.
+- `reports/` is git-ignored. The per-level reports are written for the reader
+  of a level, not for the history.
+
+### Not done, deliberately
+
+- **No signing, and no append-only store.** Integrity against a hostile
+  operator needs a key nobody in this repository holds. `AuditSink` is a port
+  so a deployment that needs one has somewhere to put it.
+- **No compliance mapping.** No control catalogue, no attestation format —
+  those are an organisation's, and inventing one here would be guessing at
+  somebody else's obligations.
+- **No explanation of the model's reasoning.** "Why did the model conclude
+  that" is not answerable, and a plausible-sounding answer to it is
+  manufactured evidence.
+
+---
+
+## [2.13.0] — 2026-08-09
+
+Level 19: the review becomes something that can be deployed.
+
+### Added
+
+- **A multi-stage `Dockerfile`.** The runtime carries the virtual environment,
+  the package and `git`; no compiler, no `uv`, no source tree, no `.git`. Runs
+  as uid `10001` under `gunicorn`.
+- **Kubernetes manifests** — namespace, `ConfigMap` with a comment per key, an
+  example `Secret` whose values are placeholders, a deployment and a service.
+  Requests and limits, `runAsNonRoot`, `allowPrivilegeEscalation: false`,
+  `readOnlyRootFilesystem`, all capabilities dropped, and writable mounts
+  declared because a read-only root needs them.
+- **`tests/unit/test_deployment_manifests.py`.** Both files parsed and every
+  claim asserted, including the probe paths against `ReviewApi.ROUTES` and
+  `terminationGracePeriodSeconds` against the configured drain bound.
+- **`domain/health.py` and `application/health.py`.** Readiness as named
+  checks: every failure reported at once, in a stable order, each isolated so a
+  check that raises fails only itself.
+- **`infrastructure/deployment/settings.py`.** The checks a container answers
+  `/readyz` from — the forge token, the model endpoint, a policy that loads, a
+  workspace that exists. A reason names the setting, never its value.
+- **`SIGTERM` and `SIGINT` drain.** The server stops, the review in flight gets
+  `--drain-seconds`, and the log says which of "finished" and "gave up"
+  happened.
+- `gunicorn` as an optional `serve` extra, and in the dev group so the lock
+  file pins it and the audit sees it.
+- A `docker build` step in CI.
+
+### Changed
+
+- `/readyz` no longer returns `(True, "ready")` from a lambda. A container
+  wired to a probe that always passes is worse than one with no probe at all.
+
+### Not shipped, deliberately
+
+No Helm chart — six plain manifests a reader can read; a chart earns itself
+when environments genuinely differ. No `HorizontalPodAutoscaler` — the queue is
+in memory, two replicas do not share it, and shipping one would be a bug
+delivered as configuration. No ingress and no TLS termination in the
+application.
+
+### Documented
+
+- [ADR 0021](docs/adr/0021-a-deployment-that-is-tested.md) — why the manifests
+  are tested, why readiness is an object, why one replica, and why a drain is
+  bounded.
+
+---
+
+## [2.12.0] — 2026-08-09
+
+Level 18: the review becomes something callable.
+
+### Added
+
+- **Six endpoints.** `POST /reviews`, `GET /reviews/{id}`,
+  `POST /webhooks/gitlab`, `/healthz`, `/readyz`, `/metrics` — a WSGI
+  application, not a framework.
+- **`domain/job.py`.** A review request's lifecycle: `QUEUED → RUNNING →
+  SUCCEEDED | FAILED`, and every other transition refused at the moment it is
+  attempted.
+- **`JobStore` port**, `InMemoryJobStore` and `JobService`. Find-or-create is
+  one critical section: "look, then insert" is the shape that turns two
+  simultaneous requests for one commit into two reviews.
+- **A worker thread** that claims a job, runs it under its own trace, records
+  the verdict, and keeps draining after a failure.
+- **`ai-code-review-serve`**, with `create_app()` for gunicorn or uvicorn.
+- Idempotency keyed on the head commit, with `Idempotency-Key` honoured;
+  a bounded queue answering `429` with `Retry-After`; a body-size cap; and
+  authentication asserted over the route table rather than route by route.
+
+### Fixed
+
+- The metrics handler was named `_metrics`, and so was the injected collector.
+  `getattr(self, route.handler)` resolved to the field and the endpoint
+  returned 500. Found by the route-table test on the first run.
+
+### Not taken, deliberately
+
+FastAPI, for the third framework refusal in this roadmap. It would bring
+starlette, pydantic, anyio and a dozen transitive packages into a process whose
+dependency audit runs with an empty ignore list, to serve six endpoints whose
+bodies have two fields each. WSGI is the interface every Python server speaks,
+so the server is a deployment choice; the cost — no generated OpenAPI schema,
+hand-written validation — is stated in the ADR.
+
+And a database. Job state is in memory and a restart loses the queue; the store
+is a port, so the decision about persistence has somewhere to go.
+
+### Documented
+
+- [ADR 0020](docs/adr/0020-a-wsgi-application-not-a-framework.md) — why WSGI,
+  why idempotency is keyed on the commit, why the status endpoint withholds the
+  comment, and why readiness does not call GitLab.
+
+---
+
+## [2.11.0] — 2026-08-09
+
+Level 17: the committee stops waiting one at a time.
+
+### Added
+
+- **`TaskRunner` port**, with `TaskOutcome` and `SequentialRunner` beside it.
+  Outcomes come back in the order the tasks were given, whatever order they
+  finished in; a task's exception is captured into its own outcome and does not
+  escape.
+- **`ThreadPoolRunner`.** Bounded, ordered, with a group deadline so ten hung
+  tasks cost one timeout rather than ten. A pool that abandoned a task is
+  marked tainted and replaced.
+- **`--concurrency N`.** `1` selects the sequential runner outright, which is
+  the behaviour of every level before this one.
+- **`Tracer.bind(parent_span_id)`**, and a per-thread stack behind it. A worker
+  attaches to the span that submitted its work, captured on the submitting
+  thread — a worker's own stack is empty and knows nothing about who queued it.
+- **Locks** in the tracer, `Workspace` and `SmartMemoryStrategy`, each with a
+  test that runs eight threads at it and checks the result: every span present
+  and uniquely identified, the budget spent exactly to its ceiling, no insight
+  lost, a duplicate stored once.
+
+### Fixed
+
+- **`PERFORMANCE.MEMORY_LEAK` no longer fires on `threading.Lock()`** (E-03).
+  Adding three locks for this level made the agent block its own build, which
+  is the rule working and the table being wrong: constructing a lock acquires
+  nothing. Fixed rather than suppressed, with a unit test and an evaluation
+  case. `acquire` stays — a lock taken and never released is the real defect
+  and is a different call.
+
+### Not taken, deliberately
+
+`asyncio`. Every port in this repository would become `async` in order to await
+two libraries — `python-gitlab` and LangChain's `ChatOpenAI.invoke` — that are
+synchronous anyway. A thread pool behind one small port buys the same wall
+clock; an async-native runner arrives as a third adapter if it is ever wanted.
+
+And concurrency across files. `ReviewOutcome`, the metrics, the report sections
+and the memory's observations are appended to per file and rendered in order;
+making that safe *and* deterministic is its own level.
+
+### Documented
+
+- [ADR 0019](docs/adr/0019-threads-behind-a-port.md) — why threads, why order
+  is by plan, why files stay sequential, why a timed-out task is abandoned
+  rather than cancelled, and why the parent span is captured at submission.
+
+---
+
+## [2.10.0] — 2026-08-09
+
+Level 16: one review, one trace.
+
+### Added
+
+- **`domain/trace.py`.** Spans, tree building, self time, the critical path.
+  Tree building survives an orphan, a two-span cycle, a three-span cycle, a
+  span that is its own parent and two roots — each recorded as an *anomaly*
+  rather than hidden, and none of them able to make it fail to terminate.
+- **`SpanRecorder`** with dotted-counter identifiers (`1.4.2`), so the tree's
+  shape is visible in a flat log line and two spans can be compared by eye.
+- **`Tracer` and `TraceExporter` ports**, plus a `NullTracer` that is the
+  default everywhere — which is what lets the instrumentation be unconditional
+  rather than wrapped in `if tracer is not None`.
+- **Instrumentation** of the run, each file, static analysis, retrieval, memory
+  recall, each agent, each model call and each tool call.
+- **Trace context on every log record.** `trace_id` and `span_id` in both the
+  human and the JSON format, added by a filter on the handler.
+- **`render_trace_tree`** — indented, bounded by depth and node count, stating
+  what it omitted, with self time per kind and the anomalies — and
+  **`trace_to_json`** behind `JsonTraceExporter`.
+- **`--trace-path`.** Recording is always on; writing the file is the flag.
+
+### Changed
+
+- The merge-request comment's footer names the trace id. The tree itself is
+  not in the comment: it is only complete *after* the comment has been
+  rendered. The spec said otherwise, and implementation disagreed — recorded
+  in the ADR rather than quietly done.
+- `application/tracing.py` exists because the architecture test refused the
+  first attempt: `ReviewService` had imported the recorder from
+  `infrastructure` directly.
+
+### Not taken, deliberately
+
+OpenTelemetry. It is the industry answer and this level does not take it: the
+SDK plus an exporter is a large dependency tree in a process whose entire job
+is to be trustworthy, and Level 7 already spent itself on what a framework in
+the critical path costs. `TraceExporter` is a port precisely so this can be
+reversed without the review path changing.
+
+### Documented
+
+- [ADR 0018](docs/adr/0018-a-trace-of-our-own.md) — why not OTel, why the model
+  is in the domain, why identifiers are counters, and why attributes are a
+  closed vocabulary enforced by a test rather than by advice.
+
+---
+
+## [2.9.0] — 2026-08-09
+
+Level 15: one reviewer becomes four.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| `Reviewer.review_diff` takes a `ReviewBrief`, not seven parameters | Read the fields off the brief. It had grown one parameter per level, and seven is past the threshold this project's own quality analyzer enforces. The next thing a reviewer needs is now a field rather than a signature change. |
+
+### Added
+
+- **Four specialists.** Architecture (the generalist, which owns the summary),
+  security, performance and dependency — each with its own system prompt, its
+  own tool catalogue and its own share of the budget.
+- **`domain/orchestration.py`.** Routing from findings, a weighted budget split
+  that sums exactly and gives nobody zero, a fixed composition order, and the
+  handoff rule. All pure: the failure mode of a multi-agent system is that
+  nobody can say what it will do, and every one of those questions is answered
+  here by reading a page.
+- **`ReviewOrchestrator`**, which *is* a `Reviewer`. The workflow never learns
+  there is more than one agent.
+- **A handoff protocol.** One specialist may ask for one other, once, with a
+  written reason. The depth is structural — the second round runs at a depth
+  where the domain refuses everything — so the invocation count for one file
+  cannot exceed twice the number of specialisms whatever a model asks for.
+  Refusals are recorded and reported.
+- **Per-agent accounting.** `code_review_agent_runs`,
+  `code_review_agent_failures` and `code_review_agent_tool_calls`, labelled by
+  agent, plus a per-file footer naming who ran, on what budget, with what
+  outcome.
+- **`--single-agent`**, which reproduces the behaviour of every earlier level.
+- `NarrationLoop` counts its tool calls; `ReviewAgent` accepts a narrowed
+  catalogue, its own system template and an iteration cap.
+
+### Not changed, deliberately
+
+The verdict. The analyzers still run unconditionally before any agent and the
+gate still decides from their findings: four narrators change what the report
+says, not what the pipeline does.
+
+And no framework, and no concurrency. Level 7 removed a framework from the
+critical path for reasons that have not expired; concurrency belongs to Level
+17, after Level 16 makes the whole thing traceable — introducing it here would
+make every bug in this level a race.
+
+### Documented
+
+- [ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md) —
+  why the orchestrator is a `Reviewer`, why routing is not a model call, why
+  handoff depth is structural, and why tools are narrowed rather than
+  requested.
+
+---
+
+## [2.8.0] — 2026-08-09
+
+Level 14: the agent stops starting from zero.
+
+### Added
+
+- **A memory of each project.** `.review-memory.json` in the checkout records
+  what each rule has done in each file: how many times, since when, and — for a
+  `review-ignore` — the reason somebody wrote. `--memory-path` moves it,
+  `--no-memory` turns it off.
+- **`domain/recollection.py`.** Identity (kind, path, rule — not line, not
+  severity), consolidation, salience with a 30-day half-life, a forgetting
+  floor, a capacity, and recall scoped to a file and then its directory.
+- **`MemoryStore` port** and `JsonMemoryStore`: written to a temporary file and
+  renamed, so a run killed mid-write leaves the previous memory rather than a
+  truncated one. A corrupt file loads as empty, is logged, and is left on disk.
+- **Recall in the prompt**, inside `<untrusted_project_memory>`, as a table of
+  identifiers and counts.
+- **Recurrence in the report**: findings this project has reported before, with
+  the count and the date first seen.
+- **`code_review_recurring_findings`** in the metrics export.
+
+### Changed
+
+- `Reviewer.review_diff` takes a `recollections` argument, defaulting to
+  `None`.
+- `ReviewService` takes an optional `memory`. It recalls before the review,
+  observes after it, and persists once the comment has already been rendered.
+- `render_review_comment` was split into one builder per block — the agent
+  reported it at cyclomatic complexity 17 against its own source when the
+  recurrence section was added, which was fair.
+
+### Not changed, deliberately
+
+The verdict. No recollection touches a severity, a gate result or an exit code,
+and `TestMemoryNeverDecides` runs the same review twice — against a history of
+99 sightings of exactly the finding it is about to report, and against none —
+requiring both to be identical. The tempting feature is a tool learning to stop
+complaining.
+
+Nor is anything a contributor wrote ever stored. Rule ids, paths, severities,
+dates and counts, plus a suppression's own source comment. An evidence line in
+a memory file is a stored injection with a long half-life and a credential
+store nobody declared.
+
+### Documented
+
+- [ADR 0016](docs/adr/0016-memory-informs-and-never-decides.md) — what the
+  history may do, what it may contain, how it is found, and why it is a keyed
+  store rather than a second index.
+
+---
+
+## [2.7.0] — 2026-08-09
+
+Level 13: the reviewer stops seeing only the diff, and the Level 12 harness
+gets spent on the two things it found.
+
+### Added
+
+- **Retrieval over the checkout.** The repository is chunked by syntax tree —
+  every function, class and method, with overlapping line windows as the
+  fallback — and indexed twice: BM25 over tokenised identifiers, and cosine
+  over embeddings.
+- **Rank fusion and diversification.** `domain/retrieval.py` holds
+  `reciprocal_rank_fusion`, `maximal_marginal_relevance` and
+  `cosine_similarity`. Fusion by rank rather than by score, because BM25's
+  scale depends on the corpus and cosine's does not.
+- **Four ports.** `EmbeddingModel`, `LexicalIndex`, `VectorIndex` and
+  `CodeRetriever`. The shipped adapters — `HashingEmbedding`, `BM25Index`,
+  `InMemoryVectorIndex`, `HybridRetriever` — need no weights, no network and
+  no server.
+- **Retrieved code in the prompt**, inside `<untrusted_repository_context>`
+  with both tag forms escaped, each chunk under its `path:line-line` citation.
+- **`search_related_code`**, so the agent can ask its own question. Without an
+  index it says so rather than reporting no results.
+- **A measurement of the retriever**, scored with the same `ConfusionMatrix`
+  the findings harness uses: at a cutoff of two over eleven queries the
+  lexical half answers 8, the dense half 8, and the fusion 9. Two paraphrase
+  queries are missed by everything, and there is a test asserting that — it is
+  what swapping in a trained embedding would buy.
+
+### Fixed
+
+- **`SAST.SQL_INJECTION` follows an assignment** (E-01). The pattern matched
+  `execute(...+` on one line; nobody writes it there. An AST pass now reports a
+  query built by concatenation, `%`, `.format()` or an f-string into a local
+  and later executed — at the line where the string was built, which is the
+  line someone has to change.
+- **`SEMANTIC.UNREFERENCED_IN_FILE` narrowed to private names** (E-02). A
+  public function is called from outside its module, so "not referenced in this
+  file" was the normal state of every public API. A single leading underscore
+  is the case where one file *is* the whole of the evidence.
+
+### Changed
+
+- `Reviewer.review_diff` takes a `related` argument, defaulting to `None`.
+- `ReviewService` takes an optional `retriever`. Retrieval never blocks: an
+  index that cannot be built costs the prompt its context and nothing else.
+- The evaluation dataset grows to ten cases and the CI floors rise from
+  0.95 / 0.85 / 0.90 to **0.95 / 0.95 / 0.95** — precision, recall and F1 are
+  all 1.00.
+- `search_related_code` lives in `tools/retrieval_tools.py`, not
+  `tools/definitions.py`: adding it to that file took its quality score below
+  the gate's threshold, and the agent reported it against its own source.
+
+### Documented
+
+- [ADR 0015](docs/adr/0015-retrieval-is-hybrid-local-and-untrusted.md) — rank
+  fusion over score fusion, a hashed embedding behind a port, brute force over
+  ANN, and why retrieved code is untrusted and best-effort.
+
+---
+
+## [2.6.0] — 2026-08-09
+
+Level 12: the first level of a second roadmap, sourced from three published
+role descriptions for agentic AI work in a regulated bank rather than from the
+findings inventory, which is closed. It comes first because everything after it
+changes what the agent *says*, and nothing measured that.
+
+### Added
+
+- **Evaluation harness.** `ai-code-review-eval` grades the analysis suite
+  against annotated cases and reports precision, recall and F1 — overall and
+  per rule — as markdown and as JSON.
+- **`domain/evaluation.py`.** One-to-one matching of produced findings against
+  expectations, a confusion matrix, per-rule aggregation and a threshold.
+  A severity mismatch is a miss and consumes the finding; a rule fired outside
+  the tolerance is charged both ways.
+- **A dataset, not a fixture set.** `evaluation/cases/*.yaml` beside
+  `evaluation/fixtures/`, loaded by `FileSystemDataset`. The loader refuses an
+  unknown key, a missing line, an unparseable severity, a fixture outside the
+  dataset root and two cases sharing a name.
+- **Ungraded findings are counted.** A case may narrow its scope; what falls
+  outside is reported with its rule ids rather than dropped, so narrowing
+  cannot quietly improve a score.
+- **`expect_absent`.** Where a fixed false positive is pinned. The `dict.get`
+  N+1 and the `overrides(` DES match from Level 11 are both pinned.
+- **A CI gate.** `evaluate` on GitLab and a step on GitHub, at precision 0.95,
+  recall 0.85, F1 0.90 — the measured baseline minus a margin — publishing the
+  JSON summary as an artefact.
+- **`EvaluationDataset` port** and the `CaseFixture` value object.
+
+### Documented
+
+- [ADR 0014](docs/adr/0014-evaluation-is-a-dataset-not-a-fixture.md) — why the
+  dataset is data on disk, why scope defaults to everything, and why the floors
+  are measured rather than aspired to.
+- [`docs/roadmap/capability-sources.md`](docs/roadmap/capability-sources.md) —
+  twenty capabilities the role descriptions name, what this repository does
+  about each, and which of levels 12–20 closes it.
+- [`docs/roadmap/level-12/baseline.md`](docs/roadmap/level-12/baseline.md) —
+  the measured baseline, and the two things the instrument found on its first
+  run.
+
+### Known
+
+The dataset ships with one false negative recorded as ground truth:
+`SAST.SQL_INJECTION` is a single-line pattern and misses a query concatenated
+into a local before being executed. That is the whole of the recall gap, and
+closing it is Level 13's work, not this level's.
+
+---
+
 ## [2.5.0] — 2026-08-08
 
 Level 11: what happens when the agent is wrong, and whether it holds against

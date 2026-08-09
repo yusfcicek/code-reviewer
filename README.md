@@ -5,12 +5,15 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.5.0.** Rebuilt from an imported prototype across twelve levels of
-> work. 59 defects were found and recorded and all 59 are now fixed — the last
-> deferred one closed in Level 7. 804 tests at 92 % coverage; lint, formatting,
-> types, tests and a dependency audit with an empty ignore list all gate on CI.
-> Levels 7-11 closed a further nineteen gaps found by comparing against a sibling
-> implementation.
+> **Status: 2.16.1.** Rebuilt from an imported prototype across twenty levels
+> of work. 59 defects were found and recorded and all 59 are now fixed — the
+> last deferred one closed in Level 7. 1846 tests at 94 % coverage; lint,
+> formatting, types, tests, a dependency audit with an empty ignore list and a
+> review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
+> gaps found by comparing against a sibling implementation; Level 12 started a
+> second roadmap, sourced from what the work is expected to do rather than from
+> what was wrong, and Level 13 spent its first measurement on two real defects
+> before adding retrieval.
 > What each level did, and what it found, is in
 > [`docs/roadmap/`](docs/roadmap/README.md).
 
@@ -109,6 +112,252 @@ and why, naming any written without one.
 `SmartMemoryStrategy` keeps findings in priority buckets, never summarises
 `SECURITY` or `BREAKING` insights, and compresses lower-priority context first.
 
+### 🔎 8. Retrieval over the repository
+- The checkout is chunked by syntax tree — every function, class and method,
+  with line windows as the fallback — then indexed twice: **BM25** over
+  tokenised identifiers, and **cosine** over embeddings.
+- The two rankings are fused by **reciprocal rank** rather than by score, then
+  reduced by **maximal marginal relevance** so the context is not three copies
+  of one function.
+- Retrieved code reaches the prompt inside `<untrusted_repository_context>`,
+  under the same trust boundary as the diff. It lives in the checkout, and the
+  checkout is what the merge request changed.
+- `search_related_code` exposes the same index to the agent, for questions the
+  automatic query did not cover.
+- Everything is **offline and deterministic**: the default embedding hashes
+  tokens, so there are no weights to download and no endpoint to fail.
+  `EmbeddingModel`, `LexicalIndex` and `VectorIndex` are ports — a trained
+  model or a hosted vector database is one constructor call.
+- **Retrieval never blocks.** An index that cannot be built costs the prompt
+  its context and nothing else
+  ([ADR 0015](docs/adr/0015-retrieval-is-hybrid-local-and-untrusted.md)).
+
+### 👥 9. A committee, not one agent
+Four specialists, each with its own prompt, its own tool catalogue and its own
+share of the file's budget:
+
+| Agent | Runs when | Gets |
+|---|---|---|
+| 🏛️ **Architecture** | always — it is the generalist and owns the summary | semantic + quality tools |
+| 🔒 **Security** | a `SECURITY` finding was reported | SAST + grep |
+| ⚡ **Performance** | a `PERFORMANCE` finding was reported | the performance analyzer |
+| 🔗 **Dependency** | a `DEPENDENCY` finding, or the file is a manifest | imports, references, ripple |
+
+- **Routing is derived from the analyzers' findings**, not from a model. Two
+  conditionals make that decision correctly, reproducibly and for free.
+- **Budget is split by weight** and sums exactly to the total; security's share
+  is the largest, and the split appears in the report's footer.
+- **Tools are narrowed, not requested.** An agent told in English not to use a
+  tool sometimes uses it; one never offered it cannot.
+- **A specialist may hand off once**, with a written reason, and the depth is
+  structural — the second round runs where every request is refused. Refusals
+  are recorded in the report.
+- **One agent failing costs one section.** The rest still run, and the failure
+  is stated rather than omitted.
+- Per-agent runs, failures and tool calls reach the metrics export.
+  `--single-agent` gives you the one-call-per-file behaviour of earlier levels
+  ([ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md)).
+
+### 📦 10. A deployable artefact
+- A **multi-stage image**: the runtime carries the virtual environment, the
+  package and `git` — no compiler, no `uv`, no source tree, no `.git`. It runs
+  as uid `10001` under `gunicorn`, not `wsgiref`.
+- **Kubernetes manifests** in `deploy/kubernetes/`: namespace, config, an
+  example secret with placeholder values, a deployment and a service. Requests
+  and limits, `runAsNonRoot`, `allowPrivilegeEscalation: false`,
+  `readOnlyRootFilesystem`, every capability dropped.
+- **The manifests are tested.** `tests/unit/test_deployment_manifests.py`
+  parses both files and asserts every claim — including that the probe paths
+  are paths `ReviewApi.ROUTES` actually serves, so a renamed endpoint breaks a
+  test rather than a cluster
+  ([ADR 0021](docs/adr/0021-a-deployment-that-is-tested.md)).
+- **`/readyz` answers from real checks** now: the forge token, the model
+  endpoint, a policy that loads, a workspace that exists. Every failure is
+  reported at once, and a reason names the setting and never its value.
+- **`SIGTERM` drains — under both entry points.** The server stops, the review
+  in flight gets a bounded wait, and the log says which of "finished" and "gave
+  up" happened. Under `gunicorn` the signals belong to gunicorn, so the drain
+  is an `atexit` handler registered by `create_app`; the self-review found that
+  claim tested only against the entry point nobody deploys.
+- **One replica, and no autoscaler.** The queue is in memory: two replicas do
+  not share it. Shipping an HPA would be a bug delivered as configuration.
+
+### 🌐 11. A service, not only a job
+```
+POST /reviews          → 202 + id + Location   (200 if already in flight)
+GET  /reviews/{id}     → state, verdict, exit code, trace id
+POST /webhooks/gitlab  → X-Gitlab-Token verified before the body is read
+GET  /healthz          → this process is running
+GET  /readyz           → it can accept work (no third party is called)
+GET  /metrics          → OpenMetrics
+```
+
+- **Idempotency is keyed on the commit**, not the merge request: a push is a
+  new review, and collapsing the two would silently drop it. `Idempotency-Key`
+  is honoured too.
+- **Authentication is asserted over the route table**, which is data — a route
+  added later is covered by construction. The only open routes are the two
+  probes, and a test says so.
+- The status endpoint **never returns the comment**: it may quote the diff, and
+  the merge request already has it.
+- The webhook **refuses everything with no secret configured**, compares in
+  constant time, and answers `204` to events it does not care about — an
+  endpoint that errors on those gets disabled by whoever watches the delivery
+  log.
+- **No framework.** A WSGI application: `gunicorn code_reviewer.serve:create_app`
+  in a container, `wsgiref` on a laptop, and forty-eight tests that call it with
+  a dictionary ([ADR 0020](docs/adr/0020-a-wsgi-application-not-a-framework.md)).
+- It **refuses to start without `REVIEW_API_TOKEN`**, and binds loopback by
+  default.
+
+### ⚡ 12. The committee runs concurrently
+- The four specialists reviewing one file run **at once**, bounded by
+  `--concurrency N`. `1` selects the sequential runner outright, which is the
+  behaviour of every level before 17.
+- **Order is by plan, not by completion.** The report, the per-agent accounting
+  and the verdict are byte-identical either way — asserted as equalities, which
+  is the only honest way to claim a concurrency change changed nothing else.
+- A specialist that hangs is **abandoned** at its timeout, reported as failed,
+  and the others still appear. Python cannot kill a thread, so the pool is
+  marked tainted and replaced rather than reused — saying "cancelled" would be
+  a lie.
+- Threads, not `asyncio`: the two clients in the critical path are synchronous,
+  and going async would turn every port in the repository `async` to await
+  them ([ADR 0019](docs/adr/0019-threads-behind-a-port.md)).
+- The tracer's stack is per thread and a worker binds to the span that
+  submitted it, so the trace comes out the same shape it would sequentially.
+
+### 🔬 13. A trace of the whole review
+One review produces one tree: the run, each file, each agent, each tool call,
+each retrieval, each memory access.
+
+```
+1     review                        [merge_request=42 project=17]
+1.1   file      src/app.py          900 ms (self 120 ms)
+1.1.1 analysis  static analysis      80 ms
+1.1.2 retrieval related code         40 ms  [chunks=4]
+1.1.3 agent     security            400 ms  [budget=4000 tool_calls=3]
+1.1.3.1 model   invoke              310 ms
+```
+
+- **Self time, not duration.** A parent's duration includes everything below
+  it; each span reports its own share, totalled per kind — so "40 % of this
+  review was tool calls" is a number rather than a guess.
+- **Every log record inside a review carries `trace_id` and `span_id`**, in
+  both the human and the JSON format. That is the join between a log line and
+  the trace, and what makes two interleaved reviews separable.
+- **Attributes are identifiers, never content.** A path, a rule, an agent, a
+  count, a budget — never a diff, a file's contents or a model's prose.
+  Enforced by a length cap and by a test that runs a real review whose diff
+  contains a credential-shaped string.
+- **Nothing is lost to bad input.** An orphan attaches to the root, a cycle is
+  broken, a second root is adopted — each recorded as an anomaly.
+- Recording is always on; `--trace-path` writes the JSON. **No OpenTelemetry**
+  ([ADR 0018](docs/adr/0018-a-trace-of-our-own.md)) — the port is there so that
+  can change without the review path changing.
+
+### 🧾 14. A memory of this project
+- What a review found survives it. `.review-memory.json` in the checkout holds
+  what each rule has done in each file: how many times, since when, and — for a
+  `review-ignore` — the reason somebody wrote.
+- The next review is told what is known about the files it is looking at, and
+  the report marks findings this project has **seen before**, with the count
+  and the date.
+- **Only identifiers are stored.** Rule, path, severity, dates, counts. Never
+  an evidence line, never a diff excerpt, never model output: a file that
+  accumulates contributor text is a stored injection with a long half-life, and
+  a credential store nobody declared.
+- **Memory informs; it never decides.** No recollection changes a severity, a
+  gate result or an exit code — asserted by running the same review twice, with
+  a 99-sighting history and with none, and requiring an identical verdict
+  ([ADR 0016](docs/adr/0016-memory-informs-and-never-decides.md)).
+- It forgets: salience halves every 30 days, and below a floor a fact is
+  dropped. `--no-memory` turns the whole thing off; `--memory-path` moves it.
+- A fresh CI clone has no history unless the file is committed or cached. That
+  degrades quietly to the behaviour of every earlier level, which is correct —
+  and worth knowing before concluding the feature does nothing.
+
+### 🎯 15. Measured review quality
+- `ai-code-review-eval` grades the analysis suite against an annotated dataset
+  (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
+  and per rule.
+- A floor on each is enforceable in CI. Below it the command exits `1`; when
+  the measurement could not be taken at all — an unreadable case, a missing
+  fixture, an analyzer that raised — it exits `2`, because a pipeline has to be
+  able to tell a bad score from a broken harness.
+- Findings a case does not grade are **counted and named**, never dropped, so
+  narrowing what is graded cannot quietly improve the score.
+- The current baseline is precision 1.00, recall 1.00, F1 1.00 over eleven
+  cases ([baseline](docs/roadmap/level-12/baseline.md)). Level 12 opened at
+  recall 0.89 — the gap was a real defect the dataset recorded rather than
+  annotated away, and Level 13 closed it.
+
+### 🛠️ 16. A fix you can apply
+- Three deterministic recipes — `hashlib.md5` → `sha256`, `yaml.load` →
+  `yaml.safe_load`, a hardcoded literal → `os.environ[...]` — each reading the
+  line its finding named and **declining when the pattern is not there**.
+- **Validated by applying it.** The edit is applied in memory and the result
+  re-parsed; one that would leave the file unparseable is discarded rather than
+  published.
+- **Only a deterministic producer may author one.** An agent-produced finding
+  never yields an applicable edit, for the reason a model may not block a merge.
+- **Posted as diff notes**, because GitLab applies a `suggestion` block only
+  from a note anchored on the line it edits.
+- **Nothing is ever applied.** No file is written, no `git` is run, no API that
+  changes a repository is called — asserted by a test that parses these modules
+  rather than by a sentence
+  ([ADR 0024](docs/adr/0024-propose-never-apply.md)). `--no-suggestions` turns
+  the offering off.
+
+### 🔬 17. Measured narration
+- The analyzers have had a scoreboard since Level 12. The **model's prose** now
+  has one: fourteen recorded reviews, five checks each, graded offline.
+- **A citation that does not exist is the headline defect.** Every `path:line`
+  in the prose must name the file under review and a line that exists in it —
+  the failure mode a language model actually has.
+- The prose **may not claim a verdict** ([ADR 0004](docs/adr/0004-findings-drive-the-gate.md)
+  made measurable in the text), a `CRITICAL` needs a finding behind it, a
+  critical finding needs a mention, and the sections the prompt asks for have to
+  be there.
+- **The grader is code, not a model.** An LLM judge needs an endpoint in CI,
+  makes the score depend on a second unmeasured model, and produces a number
+  nobody can recompute by hand
+  ([ADR 0023](docs/adr/0023-the-prose-is-graded-by-code.md)).
+- **Five cases are deliberately bad**, each declaring the check it should fail,
+  so the corpus shows the checks can fire rather than only that they stay quiet.
+- `ai-code-review-eval --narration`, with a floor, exiting `1` for a low score
+  and `2` for a corpus it could not read.
+- The shipped recordings are **authored rather than captured from a model**, and
+  the corpus says so in its first paragraph: every case is reported as *stale*
+  until somebody records one under a known prompt fingerprint.
+
+### 🧾 18. A verdict that can be audited
+- Every review writes one **decision record**: what was decided, the exit code,
+  which package, policy, rule set, model and prompt digest produced it, which
+  rules blocked, what was suppressed and why, what each specialism cost, and
+  the trace id holding the timing.
+- **A blocking record that cites a model is refused at construction.**
+  [ADR 0004](docs/adr/0004-findings-drive-the-gate.md) has said since Level 4
+  that findings decide and prose warns; this is where that stops being a design
+  rule and becomes something a record cannot violate.
+- **Attribution is fail-closed.** A finding's producer comes from its rule
+  namespace, and anything unregistered is treated as an opinion — unable to
+  block. A test asserts every namespace the suite emits is registered, so the
+  default never fires in practice.
+- **A prompt is a fingerprint**, not a text: a 12-character digest of the five
+  system prompts in use. Enough to prove two reviews ran under different
+  instructions; not enough to leak them.
+- **Identifiers only**, again: rule ids, locations, severities, counts,
+  versions, CWE citations. A test builds a record from a review whose finding
+  carries a credential-shaped string in three fields and asserts it is absent
+  from the serialised record.
+- The merge-request comment gains an **accountability block** saying the same
+  thing, so a reader who never opens the audit file is still told what decided.
+- `--audit-path` (or `REVIEW_AUDIT_PATH`) appends newline-delimited JSON.
+  Without it nothing is written, and a sink that cannot write is a warning:
+  recording a verdict may not cost one
+  ([ADR 0022](docs/adr/0022-a-verdict-that-can-be-audited.md)).
+
 ---
 
 ## 📋 Current status
@@ -140,6 +389,14 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
+| Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
+| Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
+| Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
+| Container & manifests | ✅ Works | Multi-stage image running as uid 10001, Kubernetes manifests with limits and a locked-down security context, and a test that parses both and asserts every claim |
+| HTTP service | ✅ Works | Six endpoints behind a bearer token, a verified GitLab webhook, a bounded queue with a worker, and probes Kubernetes can read |
+| Concurrency | ✅ Works | Specialists run at once behind a `TaskRunner` port; identical results, bounded, with timeouts that are honest about abandonment |
+| Tracing | ✅ Works | One tree per review over runs, files, agents, tools, retrieval and memory; self time per kind; trace ids on every log record; JSON artefact |
+| Multi-agent orchestration | ✅ Works | Four specialists routed from findings, budget split by weight, one bounded handoff, deterministic composition, per-agent accounting; the verdict is unchanged |
 
 Every gap the variant comparison found is closed. What the levels did, and
 what each one found while doing it, is in
@@ -403,14 +660,42 @@ uv run mypy                                    # types (domain + application)
 uv run pytest                                  # tests
 uv run pytest --cov                            # tests with the coverage floor
 uv run pytest tests/unit/test_dogfooding.py    # the agent against its own source
+uv run ai-code-review-eval                     # score the analyzers against the dataset
 ./scripts/audit-deps.sh                        # dependency advisories
 ```
 
-CI runs exactly these five checks — `.github/workflows/ci.yml` on GitHub and
+### Adding an evaluation case
+
+Drop a fixture in `evaluation/fixtures/` and a case beside it in
+`evaluation/cases/`:
+
+```yaml
+name: sql-injection
+file: fixtures/sql_injection.py
+scope: ["SAST.*"]        # optional; the default grades every rule
+line_tolerance: 0        # optional
+expect:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+  - rule: SAST.SQL_INJECTION
+    line: 16
+    severity: high       # optional; stating it pins the grade too
+expect_absent:           # where a fixed false positive is pinned
+  - rule: SAST.WEAK_CRYPTO
+    line: 14
+```
+
+Write what *should* be found, not what is found today. The shipped dataset
+states one defect the suite still misses, which is why the committed recall
+floor is 0.85 rather than 1.00. The loader refuses anything it does not
+recognise — an unknown key, a missing line, an unparseable severity — because a
+dataset is ground truth and a key nobody reads is a claim nobody checks.
+
+CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-804 tests, 92 % coverage with an enforced floor of 91 %. The dependency
+1585 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -431,26 +716,52 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── triage.py            triage decisions
 │   │   ├── suppression.py       `review-ignore` directives
 │   │   ├── gate.py              per-file PASS / WARN / FAIL
-│   │   └── outcome.py           merge-request-level verdict
+│   │   ├── outcome.py           merge-request-level verdict
+│   │   ├── evaluation.py        grading findings against a case
+│   │   ├── retrieval.py         chunks, rank fusion, marginal relevance
+│   │   ├── recollection.py      what past reviews remember, and forget
+│   │   ├── orchestration.py     who reviews what, for how much, in what order
+│   │   ├── trace.py             spans, the tree, self time
+│   │   ├── job.py               a review request and its lifecycle
+│   │   └── health.py            readiness: every failing check, named
 │   ├── application/             the workflow and the ports it needs
-│   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer
+│   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer, EvaluationDataset
 │   │   ├── review_service.py    the use case
-│   │   └── report.py            merge-request comment rendering
+│   │   ├── report.py            merge-request comment rendering
+│   │   ├── evaluation_service.py  grading the suite against a dataset
+│   │   ├── evaluation_report.py   the run, as markdown and as JSON
+│   │   ├── retrieval_service.py   the hybrid retriever
+│   │   ├── project_memory.py      recall, observe, persist
+│   │   ├── orchestration_service.py  the committee, as one Reviewer
+│   │   ├── tracing.py             the Tracer and TraceExporter ports
+│   │   ├── tasks.py               the TaskRunner port and its sequential default
+│   │   ├── jobs.py                accepting a review, once
+│   │   └── health.py              running the checks a probe is made of
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
+│   │   ├── concurrency/         the bounded thread pool
+│   │   ├── deployment/          what a running container needs
+│   │   ├── evaluation/          the dataset loader
+│   │   ├── http/                the WSGI application, the webhook, the worker
+│   │   ├── retrieval/           chunking, BM25, embedding, vector index, corpus
 │   │   ├── forge/               GitLab client and CodeForge adapter
-│   │   ├── llm/                 vLLM provider, review agent, tool loop, token counting
-│   │   ├── memory/              SmartMemoryStrategy
+│   │   ├── llm/                 vLLM provider, review agent, specialists, tool loop
+│   │   ├── memory/              SmartMemoryStrategy, and the project history store
 │   │   ├── metrics/             Prometheus / GitLab exporter
 │   │   ├── security/            secret redaction on the way out
 │   │   └── tools/               tool definitions, workspace limits, safe search
 │   ├── cli.py                   argument parsing
+│   ├── evaluate.py              the ai-code-review-eval entry point
+│   ├── serve.py                 the ai-code-review-serve entry point
 │   ├── errors.py                operational error categories
 │   └── __main__.py              composition root
 ├── tests/
 │   ├── unit/{domain,application,infrastructure}/
 │   └── integration/
+├── Dockerfile                   two stages; the runtime carries no toolchain
+├── deploy/kubernetes/           namespace, config, secret example, deployment, service
+├── evaluation/                  annotated cases and their fixtures
 ├── docs/roadmap/                findings inventory, per-level specs and plans
 └── assets/
 ```
@@ -467,8 +778,8 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Eight decision records: what was decided, why, and what it costs |
-| [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory and the seven levels of work it produced |
+| [docs/adr/](docs/adr/README.md) | Twenty-one decision records: what was decided, why, and what it costs |
+| [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Branching, commits, the TDD expectation, the design rules |

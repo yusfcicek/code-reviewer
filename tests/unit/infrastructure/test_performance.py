@@ -366,3 +366,39 @@ class TestNPlusOnePrecision(unittest.TestCase):
         """
 
         self.assertEqual(len(self._patterns(source)), 1)
+
+
+class TestALockIsNotALeak(unittest.TestCase):
+    """E-03, found by the agent against its own source in Level 17.
+
+    Adding three `threading.Lock()` fields for concurrency made the resource
+    rule report three HIGH memory leaks and block the build. Constructing a
+    lock acquires nothing.
+    """
+
+    def test_constructing_a_lock_is_not_a_leak(self):
+        source = (
+            "import threading\n\n\nclass A:\n    def __init__(self):\n        self._lock = threading.Lock()\n"
+        )
+
+        report = PerformanceAnalyzer().analyze(source, "a.py")
+
+        leaks = [issue for issue in report.issues if issue.issue_type is PerformanceIssueType.MEMORY_LEAK]
+        self.assertEqual(leaks, [])
+
+    def test_a_lock_acquired_and_never_released_is_still_a_leak(self):
+        """The real defect is a different call, and it keeps its rule."""
+        source = "def work(lock):\n    handle = lock.acquire()\n    return handle\n"
+
+        report = PerformanceAnalyzer().analyze(source, "a.py")
+
+        leaks = [issue for issue in report.issues if issue.issue_type is PerformanceIssueType.MEMORY_LEAK]
+        self.assertTrue(leaks)
+
+    def test_a_file_opened_and_never_closed_is_still_a_leak(self):
+        source = "def work(path):\n    handle = open(path)\n    return handle.read()\n"
+
+        report = PerformanceAnalyzer().analyze(source, "a.py")
+
+        leaks = [issue for issue in report.issues if issue.issue_type is PerformanceIssueType.MEMORY_LEAK]
+        self.assertTrue(leaks)

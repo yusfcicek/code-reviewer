@@ -36,6 +36,22 @@ def _env(name: str, fallback: str) -> str:
     return value if value else fallback
 
 
+def _positive(raw: str | int) -> int:
+    """A count that has to be at least one.
+
+    Rejected at parse time rather than clamped later: a pipeline that asked
+    for zero workers meant something, and silently giving it one hides the
+    typo until somebody wonders why nothing is faster.
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError(f"'{raw}' is not a whole number") from error
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"'{raw}' must be at least 1")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-code-review",
@@ -83,6 +99,67 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Print the report instead of posting it. The exit code is still the "
             "real one, so a dry run answers 'would this block the merge'."
+        ),
+    )
+    parser.add_argument(
+        "--memory-path",
+        type=str,
+        default=_env("REVIEW_MEMORY_PATH", ""),
+        help=(
+            "Where this project's review history is kept. Defaults to "
+            ".review-memory.json inside the workspace."
+        ),
+    )
+    parser.add_argument(
+        "--no-memory",
+        action="store_true",
+        help=(
+            "Review without the project's history, and record nothing. The "
+            "verdict is unchanged either way: memory informs, it never decides."
+        ),
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=_positive,
+        default=_positive(_env("REVIEW_CONCURRENCY", "4")),
+        help=(
+            "How many specialists may review one file at once. 1 runs them in "
+            "sequence, which is the behaviour of every level before 17."
+        ),
+    )
+    parser.add_argument(
+        "--trace-path",
+        type=str,
+        default=_env("REVIEW_TRACE_PATH", ""),
+        help=(
+            "Where to write the run's trace as JSON. Omitted, none is written — "
+            "the trace is still recorded, and still summarised in the log."
+        ),
+    )
+    parser.add_argument(
+        "--audit-path",
+        type=str,
+        default=_env("REVIEW_AUDIT_PATH", ""),
+        help=(
+            "Where to append this run's decision record as JSON: what was "
+            "decided, under which versions, and on the strength of which rules. "
+            "Omitted, none is written."
+        ),
+    )
+    parser.add_argument(
+        "--no-suggestions",
+        action="store_true",
+        help=(
+            "Do not post applicable fix suggestions on the changed lines. They "
+            "are proposals a person applies; nothing here ever applies one."
+        ),
+    )
+    parser.add_argument(
+        "--single-agent",
+        action="store_true",
+        help=(
+            "Review with one agent instead of the committee of specialists. "
+            "Fewer model calls per file, and the behaviour of every level before 15."
         ),
     )
     parser.add_argument(

@@ -9,11 +9,13 @@ tests rather than argument-parsing ones. The parsing lives in
 `tests/unit/test_cli.py`.
 """
 
+import os
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
 from code_reviewer.__main__ import EXIT_BLOCKED, EXIT_OK, _NoNarration, run
-from code_reviewer.application.ports import Reviewer
+from code_reviewer.application.ports import ReviewBrief, Reviewer
 from code_reviewer.cli import parse_args
 
 
@@ -137,7 +139,7 @@ class TestNoLlm(unittest.TestCase):
 
     def test_its_output_explains_itself(self):
         """A blank section would leave a reader wondering what went wrong."""
-        text = _NoNarration().review_diff("app.py", "+ line")
+        text = _NoNarration().review_diff(ReviewBrief(file_path="app.py", diff="+ line"))
 
         self.assertIn("--no-llm", text)
         self.assertIn("static analysis", text)
@@ -155,13 +157,13 @@ class TestOperationalPaths(unittest.TestCase):
         with _Harness() as harness:
             run(_args("--metrics-path", "build/metrics.txt"))
 
-        self.assertEqual(harness.export_metrics.call_args[0][-1], "build/metrics.txt")
+        self.assertEqual(harness.export_metrics.call_args[0][3], "build/metrics.txt")
 
     def test_the_default_metrics_path_is_unchanged(self):
         with _Harness() as harness:
             run(_args())
 
-        self.assertEqual(harness.export_metrics.call_args[0][-1], "metrics.txt")
+        self.assertEqual(harness.export_metrics.call_args[0][3], "metrics.txt")
 
 
 class TestLogLevelReachesTheConfiguration(unittest.TestCase):
@@ -223,3 +225,233 @@ class TestLogLevelReachesTheConfiguration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProjectMemoryWiring(unittest.TestCase):
+    """Level 14 — the switches around the review history."""
+
+    def test_memory_is_built_by_default_inside_the_workspace(self):
+        from code_reviewer.__main__ import _build_memory
+        from code_reviewer.infrastructure.memory.json_store import DEFAULT_MEMORY_FILENAME
+        from code_reviewer.infrastructure.tools import Workspace
+
+        workspace = Workspace(".")
+
+        memory = _build_memory(_args(), workspace)
+
+        self.assertIsNotNone(memory)
+        self.assertTrue(str(memory._store.path).endswith(DEFAULT_MEMORY_FILENAME))
+
+    def test_no_memory_builds_nothing(self):
+        """AC-17: the Level 13 behaviour, exactly."""
+        from code_reviewer.__main__ import _build_memory
+        from code_reviewer.infrastructure.tools import Workspace
+
+        self.assertIsNone(_build_memory(_args("--no-memory"), Workspace(".")))
+
+    def test_memory_path_overrides_the_default(self):
+        from code_reviewer.__main__ import _build_memory
+        from code_reviewer.infrastructure.tools import Workspace
+
+        memory = _build_memory(_args("--memory-path", "/tmp/elsewhere.json"), Workspace("."))
+
+        self.assertEqual(str(memory._store.path), "/tmp/elsewhere.json")
+
+
+class TestCommitteeWiring(unittest.TestCase):
+    """Level 15 — one agent or four."""
+
+    def test_the_default_is_a_committee_of_every_specialism(self):
+        from code_reviewer.__main__ import _build_reviewer
+        from code_reviewer.application.orchestration_service import ReviewOrchestrator
+        from code_reviewer.domain.orchestration import Specialism
+
+        with patch("code_reviewer.__main__.LLMFactory.create_provider") as factory:
+            factory.return_value = MagicMock()
+            reviewer = _build_reviewer(_args())
+
+        self.assertIsInstance(reviewer, ReviewOrchestrator)
+        self.assertEqual(set(reviewer._specialists), set(Specialism))
+
+    def test_single_agent_builds_the_one_reviewer(self):
+        """AC-17: the behaviour of every level before this one."""
+        from code_reviewer.__main__ import _build_reviewer
+        from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+
+        with patch("code_reviewer.__main__.LLMFactory.create_provider") as factory:
+            factory.return_value = MagicMock()
+            reviewer = _build_reviewer(_args("--single-agent"))
+
+        self.assertIsInstance(reviewer, ReviewAgent)
+
+    def test_no_llm_still_wins_over_the_committee(self):
+        from code_reviewer.__main__ import _build_reviewer, _NoNarration
+
+        self.assertIsInstance(_build_reviewer(_args("--no-llm")), _NoNarration)
+
+    def test_agent_totals_are_read_off_a_committee_and_absent_otherwise(self):
+        from code_reviewer.__main__ import _agent_totals
+        from code_reviewer.application.orchestration_service import AgentTotals
+        from code_reviewer.domain.orchestration import Specialism
+
+        committee = MagicMock()
+        committee.agent_totals = {Specialism.SECURITY: AgentTotals(runs=2, failures=1, tool_calls=7)}
+
+        self.assertEqual(_agent_totals(committee), {"security": (2, 1, 7)})
+        self.assertEqual(_agent_totals(object()), {})
+
+
+class TestTraceWiring(unittest.TestCase):
+    """Level 16 — recording always, writing on request."""
+
+    def test_the_trace_is_written_when_a_path_is_given(self):
+        import json
+
+        from code_reviewer.__main__ import _export_trace
+        from code_reviewer.domain.trace import SpanKind
+        from code_reviewer.infrastructure.observability.tracer import SpanRecorder
+
+        tracer = SpanRecorder(trace_id="7-9")
+        with tracer.span(SpanKind.REVIEW, "review"):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = os.path.join(directory, "trace.json")
+            _export_trace(tracer, destination)
+
+            with open(destination, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["trace_id"], "7-9")
+
+    def test_nothing_is_written_without_a_path(self):
+        from code_reviewer.__main__ import _export_trace
+        from code_reviewer.domain.trace import SpanKind
+        from code_reviewer.infrastructure.observability.tracer import SpanRecorder
+
+        tracer = SpanRecorder(trace_id="7-9")
+        with tracer.span(SpanKind.REVIEW, "review"):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            _export_trace(tracer, "")
+
+            self.assertEqual(os.listdir(directory), [])
+
+    def test_an_empty_trace_writes_nothing_and_logs_nothing(self):
+        from code_reviewer.__main__ import _export_trace
+        from code_reviewer.infrastructure.observability.tracer import SpanRecorder
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = os.path.join(directory, "trace.json")
+            _export_trace(SpanRecorder(), destination)
+
+            self.assertEqual(os.listdir(directory), [])
+
+
+class TestConcurrencyWiring(unittest.TestCase):
+    """Level 17 — one worker is the old path, not a pool of one."""
+
+    def test_one_worker_selects_the_sequential_runner(self):
+        from code_reviewer.__main__ import _build_runner
+        from code_reviewer.application.tasks import SequentialRunner
+
+        self.assertIsInstance(_build_runner(_args("--concurrency", "1")), SequentialRunner)
+
+    def test_more_than_one_worker_builds_a_pool_with_that_ceiling(self):
+        from code_reviewer.__main__ import _build_runner
+        from code_reviewer.infrastructure.concurrency.thread_pool import ThreadPoolRunner
+
+        runner = _build_runner(_args("--concurrency", "6"))
+
+        self.assertIsInstance(runner, ThreadPoolRunner)
+        self.assertEqual(runner.max_workers, 6)
+
+    def test_a_concurrency_below_one_is_refused_at_parse_time(self):
+        with self.assertRaises(SystemExit):
+            _args("--concurrency", "0")
+
+    def test_a_non_numeric_concurrency_is_refused(self):
+        with self.assertRaises(SystemExit):
+            _args("--concurrency", "many")
+
+
+class TestAuditWiring(unittest.TestCase):
+    """Level 20 — a decision record is written where somebody asked for one."""
+
+    def test_a_path_builds_a_recorder(self):
+        with _Harness() as harness:
+            run(_args("--audit-path", "/tmp/decisions.jsonl"))
+
+        recorder = harness.service_kwargs["recorder"]
+        self.assertIsNotNone(recorder)
+        self.assertEqual(str(recorder.sink.path), "/tmp/decisions.jsonl")
+
+    def test_without_a_path_nothing_is_recorded(self):
+        """The record is an operator's choice: a file appearing beside a
+        checkout because a tool was run is a surprise, and this one names
+        merge requests."""
+        with _Harness() as harness:
+            run(_args())
+
+        self.assertIsNone(harness.service_kwargs["recorder"])
+
+    def test_the_identity_comes_from_the_policy_and_the_prompts_in_use(self):
+        with _Harness() as harness:
+            harness.load_policy.return_value = MagicMock(version="3.7")
+            run(_args("--audit-path", "/tmp/decisions.jsonl"))
+
+        identity = harness.service_kwargs["recorder"].identity
+        self.assertEqual(identity.policy_version, "3.7")
+        self.assertTrue(identity.prompt_fingerprint)
+        self.assertTrue(identity.package_version)
+
+    def test_a_run_without_a_model_records_that_it_had_none(self):
+        with _Harness() as harness, patch.dict(os.environ, {"VLLM_MODEL": ""}, clear=False):
+            run(_args("--audit-path", "/tmp/decisions.jsonl", "--no-llm"))
+
+        self.assertEqual(harness.service_kwargs["recorder"].identity.model, "none")
+
+
+class TestTheTraceFlagIsWired(unittest.TestCase):
+    """R-04 — `_export_trace` was tested; the flag reaching it was not.
+
+    A flag parsed, documented and never passed on is the same defect as a flag
+    that does nothing, and only a test at this level can tell them apart.
+    """
+
+    def test_the_run_hands_the_flag_to_the_exporter(self):
+        with _Harness(), patch("code_reviewer.__main__._export_trace") as exported:
+            run(_args("--trace-path", "/tmp/trace.json"))
+
+        self.assertEqual(exported.call_args[0][1], "/tmp/trace.json")
+
+    def test_without_the_flag_the_exporter_is_told_to_write_nothing(self):
+        with _Harness(), patch("code_reviewer.__main__._export_trace") as exported:
+            run(_args())
+
+        self.assertEqual(exported.call_args[0][1], "")
+
+    def test_the_tracer_it_is_given_is_the_one_the_review_used(self):
+        """Exporting a different tracer's trace would write an empty file and
+        look like a feature that works."""
+        from code_reviewer.infrastructure.observability.tracer import get_tracer
+
+        with _Harness(), patch("code_reviewer.__main__._export_trace") as exported:
+            run(_args("--trace-path", "/tmp/trace.json"))
+
+        self.assertIs(exported.call_args[0][0], get_tracer())
+
+
+class TestSuggestionWiring(unittest.TestCase):
+    """Level 22 — on by default, and one flag away from off."""
+
+    def test_suggestions_are_on_by_default(self):
+        with _Harness() as harness:
+            run(_args())
+
+        self.assertTrue(harness.service_kwargs["suggest_fixes"])
+
+    def test_the_flag_turns_them_off(self):
+        with _Harness() as harness:
+            run(_args("--no-suggestions"))
+
+        self.assertFalse(harness.service_kwargs["suggest_fixes"])

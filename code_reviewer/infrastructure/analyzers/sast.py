@@ -14,6 +14,8 @@ from typing import ClassVar
 
 from code_reviewer.domain.severity import Severity
 
+from .sql_taint import find_sql_taint
+
 # review-ignore-file: SAST.COMMAND_INJECTION - this module *is* the rule
 # table, so its own descriptions ('eval() executes arbitrary code') match
 # the patterns they describe. Scoped to the file rather than to four lines
@@ -476,6 +478,13 @@ class SASTAnalyzer:
             findings = self._check_line(line, line_num, lang)
             report.findings.extend(findings)
 
+        # The line rules cannot follow an assignment, and the ordinary spelling
+        # of an injected query spans two lines. The AST pass closes that gap
+        # for Python; the patterns above still cover the single-line form and
+        # every language this project does not parse (finding E-01).
+        if lang == "python":
+            report.findings.extend(self._taint_findings(content))
+
         # Reduce the findings to one score
         report.risk_score = self.calculate_risk_score(report.findings)
 
@@ -483,6 +492,25 @@ class SASTAnalyzer:
         report.summary = self._generate_summary(report)
 
         return report
+
+    def _taint_findings(self, content: str) -> list[SecurityFinding]:
+        """Dynamically built queries that reach a database, from the AST pass."""
+        return [
+            SecurityFinding(
+                vulnerability_type=VulnerabilityType.SQL_INJECTION,
+                severity=Severity.CRITICAL,
+                line_number=tainted.line_number,
+                line_content=tainted.evidence[:100],
+                description=(
+                    f"Query built by {tainted.how} into '{tainted.variable}' and executed "
+                    f"at line {tainted.executed_at}"
+                ),
+                recommendation="Use a parameterised query: pass the values as arguments to execute()",
+                cwe_id="CWE-89",
+                owasp_category=self._get_owasp_category(VulnerabilityType.SQL_INJECTION),
+            )
+            for tainted in find_sql_taint(content)
+        ]
 
     def _detect_language(self, file_path: str) -> str:
         """Picks a rule set from the file extension."""

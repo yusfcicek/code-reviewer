@@ -1,0 +1,38 @@
+#
+# MEANT TO FAIL: severe_findings_are_mentioned.
+#
+# The opposite defect from inventing one: the analyzers found a critical
+# injection and the prose talks about naming conventions.
+name: silent-about-a-critical-finding
+file: fixtures/sql_injection.py
+expect_failures:
+  - severe_findings_are_mentioned
+findings:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+    title: SQL Injection
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS - Low
+  - **Vulnerabilities Found**: None
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/sql_injection.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Low - contained change
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  The repository layer reads cleanly and the naming is consistent.

@@ -55,9 +55,9 @@ class _Reviewer(Reviewer):
         self.auditor = auditor
         self.trip_on = set(trip_on)
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None):
-        if filename in self.trip_on and self.auditor is not None:
-            self.auditor.record(filename)
+    def review_diff(self, brief):
+        if brief.file_path in self.trip_on and self.auditor is not None:
+            self.auditor.record(brief.file_path)
         return "# Review\nLooks fine."
 
 

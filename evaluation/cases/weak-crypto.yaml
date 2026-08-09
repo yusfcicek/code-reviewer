@@ -1,0 +1,16 @@
+# MD5 and SHA1, graded differently, plus the pin for the false positive Level 11
+# fixed: `overrides(` ends in `des(`, and the DES pattern is matched
+# case-insensitively. Without the `\b` it was encryption.
+name: weak-crypto
+file: fixtures/weak_crypto.py
+scope: ["SAST.*"]
+expect:
+  - rule: SAST.WEAK_CRYPTO
+    line: 7
+    severity: medium
+  - rule: SAST.WEAK_CRYPTO
+    line: 11
+    severity: low
+expect_absent:
+  - rule: SAST.WEAK_CRYPTO
+    line: 14

@@ -110,7 +110,12 @@ class PerformanceAnalyzer:
         "urlopen": "url_connection",
         "cursor": "database_cursor",
         "Session": "session",
-        "Lock": "lock",
+        # `Lock` is deliberately absent. `threading.Lock()` constructs a
+        # synchronisation primitive that lives as long as the object holding
+        # it; it acquires nothing, and requiring `with threading.Lock()` would
+        # be requiring a lock that protects one statement and is then thrown
+        # away. `acquire` stays: a lock taken and never released is the real
+        # defect, and it is a different call (finding E-03).
         "acquire": "lock",
         "pool.connection": "pool_connection",
     }

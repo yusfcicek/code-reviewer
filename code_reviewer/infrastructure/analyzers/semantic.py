@@ -89,6 +89,16 @@ class SemanticAnalysis:
     risk_score: int = 0  # 0-100
 
 
+def _is_private(name: str) -> bool:
+    """Whether a name is module- or class-private.
+
+    A single leading underscore is the convention; a dunder is not private at
+    all, it is called by the language rather than by a name anywhere in the
+    file, so it is excluded for the same reason a public function is.
+    """
+    return name.startswith("_") and not name.startswith("__")
+
+
 class SemanticChangeAnalyzer:
     """
     Parses a diff into symbols and classifies what happened to them.
@@ -460,18 +470,26 @@ class SemanticChangeAnalyzer:
             # module calls it. The wording used to claim "never called", which
             # is more than the evidence supports (finding F-14); confirming it
             # needs the `find_references` tool.
-            if usage_count == 1 and symbol.symbol_type == SymbolType.FUNCTION:
+            #
+            # And it only holds for a private name. A public function is called
+            # from outside the module that defines it, so "not referenced in
+            # this file" is the normal state of every public API — the rule
+            # fired on the majority of well-formed modules until the Level 12
+            # harness charged it (finding E-02). A leading underscore means
+            # module scope, which is exactly the case where this file is the
+            # whole of the evidence.
+            if usage_count == 1 and symbol.symbol_type == SymbolType.FUNCTION and _is_private(symbol.name):
                 issues.append(
                     IntegrityIssue(
                         issue_type="unreferenced_in_file",
                         description=(
-                            f"Function '{symbol.name}' is not referenced anywhere else in "
-                            f"this file — callers, if any, live in other modules"
+                            f"Private function '{symbol.name}' is not referenced anywhere else "
+                            f"in this file, and its name says it has no callers outside it"
                         ),
                         affected_symbols=[symbol.name],
                         suggestion=(
-                            "Run find_references to confirm whether callers exist elsewhere "
-                            "before treating this as dead code"
+                            "Run find_references to confirm, then delete it — a private "
+                            "helper nobody calls is the clearest kind of dead code"
                         ),
                     )
                 )

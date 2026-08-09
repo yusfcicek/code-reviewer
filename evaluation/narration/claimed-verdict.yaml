@@ -1,0 +1,37 @@
+#
+# MEANT TO FAIL: the_prose_claims_no_verdict.
+#
+# ADR 0004: findings decide, prose warns. Here the prose decides.
+name: claimed-verdict
+file: fixtures/hardcoded_secret.py
+expect_failures:
+  - the_prose_claims_no_verdict
+findings:
+  - rule: SAST.HARDCODED_SECRET
+    line: 5
+    severity: critical
+    title: Hardcoded Secret
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: Hardcoded Secret at `fixtures/hardcoded_secret.py:5`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/hardcoded_secret.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - a credential is committed
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  I reject this merge request until the key is rotated.
