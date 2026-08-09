@@ -157,3 +157,15 @@ def test_a_diff_that_cannot_be_parsed_suggests_nothing():
     """Fail closed: an unparseable diff means the eligible lines are unknown,
     and proposing against unknown is how the platform gets a note it refuses."""
     assert _service().suggest_for([_finding()], CRYPTO, path="src/hashing.py", diff="+ garbage\n") == ()
+
+
+# -- S-06: which file a suggestion is about ----------------------------------
+
+
+def test_the_subject_is_refused_rather_than_guessed_from_the_first_finding():
+    """With findings from two files and no path, the old code took the first
+    finding's file as the subject for all of them — so which file was edited
+    depended on list order."""
+    other = _finding(path="src/other.py")
+
+    assert _service().suggest_for([other, _finding()], CRYPTO) == ()

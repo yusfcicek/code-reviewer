@@ -69,8 +69,8 @@ class SuggestionService:
         if not source:
             return ()
 
-        subject = path or (findings[0].file_path if findings else "")
-        if not subject.endswith(SUGGESTABLE_SUFFIXES):
+        subject = path or _one_subject(findings)
+        if not subject or not subject.endswith(SUGGESTABLE_SUFFIXES):
             return ()
 
         eligible = changed_lines(diff) if diff else None
@@ -150,3 +150,15 @@ def render_suggestion(suggestion: Suggestion) -> str:
         "_Proposed by static analysis and validated against this file; it is applied only if you apply it._",
     ]
     return "\n".join(lines)
+
+
+def _one_subject(findings: Sequence[Finding]) -> str:
+    """The file these findings are about, when a caller did not name one.
+
+    Empty when they are about more than one. The old code took the first
+    finding's path, so which file got edited depended on list order — and the
+    source it was checked against belonged to whichever file the caller meant
+    (self-review S-06).
+    """
+    paths = {finding.file_path for finding in findings}
+    return paths.pop() if len(paths) == 1 else ""

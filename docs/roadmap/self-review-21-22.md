@@ -14,8 +14,8 @@ check.
 | S-02 | 🔴 High | `application/remediation_service.py` | Suggestions are proposed for any line of the file, including lines the merge request never touched. A note cannot be anchored outside the diff, so the platform rejects them and the failure is a warning nobody reads. | ✅ closed |
 | S-03 | 🔴 High | `infrastructure/forge/gitlab_forge.py` | Suggestions have no idempotency. Five pipeline runs leave five copies of every suggestion — the defect Level 5 fixed for the review comment (G-12), reintroduced beside it. | ✅ closed |
 | S-04 | 🟠 Medium | `domain/narration.py` | `severity_claims_are_backed` fires on the word "high" anywhere in the prose. "The function has high complexity" fails a review that said nothing wrong. | ✅ closed |
-| S-05 | 🟡 Low | `evaluate.py` | `--json` is accepted with `--narration` and silently ignored. | open |
-| S-06 | 🟡 Low | `application/remediation_service.py` | With no `path` the subject is taken from `findings[0]`, so a finding about a sibling file decides which file the rest are checked against. | open |
+| S-05 | 🟡 Low | `evaluate.py` | `--json` is accepted with `--narration` and silently ignored. | ✅ closed |
+| S-06 | 🟡 Low | `application/remediation_service.py` | With no `path` the subject is taken from `findings[0]`, so a finding about a sibling file decides which file the rest are checked against. | ✅ closed |
 
 ---
 
@@ -94,3 +94,26 @@ R-04 from the last review, one level later.
 A caller who passes findings from two files gets the first one's path as the
 subject for all of them. The workflow always passes `path`, so this is a latent
 constraint rather than a live defect — and one nothing states.
+
+---
+
+## What this pass says about the two levels
+
+Three of the six are the same defect: **a check that reads well and fires on
+almost nothing**. S-01 caught three phrasings of eight. S-02 proposed edits the
+platform would refuse. S-03 posted the same button four times.
+
+All three passed every test written for them, because each test was written by
+the person who had just written the check, using the example that was in their
+head at the time. The corpus case built to demonstrate the verdict check
+happens to use one of the three phrasings that worked.
+
+The lesson generalises past this repository: a test written from the same
+mental model as the code confirms the model, not the behaviour. What found
+these was enumerating the *inputs a user actually produces* — eight ways a
+model phrases a verdict, five ways a review says "high" without claiming a
+severity — and only then checking which ones the code agreed with.
+
+Both new checks are now tested in both directions: what must be caught, and
+what must be left alone. The second list is the one that keeps a check from
+becoming a nuisance, and it is the list nobody writes without being burned.
