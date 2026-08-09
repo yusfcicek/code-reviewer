@@ -23,6 +23,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from code_reviewer.application.documentation_evaluation import evaluate_documentation
 from code_reviewer.application.evaluation_report import evaluation_summary, render_evaluation_report
 from code_reviewer.application.evaluation_service import EvaluationService
 from code_reviewer.application.narration_evaluation import NarrationEvaluator
@@ -32,6 +33,7 @@ from code_reviewer.errors import ConfigurationError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.evaluation.dataset import FileSystemDataset
+from code_reviewer.infrastructure.evaluation.documentation_dataset import DocumentationCorpus
 from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationCorpus
 
 #: The dataset shipped with this repository.
@@ -105,6 +107,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum acceptable narration score. Below it, the command exits 1.",
     )
     parser.add_argument(
+        "--documentation",
+        action="store_true",
+        help=(
+            "Grade the documentation rules instead of the analyzers: whether "
+            "a change is reported against the prose that described it. The "
+            "retrieved tier is not graded here and cannot be."
+        ),
+    )
+    parser.add_argument(
         "--markdown",
         type=str,
         default="-",
@@ -124,6 +135,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else sys.argv[1:])
     if args.narration:
         return _grade_narration(args)
+    if args.documentation:
+        return _grade_documentation(args)
 
     threshold = EvaluationThreshold(
         min_precision=args.min_precision,
@@ -182,6 +195,40 @@ def _grade_narration(args) -> int:
         return EXIT_CANNOT_MEASURE
 
     return EXIT_OK if report.score >= args.min_narration else EXIT_BELOW_THRESHOLD
+
+
+def _grade_documentation(args) -> int:
+    """Grades Level 23's deterministic tier. Same three exit codes.
+
+    Uses the analyzers' own thresholds and report renderer, because the numbers
+    mean the same thing: a rule that fires where nothing is wrong costs
+    precision here exactly as it does there. Only the corpus is different.
+    """
+    threshold = EvaluationThreshold(
+        min_precision=args.min_precision,
+        min_recall=args.min_recall,
+        min_f1=args.min_f1,
+    )
+
+    try:
+        report = evaluate_documentation(DocumentationCorpus(args.dataset).cases())
+    except ConfigurationError as error:
+        print(f"Documentation evaluation could not run: {error}", file=sys.stderr)  # stdout: the output
+        return EXIT_CANNOT_MEASURE
+
+    try:
+        _emit(render_evaluation_report(report, threshold), args.markdown)
+        if args.json_path:
+            _write(json.dumps(evaluation_summary(report, threshold), indent=2) + "\n", args.json_path)
+    except OSError as error:
+        print(  # stdout: the program's output, not a diagnostic
+            f"Documentation evaluation ran but could not be written: {error}", file=sys.stderr
+        )
+        return EXIT_CANNOT_MEASURE
+
+    if report.has_errors:
+        return EXIT_CANNOT_MEASURE
+    return EXIT_OK if threshold.is_met(report) else EXIT_BELOW_THRESHOLD
 
 
 def _emit(text: str, destination: str) -> None:

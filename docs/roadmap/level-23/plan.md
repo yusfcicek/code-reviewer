@@ -157,13 +157,23 @@ adapter.
 
 *Tests* — `tests/unit/test_evaluation_baseline.py` (extended)
 
-- AC-19: `DOCS` joins `REQUIRED_NAMESPACES`; cases are added for a dead
-  reference, a signature mismatch and a clean document.
-- The `DRIFT` tier is excluded from the precision floor by construction — its
-  cases are graded for recall only, and the exclusion is stated in the dataset
-  rather than implied by which cases exist.
+`DOCS` cannot join `REQUIRED_NAMESPACES`: that list is about what the analysis
+*suite* emits, and these rules are not in the suite — they need a symbol index
+and a set of documents, which no `analyze(path, content, diff)` call has. So
+the corpus is its own, on the pattern Level 21 set for narration, and it is
+graded by Level 12's scoring so that precision means one thing in this
+repository rather than two.
 
-*Change* — `evaluation/` cases, `REQUIRED_NAMESPACES`.
+- AC-19: thirteen cases under `evaluation/documentation`, holding
+  precision/recall/F1 ≥ 0.95.
+- Half the cases expect nothing: a library call, another tool's flag, a usage
+  example, an indented fence, a change that touched nothing. That half is where
+  the tier's real failure mode lives.
+- `DRIFT` is not graded and a test says so, because pinning a model's answers
+  measures the recording rather than the tier.
+
+*Change* — `evaluation/documentation/`, `documentation_dataset.py`,
+`documentation_evaluation.py`, `evaluate.py --documentation`.
 
 ## Step 10 — Say it once, truthfully
 

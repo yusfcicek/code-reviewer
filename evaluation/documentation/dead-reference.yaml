@@ -1,0 +1,27 @@
+# The case the level exists for: a change deletes a function and a document
+# still tells people to call it.
+name: dead-reference
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: app.py
+    diff: |
+      @@ -1,5 +1,2 @@
+      -def start_app(config):
+      -    return config
+      -
+       def create_app(config, worker):
+           return config
+documents:
+  README.md: |
+    # Guide
+
+    Boot with `start_app`, then `create_app`.
+expected:
+  - rule: DOCS.DEAD_REFERENCE
+    line: 3

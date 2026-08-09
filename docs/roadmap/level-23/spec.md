@@ -53,9 +53,12 @@ that proved the agreement was decorative.
    touch.
 4. The two are **separated everywhere they appear** — in the finding, in the
    record, in the report — because one is verified and the other is not.
-5. Both namespaces enter the evaluation dataset, and the retrieved tier is
-   measured on its own terms rather than against a precision floor it cannot
-   hold.
+5. `DOCS` enters an evaluation corpus of its own — graded by Level 12's
+   scoring, holding a committed floor. `DRIFT` is deliberately **not** graded:
+   its answer comes from a model, and a corpus that pinned a model's answers
+   would measure the recording rather than the tier. It is bounded by
+   attribution and by stated caps instead, and the difference is written down
+   rather than implied by which cases exist.
 
 ## Non-goals
 
@@ -163,7 +166,7 @@ them, which Level 20 already records for the run.
 | AC-16 | The candidate cap is applied and what it dropped is stated | Service test |
 | AC-17 | The report renders the tiers under separate headings, the second labelled unverified | Renderer test |
 | AC-18 | The record carries rule, location and tier, and no prose | Unit test |
-| AC-19 | `DOCS` is in `REQUIRED_NAMESPACES` and the dataset exercises it | Dataset test |
+| AC-19 | A `DOCS` corpus is graded by the same scoring as the analyzers, holds a committed floor, and grades no `DRIFT` rule | Dataset test |
 | AC-20 | The six checks stay green, coverage holds, both existing eval floors hold | `ruff`, `mypy`, `pytest --cov`, audit, eval ×2 |
 
 ## Decisions taken

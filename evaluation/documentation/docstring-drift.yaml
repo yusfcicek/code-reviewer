@@ -1,0 +1,29 @@
+# The half that lives inside the source file. The self-review of levels 12-20
+# found one of these in this repository.
+name: docstring-drift
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: render.py
+    diff: |
+      @@ -1,2 +1,2 @@
+       x = 1
+      +y = 2
+sources:
+  render.py: |
+    def render(version):
+        """Renders it.
+
+        Args:
+            version: the policy version.
+            outcome: the thing that no longer exists.
+        """
+        return version
+expected:
+  - rule: DOCS.DOCSTRING_DRIFT
+    line: 1

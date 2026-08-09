@@ -1,0 +1,26 @@
+# A fence inside a list item carries the list's indentation, which `ast.parse`
+# calls an IndentationError. This repository's own CONTRIBUTING.md has one, and
+# it was the last false positive left in the first dry run.
+name: indented-example
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: CONTRIBUTING.md
+    diff: |
+      @@ -1,1 +1,4 @@
+      +1. Like this:
+documents:
+  CONTRIBUTING.md: |
+    1. Suppress it, with a reason:
+
+       ```python
+       verify = False  # review-ignore: SAST.INSECURE_HTTP - behind a flag
+       ```
+expected: []
+forbidden:
+  - rule: DOCS.BROKEN_EXAMPLE

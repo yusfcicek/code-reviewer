@@ -1,0 +1,23 @@
+# `--cov` is pytest's and `--no-ff` is git's. Both appear in this repository's
+# own CONTRIBUTING.md, and neither is this project's to define.
+name: another-tools-flag
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: app.py
+    diff: |
+      @@ -1,2 +1,1 @@
+      -    parser.add_argument("--legacy")
+documents:
+  CONTRIBUTING.md: |
+    # Contributing
+
+    Run `pytest --cov`, then merge with `--no-ff`.
+expected: []
+forbidden:
+  - rule: DOCS.UNKNOWN_OPTION
