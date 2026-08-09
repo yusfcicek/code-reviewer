@@ -219,3 +219,76 @@ def test_the_sequential_runner_cannot_interrupt_and_says_so():
 
     assert outcomes[0].value == "slow"
     assert time.monotonic() - started >= 0.1
+
+
+# -- R-05: what the group deadline costs the report --------------------------
+#
+# The deadline is shared by the group, deliberately: ten hung tasks cost one
+# timeout rather than ten. The consequence was that every task collected after
+# the first timeout was reported in the same words as the task that actually
+# hung, and only one of those threads is unreclaimable.
+
+
+def test_a_task_collected_after_the_deadline_says_which_it_was():
+    runner = ThreadPoolRunner(max_workers=1)
+
+    outcomes = runner.run_all([lambda: time.sleep(0.5), lambda: "quick"], timeout_s=0.05)
+
+    assert outcomes[0].timed_out
+    assert "timed out after" in outcomes[0].error_type
+    assert outcomes[1].timed_out
+    assert "the group's deadline had already passed" in outcomes[1].error_type
+
+
+def test_the_pool_is_tainted_by_the_task_that_actually_hung():
+    runner = ThreadPoolRunner(max_workers=1)
+
+    runner.run_all([lambda: time.sleep(0.5), lambda: "quick"], timeout_s=0.05)
+
+    assert runner.is_tainted
+
+
+# -- R-08: one runner, one caller --------------------------------------------
+#
+# `run_all` shares `_pool` and `_tainted` across calls. Two threads calling it
+# on one runner would race on both: one could replace the pool the other is
+# collecting from. True today because one review runs at a time per process,
+# and true nowhere in writing.
+
+
+def test_a_second_concurrent_call_is_refused_rather_than_racing():
+    runner = ThreadPoolRunner(max_workers=2)
+    inside = threading.Event()
+    release = threading.Event()
+    refused: list[Exception] = []
+
+    def hold():
+        inside.set()
+        release.wait(timeout=2.0)
+        return "held"
+
+    def intruder():
+        inside.wait(timeout=2.0)
+        try:
+            runner.run_all([lambda: "second"])
+        except RuntimeError as error:
+            refused.append(error)
+        finally:
+            release.set()
+
+    other = threading.Thread(target=intruder)
+    other.start()
+    outcomes = runner.run_all([hold])
+    other.join(timeout=2.0)
+
+    assert outcomes[0].value == "held"
+    assert refused, "the second caller was allowed in"
+    assert "one caller at a time" in str(refused[0])
+
+
+def test_the_runner_is_reusable_after_a_call_returns():
+    """Refusing a concurrent call must not turn into refusing the next one."""
+    runner = ThreadPoolRunner(max_workers=2)
+
+    assert runner.run_all([lambda: 1])[0].value == 1
+    assert runner.run_all([lambda: 2])[0].value == 2

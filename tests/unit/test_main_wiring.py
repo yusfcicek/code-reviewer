@@ -409,3 +409,33 @@ class TestAuditWiring(unittest.TestCase):
             run(_args("--audit-path", "/tmp/decisions.jsonl", "--no-llm"))
 
         self.assertEqual(harness.service_kwargs["recorder"].identity.model, "none")
+
+
+class TestTheTraceFlagIsWired(unittest.TestCase):
+    """R-04 — `_export_trace` was tested; the flag reaching it was not.
+
+    A flag parsed, documented and never passed on is the same defect as a flag
+    that does nothing, and only a test at this level can tell them apart.
+    """
+
+    def test_the_run_hands_the_flag_to_the_exporter(self):
+        with _Harness(), patch("code_reviewer.__main__._export_trace") as exported:
+            run(_args("--trace-path", "/tmp/trace.json"))
+
+        self.assertEqual(exported.call_args[0][1], "/tmp/trace.json")
+
+    def test_without_the_flag_the_exporter_is_told_to_write_nothing(self):
+        with _Harness(), patch("code_reviewer.__main__._export_trace") as exported:
+            run(_args())
+
+        self.assertEqual(exported.call_args[0][1], "")
+
+    def test_the_tracer_it_is_given_is_the_one_the_review_used(self):
+        """Exporting a different tracer's trace would write an empty file and
+        look like a feature that works."""
+        from code_reviewer.infrastructure.observability.tracer import get_tracer
+
+        with _Harness(), patch("code_reviewer.__main__._export_trace") as exported:
+            run(_args("--trace-path", "/tmp/trace.json"))
+
+        self.assertIs(exported.call_args[0][0], get_tracer())

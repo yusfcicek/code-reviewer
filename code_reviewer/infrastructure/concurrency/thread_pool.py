@@ -15,6 +15,7 @@ worker is still in it holding whatever it was holding. Calling that
 """
 
 import logging
+import threading
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -51,6 +52,12 @@ class ThreadPoolRunner(TaskRunner):
         self.default_timeout_s = default_timeout_s
         self._pool: ThreadPoolExecutor | None = None
         self._tainted = False
+        # One caller at a time. `_pool` and `_tainted` are shared across
+        # calls, and a second caller could replace the pool the first is
+        # collecting from. Refused rather than serialised: a caller that
+        # queued silently would look like a caller that ran (self-review
+        # R-08).
+        self._in_use = threading.Lock()
 
     @property
     def is_tainted(self) -> bool:
@@ -63,6 +70,21 @@ class ThreadPoolRunner(TaskRunner):
         if not tasks:
             return []
 
+        if not self._in_use.acquire(blocking=False):
+            raise RuntimeError(
+                "This runner takes one caller at a time: its pool and its taint "
+                "flag are shared, and a second group would race the first. Give "
+                "each caller its own runner."
+            )
+
+        try:
+            return self._run_group(tasks, timeout_s)
+        finally:
+            self._in_use.release()
+
+    def _run_group[T](
+        self, tasks: Sequence[Callable[[], T]], timeout_s: float | None
+    ) -> list[TaskOutcome[T]]:
         deadline_s = self.default_timeout_s if timeout_s is None else timeout_s
         pool = self._acquire_pool()
         started = time.monotonic()
@@ -101,11 +123,18 @@ class ThreadPoolRunner(TaskRunner):
         timeout rather than ten.
         """
         remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+        # Whether this task is being collected *after* the group's deadline
+        # rather than at it. The two are different facts about a thread, and
+        # only the first one is "this hung" (self-review R-05).
+        expired = remaining == 0.0 and deadline is not None
 
         try:
             result = future.result(timeout=remaining)
         except TimeoutError:
             self._tainted = True
+            if expired:
+                logger.warning("A task was still running when the group's deadline had already passed")
+                return TaskOutcome.not_collected(deadline_s or 0.0, _elapsed_ms(started))
             logger.warning("A task was abandoned after %.0fs", deadline_s or 0)
             return TaskOutcome.timeout(deadline_s or 0.0, _elapsed_ms(started))
         except Exception as error:
