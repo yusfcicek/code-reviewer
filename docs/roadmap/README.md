@@ -60,6 +60,7 @@ statement and what this repository does today.
 | [19](level-19/spec.md) | Containerisation & cloud-native deployment | ✅ Done |
 | [20](level-20/spec.md) | Governance, explainability & compliance | ✅ Done |
 | [21](level-21/spec.md) | Grading the reviewer's prose | ✅ Done |
+| [22](level-22/spec.md) | A fix you can apply, and never one we applied | ✅ Done |
 
 ### Why *this* order for 12–20
 

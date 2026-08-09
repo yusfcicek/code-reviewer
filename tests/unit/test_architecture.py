@@ -212,3 +212,75 @@ class TestTheInstrumentIsNotInTheReviewPath(unittest.TestCase):
         }
 
         assert any("narration" in module for module in modules)
+
+
+class TestTheReviewerCannotApplyItsOwnSuggestions(unittest.TestCase):
+    """Level 22, AC-14 — propose, never apply.
+
+    The promise is that nothing in this system writes to a checkout. A sentence
+    saying so is worth less than a test, because the sentence stays true while
+    somebody adds `subprocess.run(["git", "apply", ...])` two levels later.
+    """
+
+    REMEDIATION = (
+        "code_reviewer/domain/remediation.py",
+        "code_reviewer/domain/fix_recipes.py",
+        "code_reviewer/application/remediation_service.py",
+    )
+
+    #: Every way this package could change a file. `open` is not here because
+    #: nothing in these modules opens anything at all — which the next test
+    #: asserts directly.
+    WRITE_CALLS = ("write_text", "write_bytes", "unlink", "rmtree", "remove", "rename", "system")
+
+    def test_no_remediation_module_imports_a_way_to_run_a_command(self):
+        import ast
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        for relative in self.REMEDIATION:
+            with self.subTest(module=relative):
+                tree = ast.parse((root / relative).read_text(encoding="utf-8"))
+                roots = {
+                    (node.module or "").split(".")[0]
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.ImportFrom)
+                } | {
+                    alias.name.split(".")[0]
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.Import)
+                    for alias in node.names
+                }
+                self.assertEqual(roots & {"subprocess", "shutil", "git", "pty", "os"}, set(), relative)
+
+    def test_no_remediation_module_calls_anything_that_writes(self):
+        import ast
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        for relative in self.REMEDIATION:
+            source = (root / relative).read_text(encoding="utf-8")
+            called = {
+                node.func.attr
+                for node in ast.walk(ast.parse(source))
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            } | {
+                node.func.id
+                for node in ast.walk(ast.parse(source))
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            with self.subTest(module=relative):
+                self.assertEqual(called & set(self.WRITE_CALLS), set(), relative)
+                self.assertNotIn("open", called, relative)
+
+    def test_the_forge_port_gained_only_a_way_to_comment(self):
+        """`publish_suggestion` posts a note. A port method that could push a
+        commit would be the level's whole premise, undone in one signature."""
+        from code_reviewer.application.ports import CodeForge
+
+        methods = {name for name in vars(CodeForge) if not name.startswith("_")}
+
+        self.assertEqual(
+            methods,
+            {"fetch_merge_request", "fetch_changes", "fetch_file", "publish_comment", "publish_suggestion"},
+        )

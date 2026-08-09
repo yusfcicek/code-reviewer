@@ -41,6 +41,7 @@ repository does about it today. A capability with no gap produces no level.
 | C-19 | Agent governance frameworks | S3 | Suppression is audited (Level 11); model decisions are not | 20 |
 | C-20 | Model/prompt versioning and cost accounting | S2 | Token counting exists; nothing pins a version to an output | 20 |
 | C-21 | Grounded generation: an assistant's output checked against its input | S2, S3 | Level 12 graded the analyzers and said in its own non-goals that it did not grade the prose | 21 |
+| C-22 | An agent that acts, not only reports | S1, S3 | Level 13 left it deliberately: the agent reviews, it does not write the patch | 22 |
 
 ## What is deliberately out of scope
 

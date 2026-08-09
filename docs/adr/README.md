@@ -31,6 +31,7 @@ nobody has taken turns this directory into a wish list.
 | [0021](0021-a-deployment-that-is-tested.md) | A deployment that is tested | Accepted |
 | [0022](0022-a-verdict-that-can-be-audited.md) | A verdict that can be audited | Accepted |
 | [0023](0023-the-prose-is-graded-by-code.md) | The prose is graded by code, not by a model | Accepted |
+| [0024](0024-propose-never-apply.md) | Propose, never apply | Accepted |
 
 ## Adding one
 

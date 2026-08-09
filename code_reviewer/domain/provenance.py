@@ -106,6 +106,20 @@ class SuppressionRecord:
 
 
 @dataclass(frozen=True)
+class SuggestionRecord:
+    """An applicable edit the review offered, as identifiers.
+
+    Rule, location, recipe. Never the replacement text: it is derived from the
+    file under review, and five levels have kept that out of the artefacts
+    (Level 22, decision D-5).
+    """
+
+    rule_id: str
+    location: str
+    recipe: str
+
+
+@dataclass(frozen=True)
 class AgentCost:
     """What one specialism cost, alongside the decision it contributed to."""
 
@@ -178,6 +192,9 @@ class DecisionRecord:
     blocking: tuple[Provenance, ...] = ()
     suppressions: tuple[SuppressionRecord, ...] = ()
     agent_costs: tuple[AgentCost, ...] = ()
+    #: Edits offered to a human. Offered, never applied — the record says what
+    #: was proposed, and applying it stays somebody's deliberate click.
+    suggestions: tuple[SuggestionRecord, ...] = ()
     files_considered: int = 0
     failure_reason: str = ""
     recorded_at: str = ""

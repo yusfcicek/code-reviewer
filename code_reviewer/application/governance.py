@@ -28,6 +28,7 @@ from code_reviewer.domain.provenance import (
     ProducerKind,
     Provenance,
     RunIdentity,
+    SuggestionRecord,
     SuppressionRecord,
 )
 
@@ -131,6 +132,7 @@ class DecisionRecorder:
         trace_id: str = "",
         exit_code: int = 0,
         agent_costs: Sequence[AgentCost] = (),
+        suggestions: Sequence[SuggestionRecord] = (),
     ) -> DecisionRecord | None:
         """Builds the record and writes it. Returns what was written.
 
@@ -157,6 +159,7 @@ class DecisionRecorder:
                 blocking=blocking if outcome.is_blocking else (),
                 suppressions=_suppressions(outcome),
                 agent_costs=tuple(agent_costs),
+                suggestions=tuple(suggestions),
                 files_considered=outcome.files_considered,
                 recorded_at=self._clock().isoformat(),
                 warnings=tuple(outcome.warnings),

@@ -147,6 +147,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-suggestions",
+        action="store_true",
+        help=(
+            "Do not post applicable fix suggestions on the changed lines. They "
+            "are proposals a person applies; nothing here ever applies one."
+        ),
+    )
+    parser.add_argument(
         "--single-agent",
         action="store_true",
         help=(

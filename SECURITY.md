@@ -151,6 +151,25 @@ specialism cost.
 A merge request touching thousands of files will still take a long time. Bound
 the job with a CI timeout.
 
+## Suggestions are proposals, never changes
+
+Since Level 22 the review can post an applicable fix on a changed line — a
+`suggestion` block a reviewer applies with one click.
+
+- **Nothing in this system applies one.** No file is written, no `git` is run,
+  no API that changes a repository is called. A test parses the remediation
+  modules and fails if they import a way to run a command or call anything that
+  writes ([ADR 0024](docs/adr/0024-propose-never-apply.md)).
+- **Applying one is a commit by the person who clicked**, under their name, in
+  their history. Review it as you would any other diff: the recipes are
+  deterministic and validated against the file, and none of that makes the
+  change *correct for your codebase*. `md5` → `sha256` changes what a stored
+  digest matches.
+- **Only a deterministic producer may author one.** A finding attributed to a
+  model never yields a suggestion, for the reason a model may not block a
+  merge.
+- `--no-suggestions` turns the offering off entirely.
+
 ## Supply-chain changes are never auto-approved
 
 A dependency manifest, a lock file, a `Dockerfile` and a CI definition are

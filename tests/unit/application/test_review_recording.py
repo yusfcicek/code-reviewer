@@ -5,6 +5,7 @@ re-analysis, no extra model call: anything it cannot get from the outcome, the
 findings and the identity is a thing this level does not claim (decision D-6).
 """
 
+import json
 import unittest
 
 from code_reviewer.application.governance import AuditSink, DecisionRecorder
@@ -220,3 +221,55 @@ class TestWhatTheReviewCost(unittest.TestCase):
         _service(_forge(), DecisionRecorder(sink, IDENTITY)).review(1, 2)
 
         self.assertEqual(sink.written[0].agent_costs, ())
+
+
+class TestWhatWasSuggested(unittest.TestCase):
+    """Contract C-8 — a suggestion offered is part of what was decided.
+
+    Identifiers only: rule, location, recipe. Never the replacement text —
+    it is derived from the file under review, and five levels have kept that
+    out of the artefacts.
+    """
+
+    SOURCE = "import hashlib\n\n\ndef digest(value):\n    return hashlib.md5(value).hexdigest()\n"
+
+    def _review(self):
+        from code_reviewer.application.ports import FileChange as Change
+
+        forge = FakeForge([Change("src/hashing.py", _significant_diff())], {"src/hashing.py": self.SOURCE})
+        sink = CollectingSink()
+        policy = ReviewPolicy()
+        finding = Finding(
+            category=FindingCategory.SECURITY,
+            severity=Severity.MEDIUM,
+            file_path="src/hashing.py",
+            line_number=5,
+            title="Weak Crypto",
+            description="MD5 is broken",
+            remediation="Use SHA-256",
+            rule_id="SAST.WEAK_CRYPTO",
+        )
+        ReviewService(
+            forge=forge,
+            reviewer=ScriptedReviewer(CLEAN_REVIEW),
+            triage=ReviewTriage(policy),
+            policy=policy,
+            analysis=RecordingAnalysis([finding]),
+            recorder=DecisionRecorder(sink, IDENTITY),
+        ).review(1, 2)
+        return sink.written[0]
+
+    def test_the_record_names_the_rule_the_location_and_the_recipe(self):
+        record = self._review()
+
+        assert len(record.suggestions) == 1
+        self.assertEqual(record.suggestions[0].rule_id, "SAST.WEAK_CRYPTO")
+        self.assertEqual(record.suggestions[0].location, "src/hashing.py:5")
+        self.assertEqual(record.suggestions[0].recipe, "md5-to-sha256")
+
+    def test_the_replacement_text_is_not_in_the_record(self):
+        from code_reviewer.infrastructure.governance.json_sink import to_json
+
+        written = json.dumps(to_json(self._review()), sort_keys=True)
+
+        self.assertNotIn("sha256(value)", written)

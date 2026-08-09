@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.15.0.** Rebuilt from an imported prototype across twenty levels
+> **Status: 2.16.0.** Rebuilt from an imported prototype across twenty levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1748 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1810 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -292,7 +292,24 @@ each retrieval, each memory access.
   recall 0.89 — the gap was a real defect the dataset recorded rather than
   annotated away, and Level 13 closed it.
 
-### 🔬 16. Measured narration
+### 🛠️ 16. A fix you can apply
+- Three deterministic recipes — `hashlib.md5` → `sha256`, `yaml.load` →
+  `yaml.safe_load`, a hardcoded literal → `os.environ[...]` — each reading the
+  line its finding named and **declining when the pattern is not there**.
+- **Validated by applying it.** The edit is applied in memory and the result
+  re-parsed; one that would leave the file unparseable is discarded rather than
+  published.
+- **Only a deterministic producer may author one.** An agent-produced finding
+  never yields an applicable edit, for the reason a model may not block a merge.
+- **Posted as diff notes**, because GitLab applies a `suggestion` block only
+  from a note anchored on the line it edits.
+- **Nothing is ever applied.** No file is written, no `git` is run, no API that
+  changes a repository is called — asserted by a test that parses these modules
+  rather than by a sentence
+  ([ADR 0024](docs/adr/0024-propose-never-apply.md)). `--no-suggestions` turns
+  the offering off.
+
+### 🔬 17. Measured narration
 - The analyzers have had a scoreboard since Level 12. The **model's prose** now
   has one: fourteen recorded reviews, five checks each, graded offline.
 - **A citation that does not exist is the headline defect.** Every `path:line`
@@ -314,7 +331,7 @@ each retrieval, each memory access.
   the corpus says so in its first paragraph: every case is reported as *stale*
   until somebody records one under a known prompt fingerprint.
 
-### 🧾 17. A verdict that can be audited
+### 🧾 18. A verdict that can be audited
 - Every review writes one **decision record**: what was decided, the exit code,
   which package, policy, rule set, model and prompt digest produced it, which
   rules blocked, what was suppressed and why, what each specialism cost, and

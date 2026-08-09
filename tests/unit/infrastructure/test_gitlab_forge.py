@@ -6,7 +6,7 @@ neutral value objects without a network.
 """
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from code_reviewer.application.ports import CodeForge, FileChange
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
@@ -150,3 +150,70 @@ class TestPublishComment(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPublishingASuggestion(unittest.TestCase):
+    """Level 22 — a note anchored on the line it edits.
+
+    GitLab applies a `suggestion` block only from a note attached to the diff,
+    which needs the three commits it compares. Posting one is still posting a
+    comment: nothing here writes to the repository.
+    """
+
+    def _forge(self):
+        client = MagicMock()
+        merge_request = client.projects.get.return_value.mergerequests.get.return_value
+        merge_request.diff_refs = {
+            "base_sha": "aaa",
+            "start_sha": "bbb",
+            "head_sha": "ccc",
+        }
+        merge_request.sha = "ccc"
+        forge = GitLabForge(client=client)
+        return forge, merge_request
+
+    def test_the_reference_carries_the_commits_a_note_anchors_on(self):
+        forge, _ = self._forge()
+
+        reference = forge.fetch_merge_request(1, 2)
+
+        self.assertEqual((reference.base_sha, reference.start_sha), ("aaa", "bbb"))
+        self.assertEqual(reference.head_sha, "ccc")
+
+    def test_a_merge_request_without_diff_refs_yields_empty_ones(self):
+        """Older instances and unusual states do not report them, and the
+        review is unchanged: it costs the suggestions and nothing else."""
+        forge, merge_request = self._forge()
+        merge_request.diff_refs = None
+
+        reference = forge.fetch_merge_request(1, 2)
+
+        self.assertEqual(reference.base_sha, "")
+
+    def test_the_note_is_created_as_a_discussion_on_the_line(self):
+        from code_reviewer.application.ports import DiffPosition
+
+        forge, merge_request = self._forge()
+        reference = forge.fetch_merge_request(1, 2)
+        position = DiffPosition(path="src/app.py", line=11, base_sha="aaa", start_sha="bbb", head_sha="ccc")
+
+        forge.publish_suggestion(reference, position, "```suggestion:-0+0\nx = 1\n```")
+
+        payload = merge_request.discussions.create.call_args[0][0]
+        self.assertIn("suggestion", payload["body"])
+        self.assertEqual(payload["position"]["new_path"], "src/app.py")
+        self.assertEqual(payload["position"]["new_line"], 11)
+        self.assertEqual(payload["position"]["position_type"], "text")
+
+    def test_the_body_is_redacted_like_every_other_published_text(self):
+        from code_reviewer.application.ports import DiffPosition
+
+        with patch.dict("os.environ", {"GITLAB_TOKEN": "glpat-averyrealisticlookingtoken"}):
+            forge, merge_request = self._forge()
+            reference = forge.fetch_merge_request(1, 2)
+            position = DiffPosition(path="a.py", line=1, base_sha="aaa", start_sha="bbb", head_sha="ccc")
+
+            forge.publish_suggestion(reference, position, "token glpat-averyrealisticlookingtoken")
+
+        body = merge_request.discussions.create.call_args[0][0]["body"]
+        self.assertNotIn("glpat-averyrealisticlookingtoken", body)

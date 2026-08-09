@@ -439,3 +439,19 @@ class TestTheTraceFlagIsWired(unittest.TestCase):
             run(_args("--trace-path", "/tmp/trace.json"))
 
         self.assertIs(exported.call_args[0][0], get_tracer())
+
+
+class TestSuggestionWiring(unittest.TestCase):
+    """Level 22 — on by default, and one flag away from off."""
+
+    def test_suggestions_are_on_by_default(self):
+        with _Harness() as harness:
+            run(_args())
+
+        self.assertTrue(harness.service_kwargs["suggest_fixes"])
+
+    def test_the_flag_turns_them_off(self):
+        with _Harness() as harness:
+            run(_args("--no-suggestions"))
+
+        self.assertFalse(harness.service_kwargs["suggest_fixes"])

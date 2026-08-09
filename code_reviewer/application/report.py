@@ -87,6 +87,7 @@ def render_review_comment(
     trace_id: str = "",
     identity: RunIdentity | None = None,
     decision_summary: str = "",
+    suggestion_count: int = 0,
 ) -> str:
     """Builds the markdown comment posted on the merge request.
 
@@ -125,6 +126,7 @@ def render_review_comment(
         *_suppression_lines(outcome),
         *_summary_lines(findings or ()),
         *_recurrence_lines(findings or (), recurring or {}),
+        *_suggestion_lines(suggestion_count),
         *_accountability_lines(identity, decision_summary),
         f"\n**Policy v{policy_version}** | **Files considered**: {outcome.files_considered}"
         + (f" | **Trace**: `{trace_id}`" if trace_id else "")
@@ -206,6 +208,21 @@ def _summary_lines(findings: Sequence[Finding]) -> list[str]:
     counts = Finding.count_by_severity(findings)
     breakdown = ", ".join(f"{count} {severity.value}" for severity, count in counts.items() if count)
     return [f"\n**Static analysis**: {len(findings)} finding(s) — {breakdown}\n"]
+
+
+def _suggestion_lines(count: int) -> list[str]:
+    """How many applicable suggestions were posted on the diff.
+
+    The suggestions themselves are notes on the lines they edit, because that
+    is the only place the platform will apply one. This says they exist, so a
+    reader of the summary knows to look (Level 22).
+    """
+    if count < 1:
+        return []
+    return [
+        f"\n**{count} applicable suggestion(s)** posted on the changed lines. "
+        "Each was validated against the file as reviewed; none has been applied.\n"
+    ]
 
 
 def _accountability_lines(identity: RunIdentity | None, decision_summary: str) -> list[str]:

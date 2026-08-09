@@ -10,6 +10,7 @@ which handed callers a framework type through the abstraction meant to hide it
 (finding F-26).
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -50,6 +51,37 @@ class MergeRequestRef:
     merge_request_id: str
     project_name: str = ""
     head_sha: str = ""
+    #: The commits the platform diffs between. Needed to anchor a note on a
+    #: line; empty when the forge did not report them, which costs suggestions
+    #: and nothing else.
+    base_sha: str = ""
+    start_sha: str = ""
+
+
+@dataclass(frozen=True)
+class DiffPosition:
+    """Where a note attaches to a line of the diff.
+
+    A suggestion is only applicable in a note anchored on the change it edits,
+    which needs the three commits the platform compares. A position missing one
+    of them is a note posted at the top of the file, or rejected, depending on
+    the platform's mood — so it is refused here (Level 22).
+    """
+
+    path: str
+    line: int
+    base_sha: str
+    start_sha: str
+    head_sha: str
+
+    def __post_init__(self) -> None:
+        if not all((self.base_sha, self.start_sha, self.head_sha)):
+            raise ValueError(
+                "A diff position needs the base, start and head commits; without them a note "
+                "cannot be anchored on the line it is about."
+            )
+        if self.line < 1:
+            raise ValueError("A diff position names a line, and files start at line 1.")
 
 
 class CodeForge(ABC):
@@ -73,6 +105,19 @@ class CodeForge(ABC):
         ``None`` when the file cannot be read — it may be binary, or the ref may
         have moved. That is not a reason to abandon the review.
         """
+
+    def publish_suggestion(self, reference: MergeRequestRef, position: DiffPosition, body: str) -> None:
+        """Posts an applicable suggestion against one line of the diff.
+
+        Not abstract: a forge that cannot anchor a note on a line is still a
+        forge, and the review it publishes is unchanged. The default says so
+        rather than doing nothing quietly — a feature that silently does not
+        exist is the hardest kind to notice (Level 22, contract C-6).
+        """
+        logging.getLogger(__name__).warning(
+            "This forge cannot post suggestions; the finding keeps its written advice",
+            extra={"fields": {"forge": type(self).__name__, "path": position.path}},
+        )
 
     @abstractmethod
     def publish_comment(self, reference: MergeRequestRef, body: str) -> None:

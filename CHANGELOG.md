@@ -7,6 +7,40 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.16.0] — 2026-08-09
+
+Level 22: the reviewer proposes a fix, and provably cannot apply one.
+
+### Added
+
+- **`domain/remediation.py` and `domain/fix_recipes.py`.** A `Suggestion` is a
+  replacement for a bounded range of lines in one file, produced by a named
+  recipe. Three recipes ship — `md5`/`sha1` → `sha256`, `yaml.load` →
+  `yaml.safe_load`, a hardcoded literal → `os.environ[...]` — each reading the
+  line its finding named and declining when its pattern is not there.
+- **`application/remediation_service.py`.** A suggestion is applied in memory
+  and the result re-parsed before it is published; an agent-produced finding
+  never yields one; two findings on one line yield at most one.
+- **`publish_suggestion` on the forge port**, implemented as a GitLab
+  discussion anchored on the line — the only place the platform will apply a
+  `suggestion` block. `MergeRequestRef` gained the three commit SHAs a note
+  needs; a merge request without them costs the suggestions and nothing else.
+- **Suggestions in the decision record**: rule, location, recipe. Never the
+  replacement text.
+- `--no-suggestions`, and an architecture test asserting these modules import
+  no way to run a command, call nothing that writes, and that the forge port
+  gained a way to comment rather than a way to push.
+- [ADR 0024](docs/adr/0024-propose-never-apply.md), and C-22 in
+  `capability-sources.md`.
+
+### Changed
+
+- `_review_one` split: the path a file takes when it warrants a model is now
+  `_analyse_and_review`. The project's own gate reported the original at
+  cyclomatic complexity 16 — the sixth time it has blocked its own build.
+
+---
+
 ## [2.15.0] — 2026-08-09
 
 Level 21: the model's prose gets a scoreboard, and the roadmap stops claiming
