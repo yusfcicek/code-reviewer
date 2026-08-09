@@ -7,6 +7,54 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.12.0] — 2026-08-09
+
+Level 18: the review becomes something callable.
+
+### Added
+
+- **Six endpoints.** `POST /reviews`, `GET /reviews/{id}`,
+  `POST /webhooks/gitlab`, `/healthz`, `/readyz`, `/metrics` — a WSGI
+  application, not a framework.
+- **`domain/job.py`.** A review request's lifecycle: `QUEUED → RUNNING →
+  SUCCEEDED | FAILED`, and every other transition refused at the moment it is
+  attempted.
+- **`JobStore` port**, `InMemoryJobStore` and `JobService`. Find-or-create is
+  one critical section: "look, then insert" is the shape that turns two
+  simultaneous requests for one commit into two reviews.
+- **A worker thread** that claims a job, runs it under its own trace, records
+  the verdict, and keeps draining after a failure.
+- **`ai-code-review-serve`**, with `create_app()` for gunicorn or uvicorn.
+- Idempotency keyed on the head commit, with `Idempotency-Key` honoured;
+  a bounded queue answering `429` with `Retry-After`; a body-size cap; and
+  authentication asserted over the route table rather than route by route.
+
+### Fixed
+
+- The metrics handler was named `_metrics`, and so was the injected collector.
+  `getattr(self, route.handler)` resolved to the field and the endpoint
+  returned 500. Found by the route-table test on the first run.
+
+### Not taken, deliberately
+
+FastAPI, for the third framework refusal in this roadmap. It would bring
+starlette, pydantic, anyio and a dozen transitive packages into a process whose
+dependency audit runs with an empty ignore list, to serve six endpoints whose
+bodies have two fields each. WSGI is the interface every Python server speaks,
+so the server is a deployment choice; the cost — no generated OpenAPI schema,
+hand-written validation — is stated in the ADR.
+
+And a database. Job state is in memory and a restart loses the queue; the store
+is a port, so the decision about persistence has somewhere to go.
+
+### Documented
+
+- [ADR 0020](docs/adr/0020-a-wsgi-application-not-a-framework.md) — why WSGI,
+  why idempotency is keyed on the commit, why the status endpoint withholds the
+  comment, and why readiness does not call GitLab.
+
+---
+
 ## [2.11.0] — 2026-08-09
 
 Level 17: the committee stops waiting one at a time.

@@ -33,7 +33,7 @@ from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 from code_reviewer.infrastructure.metrics.collector import MetricsCollector, ReviewMetrics
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
 from code_reviewer.infrastructure.observability.trace_rendering import JsonTraceExporter, render_trace_tree
-from code_reviewer.infrastructure.observability.tracer import SpanRecorder, set_tracer
+from code_reviewer.infrastructure.observability.tracer import SpanRecorder, get_tracer, set_tracer
 from code_reviewer.infrastructure.retrieval.corpus import build_retriever
 from code_reviewer.infrastructure.tools import Workspace, set_retriever, set_workspace
 
@@ -132,13 +132,14 @@ def _agent_totals(reviewer) -> dict[str, tuple[int, int, int]]:
     }
 
 
-def run(args) -> int:
-    """Builds the workflow for one run and returns its exit code."""
-    logger.info(
-        "Starting review",
-        extra={"fields": {"project": args.project_id, "merge_request": args.mr_iid}},
-    )
+def build_review_service(args, tracer=None) -> tuple[ReviewService, Reviewer]:
+    """Assembles the workflow from the arguments, and returns it with its reviewer.
 
+    Extracted so the HTTP service builds exactly what the command line builds
+    (Level 18). The reviewer comes back alongside because the metrics export
+    asks it for its per-agent totals, and only the composition root knows
+    whether there is a committee to ask.
+    """
     policy = load_policy(args.policy)
     logger.info("Policy in effect", extra={"fields": {"version": policy.version}})
 
@@ -168,9 +169,11 @@ def run(args) -> int:
 
     # One recorder for the run: handed to the workflow and the agents, and
     # set as the ambient one so the tool layer and the log filter can reach it
-    # (Level 16, decision D-3).
-    tracer = SpanRecorder(trace_id=f"{args.project_id}-{args.mr_iid}")
-    set_tracer(tracer)
+    # (Level 16, decision D-3). Under the service the worker sets its own, one
+    # per job, so an injected tracer wins.
+    if tracer is None:
+        tracer = SpanRecorder(trace_id=f"{getattr(args, 'project_id', '')}-{getattr(args, 'mr_iid', '')}")
+        set_tracer(tracer)
 
     reviewer = _build_reviewer(args, tracer)
 
@@ -188,6 +191,18 @@ def run(args) -> int:
         memory=memory,
         tracer=tracer,
     )
+    return service, reviewer
+
+
+def run(args) -> int:
+    """Builds the workflow for one run and returns its exit code."""
+    logger.info(
+        "Starting review",
+        extra={"fields": {"project": args.project_id, "merge_request": args.mr_iid}},
+    )
+
+    service, reviewer = build_review_service(args)
+    tracer = get_tracer()
 
     result = service.review(args.project_id, args.mr_iid, publish=not args.dry_run)
 

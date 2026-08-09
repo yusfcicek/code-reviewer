@@ -235,10 +235,15 @@ class TestNoPrints(unittest.TestCase):
             if STDOUT_MARKER in line and "print(" in line
         )
 
-        # Two entry points, and only entry points: `__main__` prints the review
-        # under `--dry-run`, and `evaluate` prints the evaluation report and
-        # the two reasons it could not be produced. Everything below them logs.
-        self.assertEqual(marked, ["__main__.py", "evaluate.py", "evaluate.py", "evaluate.py"], marked)
+        # Three entry points, and only entry points: `__main__` prints the
+        # review under `--dry-run`, `evaluate` prints the evaluation report and
+        # the two reasons it could not be produced, and `serve` prints the one
+        # reason it refuses to start. Everything below them logs.
+        self.assertEqual(
+            marked,
+            ["__main__.py", "evaluate.py", "evaluate.py", "evaluate.py", "serve.py"],
+            marked,
+        )
 
 
 if __name__ == "__main__":
