@@ -27,6 +27,7 @@ nobody records is a signal nobody acts on.
 
 import fnmatch
 import os
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,6 +149,11 @@ class Workspace(AccessAuditor):
 
         self.audit_log: list[AccessRecord] = []
         self._bytes_read = 0
+        # The budget is checked and then spent, and since Level 17 two
+        # specialists can reach this object at once. Without the lock, two
+        # reads that each fit under the ceiling can both pass the check and
+        # then both spend — which is how a budget is exceeded by a file.
+        self._budget_lock = threading.Lock()
 
     @classmethod
     def from_environment(
@@ -275,15 +281,16 @@ class Workspace(AccessAuditor):
         if truncated:
             data = data[: self.max_file_bytes]
 
-        if self._bytes_read + len(data) > self.total_read_budget_bytes:
-            raise self._refuse(
-                str(path),
-                f"The review's total read budget of {self.total_read_budget_bytes} bytes is "
-                f"exhausted ({self._bytes_read} already read). No further files can be read.",
-            )
+        with self._budget_lock:
+            if self._bytes_read + len(data) > self.total_read_budget_bytes:
+                raise self._refuse(
+                    str(path),
+                    f"The review's total read budget of {self.total_read_budget_bytes} bytes is "
+                    f"exhausted ({self._bytes_read} already read). No further files can be read.",
+                )
 
-        self._bytes_read += len(data)
-        self.audit_log.append(AccessRecord(path=str(path), allowed=True, size=len(data)))
+            self._bytes_read += len(data)
+            self.audit_log.append(AccessRecord(path=str(path), allowed=True, size=len(data)))
 
         text = data.decode("utf-8", errors="replace")
         if truncated:

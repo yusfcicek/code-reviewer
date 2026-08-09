@@ -7,6 +7,7 @@ compresses the least important material first — never the security or breaking
 change insights, which are the reason the memory exists.
 """
 
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -100,6 +101,10 @@ class SmartMemoryStrategy(MemoryStrategy):
         self.summary_buffer: str = ""
         self.total_tokens_used: int = 0
         self.summarization_count: int = 0
+        # One strategy is shared by the whole committee, and since Level 17 its
+        # members run at once. Appends to a list are atomic; "is it already in
+        # the list, and if not append and recount" is not.
+        self._lock = threading.Lock()
 
     def log_insight(self, insight: str):
         """
@@ -127,7 +132,13 @@ class SmartMemoryStrategy(MemoryStrategy):
         # Create insight object
         memory_insight = MemoryInsight(content=insight, priority=priority, category=category, tokens=tokens)
 
-        # Store in appropriate list
+        # Store in appropriate list. Under the lock: the membership test and
+        # the append are one decision, and the token recount reads every list.
+        with self._lock:
+            self._store(priority, insight, memory_insight)
+            self._update_token_count()
+
+    def _store(self, priority, insight: str, memory_insight) -> None:
         if priority == InsightPriority.CRITICAL:
             if insight not in [i.content for i in self.critical_insights]:
                 self.critical_insights.append(memory_insight)
@@ -140,8 +151,6 @@ class SmartMemoryStrategy(MemoryStrategy):
         else:
             if insight not in [i.content for i in self.low_insights]:
                 self.low_insights.append(memory_insight)
-
-        self._update_token_count()
 
     def add_affected_code(
         self,

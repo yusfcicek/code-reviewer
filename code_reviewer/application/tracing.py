@@ -41,6 +41,17 @@ class Tracer(ABC):
         """
 
     @abstractmethod
+    def bind(self, parent_span_id: str) -> Any:
+        """Context manager attaching this thread's spans to ``parent_span_id``.
+
+        Used by a worker: the span that submitted its work is passed in at
+        submission, because the worker's own stack is empty and knows nothing
+        about who queued it (Level 17, decision D-4). Binding to the empty
+        string is a no-op, so a caller need not branch on whether tracing is
+        on.
+        """
+
+    @abstractmethod
     def start(self, kind: SpanKind, name: str, **attributes: Any) -> str:
         """Opens a span beneath the current one."""
 
@@ -90,6 +101,10 @@ class NullTracer(Tracer):
     @contextmanager
     def span(self, kind: SpanKind, name: str, **attributes: Any) -> Iterator[str]:
         yield ""
+
+    @contextmanager
+    def bind(self, parent_span_id: str) -> Iterator[None]:
+        yield
 
     def start(self, kind: SpanKind, name: str, **attributes: Any) -> str:
         return ""
