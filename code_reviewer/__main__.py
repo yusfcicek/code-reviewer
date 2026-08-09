@@ -12,16 +12,19 @@ Usage:
 import sys
 import warnings
 
+from code_reviewer.application.orchestration_service import ReviewOrchestrator
 from code_reviewer.application.ports import Reviewer
 from code_reviewer.application.project_memory import ProjectMemory
 from code_reviewer.application.review_service import ReviewService
 from code_reviewer.cli import parse_args
+from code_reviewer.domain.orchestration import Specialism
 from code_reviewer.domain.triage import ReviewTriage
 from code_reviewer.errors import ConfigurationError, ReviewError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+from code_reviewer.infrastructure.llm.specialist_agent import SpecialistAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
 from code_reviewer.infrastructure.memory.json_store import DEFAULT_MEMORY_FILENAME, JsonMemoryStore
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
@@ -64,23 +67,21 @@ class _NoNarration(Reviewer):
     a shorter report.
     """
 
-    def review_diff(
-        self,
-        filename,
-        diff_content,
-        full_file_content=None,
-        other_files=None,
-        related=None,
-        recollections=None,
-    ) -> str:
+    def review_diff(self, brief) -> str:
         return (
             "_Narration was not requested (`--no-llm`). The verdict below comes "
             "from static analysis, which is where it always comes from._"
         )
 
 
-def _export_metrics(result, project_id, merge_request_iid, metrics_path: str) -> None:
-    """Translates the workflow's facts into the exporter's format."""
+def _export_metrics(result, project_id, merge_request_iid, metrics_path: str, reviewer=None) -> None:
+    """Translates the workflow's facts into the exporter's format.
+
+    ``reviewer`` is read for per-agent totals when it has them. Asked of the
+    object rather than threaded through `ReviewService`, because how many
+    agents produced a review is the reviewer's business and the workflow is
+    deliberately unaware of it (Level 15, decision D-1).
+    """
     collector = MetricsCollector()
     for metric in result.metrics:
         collector.record(
@@ -97,7 +98,18 @@ def _export_metrics(result, project_id, merge_request_iid, metrics_path: str) ->
                 recurring_findings=metric.recurring_findings,
             )
         )
-    collector.export_gitlab_metrics(metrics_path)
+    collector.export_gitlab_metrics(metrics_path, agents=_agent_totals(reviewer))
+
+
+def _agent_totals(reviewer) -> dict[str, tuple[int, int, int]]:
+    """Runs, failures and tool calls per specialist, or nothing."""
+    totals = getattr(reviewer, "agent_totals", None)
+    if not totals:
+        return {}
+    return {
+        specialism.value: (total.runs, total.failures, total.tool_calls)
+        for specialism, total in totals.items()
+    }
 
 
 def run(args) -> int:
@@ -134,9 +146,11 @@ def run(args) -> int:
     # nothing it says reaches the gate (Level 14, decision D-4).
     memory = _build_memory(args, workspace)
 
+    reviewer = _build_reviewer(args)
+
     service = ReviewService(
         forge=GitLabForge(),
-        reviewer=_build_reviewer(args),
+        reviewer=reviewer,
         triage=ReviewTriage(policy),
         policy=policy,
         analysis=StaticAnalysisSuite(policy),
@@ -164,7 +178,7 @@ def run(args) -> int:
     else:
         logger.info("Nothing to review; no comment posted")
 
-    _export_metrics(result, args.project_id, args.mr_iid, args.metrics_path)
+    _export_metrics(result, args.project_id, args.mr_iid, args.metrics_path, reviewer)
     logger.info("Metrics exported", extra={"fields": {"path": args.metrics_path}})
 
     if result.outcome.is_blocking:
@@ -187,7 +201,22 @@ def _build_reviewer(args) -> Reviewer:
         return _NoNarration()
 
     provider = LLMFactory.create_provider("vllm")
-    return ReviewAgent(provider, SmartMemoryStrategy(provider))
+    if args.single_agent:
+        logger.info("Reviewing with one agent (--single-agent)")
+        return ReviewAgent(provider, SmartMemoryStrategy(provider))
+
+    # One memory strategy shared by the committee: a specialist that could not
+    # see what the others noticed would repeat their work, and the strategy is
+    # already what carries insight between files.
+    memory_strategy = SmartMemoryStrategy(provider)
+    orchestrator = ReviewOrchestrator(
+        {specialism: SpecialistAgent(specialism, provider, memory_strategy) for specialism in Specialism}
+    )
+    logger.info(
+        "Reviewing with a committee",
+        extra={"fields": {"agents": [specialism.value for specialism in Specialism]}},
+    )
+    return orchestrator
 
 
 def _build_memory(args, workspace) -> ProjectMemory | None:

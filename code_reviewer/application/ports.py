@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from code_reviewer.domain.evaluation import EvaluationCase
+from code_reviewer.domain.finding import Finding
+from code_reviewer.domain.orchestration import AgentReport, Assignment
 from code_reviewer.domain.recollection import Recollection
 from code_reviewer.domain.retrieval import CodeChunk, ScoredChunk, Vector
 from code_reviewer.domain.suppression import SuppressionResult
@@ -121,26 +123,63 @@ class StaticAnalysis(ABC):
         """
 
 
+@dataclass(frozen=True)
+class ReviewBrief:
+    """Everything a reviewer is given about one file.
+
+    A value object rather than seven parameters. `review_diff` had grown one
+    argument per level — the diff, the file, the siblings, the retrieved code,
+    the project's memory, and now the findings the analyzers produced — and a
+    seven-parameter signature is both unreadable and past the threshold this
+    project's own quality analyzer enforces.
+
+    It also makes the port stable: the next thing a reviewer needs is a field
+    here, not a signature change rippling through every implementation and
+    every fake.
+    """
+
+    file_path: str
+    diff: str
+    full_content: str | None = None
+    #: Everything else the merge request touched, for cross-file context.
+    other_files: tuple[str, ...] = ()
+    #: Code retrieved from elsewhere in the checkout (Level 13).
+    related: tuple[CodeChunk, ...] = ()
+    #: What previous reviews of this project recorded about this file (Level 14).
+    recollections: tuple[Recollection, ...] = ()
+    #: What the analyzers already found. The evidence an orchestrator routes on
+    #: (Level 15, decision D-2), and never the source of a verdict — that is
+    #: the gate's, from these same findings.
+    findings: tuple[Finding, ...] = ()
+
+
 class Reviewer(ABC):
     """Produces a written review for a single file's diff."""
 
     @abstractmethod
-    def review_diff(
-        self,
-        filename: str,
-        diff_content: str,
-        full_file_content: str | None = None,
-        other_files: list[str] | None = None,
-        related: list[CodeChunk] | None = None,
-        recollections: list[Recollection] | None = None,
-    ) -> str:
-        """Returns the review report for one file, as markdown.
+    def review_diff(self, brief: ReviewBrief) -> str:
+        """Returns the review report for one file, as markdown."""
 
-        ``related`` is code retrieved from elsewhere in the checkout, and
-        ``recollections`` is what previous reviews of this project remember
-        about this file. Both default to nothing, because a reviewer with
-        neither is a complete reviewer — it is what this project was for
-        twelve levels.
+
+class Specialist(ABC):
+    """One agent with one subject.
+
+    Declared separately from :class:`Reviewer` because the two answer different
+    questions: a reviewer is asked "review this file", a specialist is asked
+    "review this file *as a security problem*, with this budget". The
+    orchestrator is a `Reviewer` made of `Specialist`s, which is what keeps the
+    workflow unaware that there is more than one agent (Level 15, decision D-1).
+    """
+
+    @abstractmethod
+    def review(self, brief: ReviewBrief, assignment: Assignment) -> AgentReport:
+        """Reviews within its specialism and budget.
+
+        Returns a report rather than raising, including for its own failures:
+        one specialist falling over must cost one section and not the file
+        (contract C-4). An exception that escapes is caught by the
+        orchestrator, but an adapter that reports its own failure can say
+        something useful about it.
         """
 
 

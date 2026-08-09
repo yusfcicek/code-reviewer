@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from code_reviewer.__main__ import EXIT_BLOCKED, EXIT_OK, _NoNarration, run
-from code_reviewer.application.ports import Reviewer
+from code_reviewer.application.ports import ReviewBrief, Reviewer
 from code_reviewer.cli import parse_args
 
 
@@ -137,7 +137,7 @@ class TestNoLlm(unittest.TestCase):
 
     def test_its_output_explains_itself(self):
         """A blank section would leave a reader wondering what went wrong."""
-        text = _NoNarration().review_diff("app.py", "+ line")
+        text = _NoNarration().review_diff(ReviewBrief(file_path="app.py", diff="+ line"))
 
         self.assertIn("--no-llm", text)
         self.assertIn("static analysis", text)
@@ -155,13 +155,13 @@ class TestOperationalPaths(unittest.TestCase):
         with _Harness() as harness:
             run(_args("--metrics-path", "build/metrics.txt"))
 
-        self.assertEqual(harness.export_metrics.call_args[0][-1], "build/metrics.txt")
+        self.assertEqual(harness.export_metrics.call_args[0][3], "build/metrics.txt")
 
     def test_the_default_metrics_path_is_unchanged(self):
         with _Harness() as harness:
             run(_args())
 
-        self.assertEqual(harness.export_metrics.call_args[0][-1], "metrics.txt")
+        self.assertEqual(harness.export_metrics.call_args[0][3], "metrics.txt")
 
 
 class TestLogLevelReachesTheConfiguration(unittest.TestCase):
@@ -254,3 +254,46 @@ class TestProjectMemoryWiring(unittest.TestCase):
         memory = _build_memory(_args("--memory-path", "/tmp/elsewhere.json"), Workspace("."))
 
         self.assertEqual(str(memory._store.path), "/tmp/elsewhere.json")
+
+
+class TestCommitteeWiring(unittest.TestCase):
+    """Level 15 — one agent or four."""
+
+    def test_the_default_is_a_committee_of_every_specialism(self):
+        from code_reviewer.__main__ import _build_reviewer
+        from code_reviewer.application.orchestration_service import ReviewOrchestrator
+        from code_reviewer.domain.orchestration import Specialism
+
+        with patch("code_reviewer.__main__.LLMFactory.create_provider") as factory:
+            factory.return_value = MagicMock()
+            reviewer = _build_reviewer(_args())
+
+        self.assertIsInstance(reviewer, ReviewOrchestrator)
+        self.assertEqual(set(reviewer._specialists), set(Specialism))
+
+    def test_single_agent_builds_the_one_reviewer(self):
+        """AC-17: the behaviour of every level before this one."""
+        from code_reviewer.__main__ import _build_reviewer
+        from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+
+        with patch("code_reviewer.__main__.LLMFactory.create_provider") as factory:
+            factory.return_value = MagicMock()
+            reviewer = _build_reviewer(_args("--single-agent"))
+
+        self.assertIsInstance(reviewer, ReviewAgent)
+
+    def test_no_llm_still_wins_over_the_committee(self):
+        from code_reviewer.__main__ import _build_reviewer, _NoNarration
+
+        self.assertIsInstance(_build_reviewer(_args("--no-llm")), _NoNarration)
+
+    def test_agent_totals_are_read_off_a_committee_and_absent_otherwise(self):
+        from code_reviewer.__main__ import _agent_totals
+        from code_reviewer.application.orchestration_service import AgentTotals
+        from code_reviewer.domain.orchestration import Specialism
+
+        committee = MagicMock()
+        committee.agent_totals = {Specialism.SECURITY: AgentTotals(runs=2, failures=1, tool_calls=7)}
+
+        self.assertEqual(_agent_totals(committee), {"security": (2, 1, 7)})
+        self.assertEqual(_agent_totals(object()), {})

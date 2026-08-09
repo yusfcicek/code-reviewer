@@ -58,16 +58,8 @@ class RecordingReviewer(Reviewer):
     def __init__(self):
         self.recollections_seen: list | None = None
 
-    def review_diff(
-        self,
-        filename,
-        diff_content,
-        full_file_content=None,
-        other_files=None,
-        related=None,
-        recollections=None,
-    ):
-        self.recollections_seen = recollections
+    def review_diff(self, brief):
+        self.recollections_seen = list(brief.recollections)
         return "## Review\nA concatenated query."
 
 

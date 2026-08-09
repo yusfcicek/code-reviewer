@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.tools import StructuredTool
 
-from code_reviewer.application.ports import LLMProvider, MemoryStrategy
+from code_reviewer.application.ports import LLMProvider, MemoryStrategy, ReviewBrief
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent, render_tool_catalogue
 
 
@@ -87,7 +87,7 @@ class TestPromptAssembly(unittest.TestCase):
         self.agent.loop = MagicMock()
         self.agent.loop.run.return_value = "done"
 
-        self.agent.review_diff("app.py", "+ line")
+        self.agent.review_diff(ReviewBrief(file_path="app.py", diff="+ line"))
 
         messages = self.agent.loop.run.call_args[0][0]
         rendered = "\n".join(str(m.content) for m in messages)
@@ -122,7 +122,7 @@ class TestTrustBoundary(unittest.TestCase):
 
     def _prompt_for(self, diff, content=None):
         """The whole conversation, system messages included."""
-        self.agent.review_diff("app.py", diff, full_file_content=content)
+        self.agent.review_diff(ReviewBrief(file_path="app.py", diff=diff, full_content=content))
         messages = self.agent.loop.run.call_args[0][0]
         return "\n".join(str(message.content) for message in messages)
 
@@ -132,7 +132,7 @@ class TestTrustBoundary(unittest.TestCase):
         Counting tags across the whole conversation would count the system
         prompt's own mention of them, which is not what is being asserted.
         """
-        self.agent.review_diff("app.py", diff, full_file_content=content)
+        self.agent.review_diff(ReviewBrief(file_path="app.py", diff=diff, full_content=content))
         messages = self.agent.loop.run.call_args[0][0]
         return str(messages[-1].content)
 
