@@ -72,6 +72,13 @@ jobs:
           path: evaluation-summary.json
           if-no-files-found: ignore
 
+      # The image is built, not pushed. Where it goes and what deploys it are
+      # decisions belonging to whoever operates it; that it *builds* is a
+      # property of this repository (Level 19).
+      - name: Build the container image
+        if: '!cancelled()'
+        run: docker build --tag ai-code-review:ci .
+
       - name: Upload coverage
         if: '!cancelled()'
         uses: actions/upload-artifact@v4
