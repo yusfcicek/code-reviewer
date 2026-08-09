@@ -18,7 +18,7 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 
-from code_reviewer.application.ports import MemoryStrategy
+from code_reviewer.application.ports import MemoryStrategy, ReviewBrief
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from tests.fakes import ScriptedChatModel, hermes_call
 
@@ -74,22 +74,22 @@ class TestHermesDialect(unittest.TestCase):
         )
 
     def test_the_tool_call_reaches_the_tool(self):
-        self.agent.review_diff("src/app.py", "+ changed line")
+        self.agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertEqual(CALLS, [("src/app.py",)])
 
     def test_the_loop_returns_the_models_final_answer(self):
-        output = self.agent.review_diff("src/app.py", "+ changed line")
+        output = self.agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertIn("Architectural Review Summary", output)
 
     def test_the_review_is_saved_to_memory(self):
-        self.agent.review_diff("src/app.py", "+ changed line")
+        self.agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.memory.save_context.assert_called_once()
 
     def test_the_tools_are_offered_in_the_prompt_rather_than_bound(self):
-        self.agent.review_diff("src/app.py", "+ changed line")
+        self.agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertIsNone(self.model.bound_tools)
         first_turn = "\n".join(str(m.content) for m in self.model.calls[0])
@@ -111,12 +111,12 @@ class TestNativeDialect(unittest.TestCase):
         self.assertEqual([tool.name for tool in self.model.bound_tools], ["sample_probe", "sample_search"])
 
     def test_the_tool_call_reaches_the_tool(self):
-        self.agent.review_diff("src/app.py", "+ changed line")
+        self.agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertEqual(CALLS, [("src/app.py",)])
 
     def test_the_loop_returns_the_models_final_answer(self):
-        output = self.agent.review_diff("src/app.py", "+ changed line")
+        output = self.agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertIn("Architectural Review Summary", output)
 
@@ -138,7 +138,7 @@ class TestMultiArgumentCalls(unittest.TestCase):
             "hermes",
         )
 
-        agent.review_diff("src/app.py", "+ changed line")
+        agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertEqual(CALLS, [("handle_request", "src/")])
 
@@ -155,7 +155,7 @@ class TestMultiArgumentCalls(unittest.TestCase):
         )
         agent, _, _ = _build_agent([call, FINAL_ANSWER], "native")
 
-        agent.review_diff("src/app.py", "+ changed line")
+        agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertEqual(CALLS, [("handle_request", "src/")])
 
@@ -169,7 +169,7 @@ class TestWithoutTools(unittest.TestCase):
     def test_no_tool_is_offered_and_the_narration_still_lands(self):
         agent, model, _ = _build_agent([FINAL_ANSWER], "none")
 
-        output = agent.review_diff("src/app.py", "+ changed line")
+        output = agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         self.assertEqual(CALLS, [])
         self.assertIsNone(model.bound_tools)
@@ -178,7 +178,7 @@ class TestWithoutTools(unittest.TestCase):
     def test_the_prompt_says_there_are_no_tools(self):
         agent, model, _ = _build_agent([FINAL_ANSWER], "none")
 
-        agent.review_diff("src/app.py", "+ changed line")
+        agent.review_diff(ReviewBrief(file_path="src/app.py", diff="+ changed line"))
 
         first_turn = "\n".join(str(m.content) for m in model.calls[0]).lower()
         self.assertIn("no tools", first_turn)

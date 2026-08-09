@@ -120,6 +120,11 @@ class NarrationLoop:
         self.clock = clock or time.monotonic
         self.log = log or (lambda *args, **kwargs: None)
 
+        #: Tool calls made during the most recent `run`. Per-agent accounting
+        #: needs a number, and counting them here is the only place that knows
+        #: (Level 15, contract C-7).
+        self.last_tool_call_count = 0
+
     # -- api ----------------------------------------------------------------
 
     def run(self, messages: Sequence[BaseMessage]) -> str:
@@ -132,6 +137,7 @@ class NarrationLoop:
         conversation = list(messages)
         deadline = None if self.max_seconds is None else self.clock() + self.max_seconds
         last_text = ""
+        self.last_tool_call_count = 0
 
         for iteration in range(self.max_iterations):
             if deadline is not None and self.clock() >= deadline:
@@ -145,6 +151,7 @@ class NarrationLoop:
             if isinstance(parsed, FinalAnswer):
                 return parsed.text
 
+            self.last_tool_call_count += 1
             self.log("Tool call %d: %s", iteration + 1, parsed.name)
             observation = self._execute(parsed)
 

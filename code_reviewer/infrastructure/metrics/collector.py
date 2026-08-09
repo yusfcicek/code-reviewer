@@ -37,6 +37,9 @@ _HELP = {
     "code_review_gate_passed": ("1 when the gate passed, 0 when it failed", "gauge"),
     "code_review_duration_ms": ("Total time spent analysing, in milliseconds", "gauge"),
     "code_review_slowest_file_ms": ("Time spent on the slowest single file", "gauge"),
+    "code_review_agent_runs": ("Specialist agent invocations, by agent", "gauge"),
+    "code_review_agent_failures": ("Specialist agents that did not complete, by agent", "gauge"),
+    "code_review_agent_tool_calls": ("Tool calls made by a specialist agent, by agent", "gauge"),
     "code_review_recurring_findings": (
         "Findings this project has reported before, from its own review history",
         "gauge",
@@ -86,6 +89,10 @@ class ReviewAggregate:
     duration_ms: int = 0
     slowest_file_ms: int = 0
     recurring_findings: int = 0
+    #: Per specialist agent: runs, failures and tool calls, keyed by the
+    #: agent's name. Empty under `--single-agent`, which is the honest answer:
+    #: with one agent there is nothing to attribute (Level 15).
+    agents: dict[str, tuple[int, int, int]] = field(default_factory=dict)
 
     @property
     def total_findings(self) -> int:
@@ -143,16 +150,21 @@ class MetricsCollector:
 
         return aggregate
 
-    def export_prometheus(self) -> str:
+    def export_prometheus(self, agents: dict[str, tuple[int, int, int]] | None = None) -> str:
         """Renders the aggregate as OpenMetrics text.
 
         Each series carries ``# HELP`` and ``# TYPE``; without them GitLab's
         metrics report and most scrapers treat the file as malformed.
+
+        ``agents`` carries per-specialist totals, which are a property of the
+        reviewer rather than of any one file — so they arrive here rather than
+        being summed out of the per-file records (Level 15).
         """
         if not self._metrics:
             return ""
 
         aggregate = self.aggregate()
+        aggregate.agents = dict(agents or {})
         labels = f'project_id="{aggregate.project_id}",mr_id="{aggregate.mr_id}"'
         lines: list[str] = []
 
@@ -181,11 +193,19 @@ class MetricsCollector:
         emit("code_review_slowest_file_ms", aggregate.slowest_file_ms)
         emit("code_review_recurring_findings", aggregate.recurring_findings)
 
+        for agent, (runs, failures, tool_calls) in sorted(aggregate.agents.items()):
+            label = f'agent="{agent}"'
+            emit("code_review_agent_runs", runs, label)
+            emit("code_review_agent_failures", failures, label)
+            emit("code_review_agent_tool_calls", tool_calls, label)
+
         return "\n".join(lines)
 
-    def export_gitlab_metrics(self, file_path: str = "metrics.txt") -> None:
+    def export_gitlab_metrics(
+        self, file_path: str = "metrics.txt", agents: dict[str, tuple[int, int, int]] | None = None
+    ) -> None:
         """Writes the OpenMetrics report GitLab picks up as an artifact."""
-        content = self.export_prometheus()
+        content = self.export_prometheus(agents)
         try:
             with open(file_path, "w", encoding="utf-8") as handle:
                 handle.write(content)

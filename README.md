@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.8.0.** Rebuilt from an imported prototype across fifteen levels
+> **Status: 2.9.0.** Rebuilt from an imported prototype across sixteen levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1142 tests at 93 % coverage; lint,
+> last deferred one closed in Level 7. 1244 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -132,7 +132,33 @@ and why, naming any written without one.
   its context and nothing else
   ([ADR 0015](docs/adr/0015-retrieval-is-hybrid-local-and-untrusted.md)).
 
-### 🧾 9. A memory of this project
+### 👥 9. A committee, not one agent
+Four specialists, each with its own prompt, its own tool catalogue and its own
+share of the file's budget:
+
+| Agent | Runs when | Gets |
+|---|---|---|
+| 🏛️ **Architecture** | always — it is the generalist and owns the summary | semantic + quality tools |
+| 🔒 **Security** | a `SECURITY` finding was reported | SAST + grep |
+| ⚡ **Performance** | a `PERFORMANCE` finding was reported | the performance analyzer |
+| 🔗 **Dependency** | a `DEPENDENCY` finding, or the file is a manifest | imports, references, ripple |
+
+- **Routing is derived from the analyzers' findings**, not from a model. Two
+  conditionals make that decision correctly, reproducibly and for free.
+- **Budget is split by weight** and sums exactly to the total; security's share
+  is the largest, and the split appears in the report's footer.
+- **Tools are narrowed, not requested.** An agent told in English not to use a
+  tool sometimes uses it; one never offered it cannot.
+- **A specialist may hand off once**, with a written reason, and the depth is
+  structural — the second round runs where every request is refused. Refusals
+  are recorded in the report.
+- **One agent failing costs one section.** The rest still run, and the failure
+  is stated rather than omitted.
+- Per-agent runs, failures and tool calls reach the metrics export.
+  `--single-agent` gives you the one-call-per-file behaviour of earlier levels
+  ([ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md)).
+
+### 🧾 10. A memory of this project
 - What a review found survives it. `.review-memory.json` in the checkout holds
   what each rule has done in each file: how many times, since when, and — for a
   `review-ignore` — the reason somebody wrote.
@@ -153,7 +179,7 @@ and why, naming any written without one.
   degrades quietly to the behaviour of every earlier level, which is correct —
   and worth knowing before concluding the feature does nothing.
 
-### 🎯 10. Measured review quality
+### 🎯 11. Measured review quality
 - `ai-code-review-eval` grades the analysis suite against an annotated dataset
   (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
   and per rule.
@@ -202,6 +228,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
+| Multi-agent orchestration | ✅ Works | Four specialists routed from findings, budget split by weight, one bounded handoff, deterministic composition, per-agent accounting; the verdict is unchanged |
 
 Every gap the variant comparison found is closed. What the levels did, and
 what each one found while doing it, is in
@@ -500,7 +527,7 @@ CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-1142 tests, 93 % coverage with an enforced floor of 91 %. The dependency
+1244 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -524,7 +551,8 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── outcome.py           merge-request-level verdict
 │   │   ├── evaluation.py        grading findings against a case
 │   │   ├── retrieval.py         chunks, rank fusion, marginal relevance
-│   │   └── recollection.py      what past reviews remember, and forget
+│   │   ├── recollection.py      what past reviews remember, and forget
+│   │   └── orchestration.py     who reviews what, for how much, in what order
 │   ├── application/             the workflow and the ports it needs
 │   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer, EvaluationDataset
 │   │   ├── review_service.py    the use case
@@ -532,14 +560,15 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── evaluation_service.py  grading the suite against a dataset
 │   │   ├── evaluation_report.py   the run, as markdown and as JSON
 │   │   ├── retrieval_service.py   the hybrid retriever
-│   │   └── project_memory.py      recall, observe, persist
+│   │   ├── project_memory.py      recall, observe, persist
+│   │   └── orchestration_service.py  the committee, as one Reviewer
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
 │   │   ├── evaluation/          the dataset loader
 │   │   ├── retrieval/           chunking, BM25, embedding, vector index, corpus
 │   │   ├── forge/               GitLab client and CodeForge adapter
-│   │   ├── llm/                 vLLM provider, review agent, tool loop, token counting
+│   │   ├── llm/                 vLLM provider, review agent, specialists, tool loop
 │   │   ├── memory/              SmartMemoryStrategy, and the project history store
 │   │   ├── metrics/             Prometheus / GitLab exporter
 │   │   ├── security/            secret redaction on the way out
@@ -568,7 +597,7 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Sixteen decision records: what was decided, why, and what it costs |
+| [docs/adr/](docs/adr/README.md) | Seventeen decision records: what was decided, why, and what it costs |
 | [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |

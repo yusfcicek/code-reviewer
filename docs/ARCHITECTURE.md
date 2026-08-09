@@ -30,6 +30,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `evaluation.py` | Whether a produced finding *is* the expected one, and the confusion matrix that follows. Beside `gate.py` because both turn findings into a verdict. |
 | `retrieval.py` | `CodeChunk`, rank fusion, maximal marginal relevance, cosine. The arithmetic of choosing evidence; building the index is an adapter's job. |
 | `recollection.py` | What a project's reviews remember: identity, consolidation, salience with a half-life, forgetting, and recall scoped to a path. |
+| `orchestration.py` | Who reviews a file, for how much, in what order, and what may be handed on. Routing, the budget split, composition and the handoff rule — all pure. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
 
@@ -44,6 +45,7 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `evaluation_report.py` | The evaluation run, as markdown and as JSON. |
 | `retrieval_service.py` | `HybridRetriever`: two searches, fused and diversified, and what happens when one of them fails. |
 | `project_memory.py` | `ProjectMemory`: recall before the run, observe during it, persist after. |
+| `orchestration_service.py` | `ReviewOrchestrator`: a committee of specialists presented to the workflow as one `Reviewer`. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -69,7 +71,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | Port | Adapter | Substituting it means |
 |---|---|---|
 | `CodeForge` | `GitLabForge` | Supporting GitHub is a sibling module and nothing else |
-| `Reviewer` | `ReviewAgent` | A different model, or a rule-only review |
+| `Reviewer` | `ReviewAgent`, `ReviewOrchestrator` | A different model, a rule-only review, or a committee — the workflow cannot tell |
 | `StaticAnalysis` | `StaticAnalysisSuite` | A language-specific suite |
 | `LLMProvider` | `VLLMProvider` | Any OpenAI-compatible endpoint |
 | `MemoryStrategy` | `SmartMemoryStrategy` | A different compression policy |
@@ -79,6 +81,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `VectorIndex` | `InMemoryVectorIndex` | Qdrant, or any approximate index, above ~10⁵ vectors |
 | `CodeRetriever` | `HybridRetriever` | A different retrieval strategy entirely; the workflow knows one method |
 | `MemoryStore` | `JsonMemoryStore` | A durable store, if a team wants its history off the checkout |
+| `Specialist` | `SpecialistAgent` | A different agent per subject — a hosted assistant, a rule-only pass |
 
 ## The path of one review
 
@@ -153,6 +156,42 @@ still a prompt ([ADR 0015](adr/0015-retrieval-is-hybrid-local-and-untrusted.md))
 **Retrieved code is untrusted.** It sits in the checkout, and the checkout is
 what the merge request changed. Same trust boundary, same escaping, same
 declaration in the system prompt.
+
+## The path of one committee
+
+```
+  ReviewService                     one question: "review this file"
+    │
+    ▼
+  ReviewOrchestrator.review_diff(brief)      ← a Reviewer, like any other
+    │
+    ├─► plan_assignments(findings, is_manifest)   pure: who this file warrants
+    ├─► split_budget(total - reserve, plan)       pure: weighted, sums exactly
+    │
+    ├─► for each specialism, in order:
+    │     └─► Specialist.review(brief, assignment)
+    │           ├─ narrowed tool catalogue
+    │           ├─ its own system prompt, with the shared trust boundary
+    │           └─ budget → iteration cap
+    │
+    ├─► accept_handoffs(requests, ran, depth=0)   pure: at most one round
+    │     └─► the accepted, on the reserve, at depth 1 — where all are refused
+    │
+    └─► compose(reports) + footer                 fixed order, attributed
+```
+
+Three properties are deliberate.
+
+**The workflow does not know.** `ReviewService` calls a `Reviewer`; whether one
+model or five answered is the reviewer's business
+([ADR 0017](adr/0017-an-orchestrator-of-specialists-not-a-framework.md)).
+
+**Nothing here reaches the gate.** The analyzers ran before any agent, and the
+verdict is theirs ([ADR 0004](adr/0004-findings-drive-the-gate.md)). Four
+narrators change what the report says, not what the pipeline does.
+
+**One failure costs one section.** A specialist that raises is recorded, stated
+in the report, and the rest still run.
 
 ## The path of one memory
 

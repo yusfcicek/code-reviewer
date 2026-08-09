@@ -24,6 +24,7 @@ from .ports import (
     CodeRetriever,
     FileChange,
     MergeRequestRef,
+    ReviewBrief,
     Reviewer,
     StaticAnalysis,
 )
@@ -233,12 +234,17 @@ class ReviewService:
             violations_before = self._violation_count()
 
             review_text = self._reviewer.review_diff(
-                change.path,
-                change.diff,
-                full_content,
-                other_files=sibling_paths,
-                related=self._retrieve(change),
-                recollections=self._recall(change.path),
+                ReviewBrief(
+                    file_path=change.path,
+                    diff=change.diff,
+                    full_content=full_content,
+                    other_files=tuple(sibling_paths),
+                    related=tuple(self._retrieve(change)),
+                    recollections=tuple(self._recall(change.path)),
+                    # The evidence an orchestrator routes on. The gate reads
+                    # the same list, and only the gate turns it into a verdict.
+                    findings=tuple(findings or ()),
+                )
             )
 
             refusals = self._refusal_findings(change.path, violations_before)

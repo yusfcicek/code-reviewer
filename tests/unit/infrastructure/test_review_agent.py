@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.tools import StructuredTool
 
-from code_reviewer.application.ports import LLMProvider, MemoryStrategy
+from code_reviewer.application.ports import LLMProvider, MemoryStrategy, ReviewBrief
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from tests.fakes import BoundScriptedModel, ScriptedChatModel
 
@@ -56,7 +56,7 @@ class TestReviewAgent(unittest.TestCase):
     def test_review_diff_basic(self):
         self.mock_memory.load_context.return_value = "Existing Context"
 
-        output = self.agent.review_diff("test.py", "+ change")
+        output = self.agent.review_diff(ReviewBrief(file_path="test.py", diff="+ change"))
 
         self.mock_memory.load_context.assert_called()
         self.agent.loop.run.assert_called_once()
@@ -71,7 +71,13 @@ class TestReviewAgent(unittest.TestCase):
     def test_review_diff_with_context_files(self):
         self.mock_memory.load_context.return_value = ""
 
-        self.agent.review_diff("test.py", "+ diff", other_files=["test.py", "other_file.py", "README.md"])
+        self.agent.review_diff(
+            ReviewBrief(
+                file_path="test.py",
+                diff="+ diff",
+                other_files=("test.py", "other_file.py", "README.md"),
+            )
+        )
 
         prompt = self._prompt_text()
         self.assertIn("CONTEXT: The following files are ALSO modified in this MR:", prompt)
@@ -84,7 +90,7 @@ class TestReviewAgent(unittest.TestCase):
         self.mock_memory.load_context.return_value = ""
         self.agent.loop.run.return_value = "Review...\nADD_MEMORY: [RISK] Risk found\n...More review"
 
-        self.agent.review_diff("test.py", "+ diff")
+        self.agent.review_diff(ReviewBrief(file_path="test.py", diff="+ diff"))
 
         self.mock_memory.log_insight.assert_any_call("[RISK] Risk found")
 
@@ -93,7 +99,7 @@ class TestReviewAgent(unittest.TestCase):
             tools.get_file_imports.return_value = ["import os", "import sys"]
             tools.find_references.return_value = "No references"
 
-            self.agent.review_diff("test.py", "diff")
+            self.agent.review_diff(ReviewBrief(file_path="test.py", diff="diff"))
 
             self.mock_memory.log_insight.assert_any_call(
                 "ADD_MEMORY: [DEPENDENCY] test.py DEPENDS ON:\n['import os', 'import sys']"
@@ -104,14 +110,14 @@ class TestReviewAgent(unittest.TestCase):
         result overwritten unused before it could reach the prompt."""
         self.mock_memory.load_context.return_value = ""
 
-        self.agent.review_diff("test.py", "+ diff")
+        self.agent.review_diff(ReviewBrief(file_path="test.py", diff="+ diff"))
 
         self.assertEqual(self.mock_memory.load_context.call_count, 1)
 
     def test_the_review_is_saved_to_memory(self):
         self.mock_memory.load_context.return_value = ""
 
-        self.agent.review_diff("test.py", "+ diff")
+        self.agent.review_diff(ReviewBrief(file_path="test.py", diff="+ diff"))
 
         self.mock_memory.save_context.assert_called_once()
 
@@ -230,7 +236,7 @@ class TestOutputIsRedacted(unittest.TestCase):
         agent = _agent(self.provider, self.memory, **kwargs)
         agent.loop = MagicMock()
         agent.loop.run.return_value = text
-        return agent.review_diff("app.py", "+ line")
+        return agent.review_diff(ReviewBrief(file_path="app.py", diff="+ line"))
 
     def test_a_secret_the_model_quoted_does_not_reach_the_caller(self):
         output = self._review_returning("The file contains AKIAIOSFODNN7EXAMPLE, which is a key.")
