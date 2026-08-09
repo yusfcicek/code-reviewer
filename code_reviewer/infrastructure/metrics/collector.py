@@ -37,6 +37,10 @@ _HELP = {
     "code_review_gate_passed": ("1 when the gate passed, 0 when it failed", "gauge"),
     "code_review_duration_ms": ("Total time spent analysing, in milliseconds", "gauge"),
     "code_review_slowest_file_ms": ("Time spent on the slowest single file", "gauge"),
+    "code_review_recurring_findings": (
+        "Findings this project has reported before, from its own review history",
+        "gauge",
+    ),
 }
 
 
@@ -59,6 +63,11 @@ class ReviewMetrics:
     #: Counts keyed by severity value, from the findings the workflow recorded.
     findings_by_severity: dict[str, int] = field(default_factory=dict)
 
+    #: How many of this file's findings previous reviews had already reported.
+    #: Zero without a project memory, which is also the honest answer: with no
+    #: history, nothing is known to recur (Level 14).
+    recurring_findings: int = 0
+
     duration_ms: int = 0
 
 
@@ -76,6 +85,7 @@ class ReviewAggregate:
     quality_score: int | None = None
     duration_ms: int = 0
     slowest_file_ms: int = 0
+    recurring_findings: int = 0
 
     @property
     def total_findings(self) -> int:
@@ -111,6 +121,7 @@ class MetricsCollector:
             aggregate.lines_analyzed += metric.lines_analyzed
             aggregate.duration_ms += metric.duration_ms
             aggregate.slowest_file_ms = max(aggregate.slowest_file_ms, metric.duration_ms)
+            aggregate.recurring_findings += metric.recurring_findings
 
             for decision, count in metric.triage_decisions.items():
                 aggregate.triage_decisions[decision] = aggregate.triage_decisions.get(decision, 0) + count
@@ -168,6 +179,7 @@ class MetricsCollector:
         emit("code_review_gate_passed", 1 if aggregate.gate_result != "fail" else 0)
         emit("code_review_duration_ms", aggregate.duration_ms)
         emit("code_review_slowest_file_ms", aggregate.slowest_file_ms)
+        emit("code_review_recurring_findings", aggregate.recurring_findings)
 
         return "\n".join(lines)
 

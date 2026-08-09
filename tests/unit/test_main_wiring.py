@@ -223,3 +223,34 @@ class TestLogLevelReachesTheConfiguration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProjectMemoryWiring(unittest.TestCase):
+    """Level 14 — the switches around the review history."""
+
+    def test_memory_is_built_by_default_inside_the_workspace(self):
+        from code_reviewer.__main__ import _build_memory
+        from code_reviewer.infrastructure.memory.json_store import DEFAULT_MEMORY_FILENAME
+        from code_reviewer.infrastructure.tools import Workspace
+
+        workspace = Workspace(".")
+
+        memory = _build_memory(_args(), workspace)
+
+        self.assertIsNotNone(memory)
+        self.assertTrue(str(memory._store.path).endswith(DEFAULT_MEMORY_FILENAME))
+
+    def test_no_memory_builds_nothing(self):
+        """AC-17: the Level 13 behaviour, exactly."""
+        from code_reviewer.__main__ import _build_memory
+        from code_reviewer.infrastructure.tools import Workspace
+
+        self.assertIsNone(_build_memory(_args("--no-memory"), Workspace(".")))
+
+    def test_memory_path_overrides_the_default(self):
+        from code_reviewer.__main__ import _build_memory
+        from code_reviewer.infrastructure.tools import Workspace
+
+        memory = _build_memory(_args("--memory-path", "/tmp/elsewhere.json"), Workspace("."))
+
+        self.assertEqual(str(memory._store.path), "/tmp/elsewhere.json")

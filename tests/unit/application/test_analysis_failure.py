@@ -60,7 +60,15 @@ class _Reviewer(Reviewer):
     def __init__(self, error=None):
         self.error = error
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None, related=None):
+    def review_diff(
+        self,
+        filename,
+        diff_content,
+        full_file_content=None,
+        other_files=None,
+        related=None,
+        recollections=None,
+    ):
         if self.error is not None:
             raise self.error
         return "# Review\nLooks fine."

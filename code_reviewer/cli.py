@@ -86,6 +86,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--memory-path",
+        type=str,
+        default=_env("REVIEW_MEMORY_PATH", ""),
+        help=(
+            "Where this project's review history is kept. Defaults to "
+            ".review-memory.json inside the workspace."
+        ),
+    )
+    parser.add_argument(
+        "--no-memory",
+        action="store_true",
+        help=(
+            "Review without the project's history, and record nothing. The "
+            "verdict is unchanged either way: memory informs, it never decides."
+        ),
+    )
+    parser.add_argument(
         "--no-llm",
         action="store_true",
         help=(

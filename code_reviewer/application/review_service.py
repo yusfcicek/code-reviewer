@@ -27,6 +27,7 @@ from .ports import (
     Reviewer,
     StaticAnalysis,
 )
+from .project_memory import ProjectMemory
 from .report import render_review_comment
 from .retrieval_service import query_from_change
 
@@ -55,6 +56,8 @@ class FileMetric:
     lines_analyzed: int
     duration_ms: int = 0
     findings_by_severity: dict = field(default_factory=dict)
+    #: How many of this file's findings the project had already reported.
+    recurring_findings: int = 0
 
 
 @dataclass
@@ -82,6 +85,7 @@ class ReviewService:
         access_auditor: AccessAuditor | None = None,
         retriever: CodeRetriever | None = None,
         related_limit: int = 4,
+        memory: ProjectMemory | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -99,6 +103,9 @@ class ReviewService:
         # to the prompt, never a precondition for reviewing (Level 13, D-5).
         self._retriever = retriever
         self._related_limit = related_limit
+        # Optional, and informational when present: nothing a memory says
+        # reaches the gate (Level 14, decision D-4).
+        self._memory = memory
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
@@ -151,9 +158,19 @@ class ReviewService:
             result.findings.extend(findings or [])
 
         if sections:
-            result.comment = render_review_comment(self._policy.version, outcome, sections, result.findings)
+            result.comment = render_review_comment(
+                self._policy.version,
+                outcome,
+                sections,
+                result.findings,
+                recurring=self._recurring(result.findings),
+            )
             if publish:
                 self._forge.publish_comment(reference, result.comment)
+
+        # After the comment is built, so what this run found does not turn
+        # itself into its own history.
+        self._remember(outcome, result.findings)
 
         result.exit_code = outcome.exit_code(self._policy)
         return result
@@ -221,6 +238,7 @@ class ReviewService:
                 full_content,
                 other_files=sibling_paths,
                 related=self._retrieve(change),
+                recollections=self._recall(change.path),
             )
 
             refusals = self._refusal_findings(change.path, violations_before)
@@ -246,6 +264,7 @@ class ReviewService:
                 for severity, count in Finding.count_by_severity(findings or []).items()
                 if count
             },
+            recurring_findings=len(self._recurring(findings or [])),
         )
         return section, metric, findings or []
 
@@ -273,6 +292,45 @@ class ReviewService:
                 extra={"fields": {"path": change.path, "error": str(exc)}},
             )
             return []
+
+    def _recall(self, file_path: str) -> list:
+        """What previous reviews recorded about this file, or nothing."""
+        if self._memory is None:
+            return []
+        try:
+            return list(self._memory.recall(file_path))
+        except Exception as exc:  # pragma: no cover - ProjectMemory swallows its own
+            logger.warning(
+                "Recall failed; reviewing without project memory",
+                extra={"fields": {"path": file_path, "error": str(exc)}},
+            )
+            return []
+
+    def _recurring(self, findings: list[Finding]) -> dict:
+        """Findings this project has reported before, keyed by file and rule."""
+        if self._memory is None:
+            return {}
+
+        recurring = {}
+        for finding in findings:
+            remembered = self._memory.recurrence_of(finding)
+            if remembered is not None:
+                recurring[(finding.file_path, finding.rule_id)] = remembered
+        return recurring
+
+    def _remember(self, outcome: ReviewOutcome, findings: list[Finding]) -> None:
+        """Adds what this run saw to the project's memory.
+
+        Never raises, and never changes anything already decided: the comment
+        is rendered and the exit code is computed from the findings alone.
+        """
+        if self._memory is None:
+            return
+
+        self._memory.observe_findings(findings)
+        for file_path, item in outcome.suppressions:
+            self._memory.observe_suppressions(file_path, [item])
+        self._memory.persist()
 
     def _violation_count(self) -> int:
         """How many refusals the auditor has seen so far, or zero without one."""
