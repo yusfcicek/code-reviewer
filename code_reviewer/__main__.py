@@ -12,10 +12,13 @@ Usage:
 import sys
 import warnings
 
+from code_reviewer.application.documentation_service import DocumentationService
+from code_reviewer.application.drift_service import DriftService
 from code_reviewer.application.governance import DecisionRecorder
 from code_reviewer.application.orchestration_service import ReviewOrchestrator
 from code_reviewer.application.ports import Reviewer
 from code_reviewer.application.project_memory import ProjectMemory
+from code_reviewer.application.retrieval_service import HybridRetriever
 from code_reviewer.application.review_service import ReviewService
 from code_reviewer.application.tasks import SequentialRunner, TaskRunner
 from code_reviewer.cli import parse_args
@@ -25,9 +28,11 @@ from code_reviewer.errors import ConfigurationError, ReviewError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.concurrency.thread_pool import ThreadPoolRunner
 from code_reviewer.infrastructure.config.loader import load_policy
+from code_reviewer.infrastructure.documentation.workspace import build_symbol_index, collect_documents
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.governance.identity import build_run_identity
 from code_reviewer.infrastructure.governance.json_sink import JsonAuditSink
+from code_reviewer.infrastructure.llm.drift_judge import ModelDriftJudge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.specialist_agent import SpecialistAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
@@ -37,8 +42,9 @@ from code_reviewer.infrastructure.metrics.collector import MetricsCollector, Rev
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
 from code_reviewer.infrastructure.observability.trace_rendering import JsonTraceExporter, render_trace_tree
 from code_reviewer.infrastructure.observability.tracer import SpanRecorder, get_tracer, set_tracer
+from code_reviewer.infrastructure.retrieval.chunking import chunk_markdown
 from code_reviewer.infrastructure.retrieval.corpus import build_retriever
-from code_reviewer.infrastructure.tools import Workspace, set_retriever, set_workspace
+from code_reviewer.infrastructure.tools import Workspace, get_retriever, set_retriever, set_workspace
 
 #: Exit codes. The split exists because "the gate blocked the merge request"
 #: and "the agent fell over" both used to be `1`, so no pipeline could tell
@@ -178,12 +184,22 @@ def build_review_service(args, tracer=None) -> tuple[ReviewService, Reviewer]:
         tracer = SpanRecorder(trace_id=f"{getattr(args, 'project_id', '')}-{getattr(args, 'mr_iid', '')}")
         set_tracer(tracer)
 
-    reviewer = _build_reviewer(args, tracer)
+    # One provider per run, shared by the narrator and by Level 23's judge.
+    # Two would be two connections, two token budgets and — the reason a test
+    # pins it — two answers to "which model produced this review".
+    provider = None if args.no_llm else LLMFactory.create_provider("vllm")
+    reviewer = _build_reviewer(args, tracer, provider)
 
     # What this run decided, and under which versions. Written only where an
     # operator asked for it: a file appearing beside a checkout because a tool
     # was run is a surprise, and this one names merge requests (Level 20, D-7).
     recorder = _build_recorder(args, policy)
+
+    # Level 23. Both tiers are optional and neither can block: they emit at or
+    # below Severity.LOW, and the attribution table registers the retrieved one
+    # as an agent. A checkout that yields no symbol index turns the first off
+    # and says so in the report; a run with no reviewer turns the second off.
+    documentation, drift = _build_documentation(args, provider)
 
     service = ReviewService(
         forge=GitLabForge(),
@@ -202,8 +218,45 @@ def build_review_service(args, tracer=None) -> tuple[ReviewService, Reviewer]:
         # Proposals, never applications: the flag turns off the offering, and
         # there has never been anything that applies one (Level 22).
         suggest_fixes=not getattr(args, "no_suggestions", False),
+        documentation=documentation,
+        drift=drift,
     )
     return service, reviewer
+
+
+def _build_documentation(args, provider=None):
+    """The two documentation tiers, or nothing when they cannot be built.
+
+    Best-effort throughout, for the reason Level 13 gave about retrieval: this
+    is an improvement to a report, never a precondition for producing one. A
+    tree that will not index, a directory that is not there, an LLM provider
+    that cannot be reached — each costs its own tier and leaves the review
+    otherwise identical.
+    """
+    if getattr(args, "no_documentation", False):
+        return None, None
+
+    try:
+        index = build_symbol_index(args.repo_root)
+        documents = collect_documents(args.repo_root)
+    except Exception as error:  # pragma: no cover - defensive, the builders log their own
+        logger.warning("Documentation check unavailable: %s", error)
+        return None, None
+
+    documentation = DocumentationService(index=index, documents=documents)
+
+    retriever = get_retriever()
+    if provider is None or not isinstance(retriever, HybridRetriever) or not documents:
+        # No model, no index, or no prose: the retrieved tier has nothing to
+        # ask or nothing to ask about. The deterministic one still runs.
+        return documentation, None
+
+    # The documents join the corpus the code already occupies. One index, as
+    # Level 23's non-goals require — a second retrieval path would be a second
+    # thing to keep correct.
+    retriever.index([chunk for path, text in documents for chunk in chunk_markdown(path, text or "")])
+    drift = DriftService(retriever=retriever, judge=ModelDriftJudge(provider))
+    return documentation, drift
 
 
 def run(args) -> int:
@@ -245,17 +298,18 @@ def run(args) -> int:
     return result.exit_code
 
 
-def _build_reviewer(args, tracer=None) -> Reviewer:
+def _build_reviewer(args, tracer=None, provider=None) -> Reviewer:
     """The narrator, or a stand-in that produces none.
 
-    Constructing the provider is deferred to here so that `--no-llm` needs no
-    model endpoint at all — not merely an unused one.
+    The provider is passed in so one run builds one, shared with Level 23's
+    judge. It is still constructed lazily when a caller does not supply one,
+    so `--no-llm` needs no model endpoint at all — not merely an unused one.
     """
     if args.no_llm:
         logger.info("Running without a model; the verdict comes from static analysis either way")
         return _NoNarration()
 
-    provider = LLMFactory.create_provider("vllm")
+    provider = provider or LLMFactory.create_provider("vllm")
     if args.single_agent:
         logger.info("Reviewing with one agent (--single-agent)")
         return ReviewAgent(provider, SmartMemoryStrategy(provider), tracer=tracer)

@@ -170,3 +170,73 @@ class TestDegradation:
 
     def test_nothing_raises_on_an_empty_review(self):
         assert _service(documents=[]).review([], {}).findings == []
+
+
+class TestAttribution:
+    """AC-12 — the split that makes the safety argument a table lookup."""
+
+    def test_the_resolved_namespace_is_deterministic(self):
+        from code_reviewer.application.governance import producer_for
+        from code_reviewer.domain.provenance import ProducerKind
+
+        assert producer_for("DOCS.DEAD_REFERENCE", "2.17.0").kind is ProducerKind.ANALYZER
+
+    def test_the_retrieved_namespace_is_an_agent(self):
+        from code_reviewer.application.governance import producer_for
+        from code_reviewer.domain.provenance import ProducerKind
+
+        assert producer_for("DRIFT.POSSIBLE_STALE_SECTION", "2.17.0").kind is ProducerKind.AGENT
+
+    def test_a_blocking_verdict_citing_a_retrieved_finding_cannot_be_built(self):
+        """Level 20's refusal, asserted against the new namespace. Nothing in
+        this level had to implement it — the table did."""
+        import pytest
+
+        from code_reviewer.application.governance import provenance_of
+        from code_reviewer.domain.finding import Finding
+        from code_reviewer.domain.provenance import DecisionRecord, RunIdentity
+
+        drift = Finding(
+            category=FindingCategory.DOCUMENTATION,
+            severity=Severity.INFO,
+            file_path="docs/guide.md",
+            line_number=5,
+            title="A documentation section may no longer describe this change",
+            description="",
+            remediation="",
+            rule_id="DRIFT.POSSIBLE_STALE_SECTION",
+        )
+        claims = (provenance_of(drift, "2.17.0"),)
+
+        with pytest.raises(ValueError):
+            DecisionRecord(
+                verdict="fail",
+                exit_code=1,
+                identity=RunIdentity(package_version="2.17.0", policy_version="1.0"),
+                findings=claims,
+                blocking=claims,
+            )
+
+
+class TestNothingHereBlocks:
+    """AC-13, asserted against the real gate rather than against a constant."""
+
+    def _outcome_with_documentation_findings(self):
+        from code_reviewer.domain.gate import ReviewGate
+        from code_reviewer.domain.outcome import ReviewOutcome
+        from code_reviewer.domain.policy import ReviewPolicy
+
+        findings = _service().review([_change()], {"app.py": ""}).findings
+        assert findings, "the fixture must produce something for this to test anything"
+
+        outcome = ReviewOutcome()
+        outcome.record("app.py", ReviewGate(ReviewPolicy()).evaluate("", findings))
+        return outcome
+
+    def test_no_documentation_finding_reaches_the_blocking_list(self):
+        outcome = self._outcome_with_documentation_findings()
+
+        assert outcome.blocking_issues == []
+
+    def test_a_review_of_nothing_but_documentation_findings_passes(self):
+        assert not self._outcome_with_documentation_findings().is_blocking

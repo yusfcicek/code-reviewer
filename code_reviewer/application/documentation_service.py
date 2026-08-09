@@ -75,6 +75,35 @@ _WORDING: Mapping[str, tuple[str, str]] = {
 
 
 @dataclass(frozen=True)
+class DocumentationSummary:
+    """Both tiers of Level 23, as the renderer and the recorder need them.
+
+    They travel together and are never merged. One is a set of facts about the
+    repository; the other is a model's selection. Presenting them as one list
+    would hand the whole namespace the weaker tier's credibility, which is how
+    a reader learns to skim past a section.
+    """
+
+    #: Tier A — proved by the change.
+    resolved: Sequence[Finding] = ()
+    #: Tier B — retrieved and judged, verified by nothing.
+    candidates: Sequence[Finding] = ()
+    #: Why a tier could not run, one line per tier that could not.
+    degraded: tuple[str, ...] = ()
+    #: Candidates the cap discarded before the model saw them.
+    dropped: int = 0
+
+    @property
+    def findings(self) -> list[Finding]:
+        """Everything, for the recorder — which keys on namespace anyway."""
+        return [*self.resolved, *self.candidates]
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.resolved or self.candidates or self.degraded)
+
+
+@dataclass(frozen=True)
 class DocumentationOutcome:
     """What the tier found, and whether it was able to look."""
 

@@ -8,6 +8,7 @@ selected it was a string compared against a ``ReviewGateResult`` (finding F-01).
 import os
 from collections.abc import Mapping, Sequence
 
+from code_reviewer.application.documentation_service import DocumentationSummary
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.outcome import ReviewOutcome
 from code_reviewer.domain.provenance import RunIdentity
@@ -88,6 +89,7 @@ def render_review_comment(
     identity: RunIdentity | None = None,
     decision_summary: str = "",
     suggestion_count: int = 0,
+    documentation: DocumentationSummary | None = None,
 ) -> str:
     """Builds the markdown comment posted on the merge request.
 
@@ -111,6 +113,9 @@ def render_review_comment(
         decision_summary: One line naming what decided, from the record that
             was written. Never the model's prose — a verdict rests on
             deterministic producers, and this says which (ADR 0004, 0022).
+        documentation: What Level 23 found about the repository's prose. Two
+            blocks, never one: what resolved against the code, and what a
+            model selected and nothing verified.
 
     Returns:
         The comment body, beginning with :data:`REVIEW_COMMENT_MARKER` and
@@ -127,6 +132,7 @@ def render_review_comment(
         *_summary_lines(findings or ()),
         *_recurrence_lines(findings or (), recurring or {}),
         *_suggestion_lines(suggestion_count),
+        *_documentation_lines(documentation),
         *_accountability_lines(identity, decision_summary),
         f"\n**Policy v{policy_version}** | **Files considered**: {outcome.files_considered}"
         + (f" | **Trace**: `{trace_id}`" if trace_id else "")
@@ -223,6 +229,46 @@ def _suggestion_lines(count: int) -> list[str]:
         f"\n**{count} applicable suggestion(s)** posted on the changed lines. "
         "Each was validated against the file as reviewed; none has been applied.\n"
     ]
+
+
+def _documentation_lines(summary: "DocumentationSummary | None") -> list[str]:
+    """What the change did to the documentation, in two blocks.
+
+    Two, and labelled, because they are not the same kind of statement. The
+    first block is arithmetic: a name the change removed, a signature that does
+    not match, an example that does not parse. The second is a model's opinion
+    about a paragraph, and a reader who cannot tell them apart will either
+    trust the second too much or stop reading the first.
+
+    Nothing here quotes the document. Sixth level with that rule, and the first
+    where the material would be prose somebody wrote.
+    """
+    if summary is None or summary.is_empty:
+        return []
+
+    lines: list[str] = ["\n### 📄 Documentation\n"]
+
+    if summary.resolved:
+        lines.append(f"**{len(summary.resolved)} resolved against the code** — each of these is checkable:\n")
+        lines.extend(f"- `{finding.location}` — {finding.title}" for finding in summary.resolved)
+        lines.append("")
+
+    if summary.candidates:
+        lines.append(
+            f"**{len(summary.candidates)} unverified** — retrieved as related to this change and judged "
+            "stale by the model. Nothing below was resolved against the code, and none of it affects "
+            "the verdict:\n"
+        )
+        lines.extend(f"- `{finding.location}` — {finding.title}" for finding in summary.candidates)
+        lines.append("")
+
+    if summary.dropped:
+        lines.append(
+            f"_{summary.dropped} further candidate(s) were not examined: the per-run cap was reached._\n"
+        )
+
+    lines.extend(f"_Documentation check degraded: {reason}._\n" for reason in summary.degraded)
+    return lines
 
 
 def _accountability_lines(identity: RunIdentity | None, decision_summary: str) -> list[str]:
