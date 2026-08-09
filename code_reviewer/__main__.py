@@ -16,11 +16,13 @@ from code_reviewer.application.orchestration_service import ReviewOrchestrator
 from code_reviewer.application.ports import Reviewer
 from code_reviewer.application.project_memory import ProjectMemory
 from code_reviewer.application.review_service import ReviewService
+from code_reviewer.application.tasks import SequentialRunner, TaskRunner
 from code_reviewer.cli import parse_args
 from code_reviewer.domain.orchestration import Specialism
 from code_reviewer.domain.triage import ReviewTriage
 from code_reviewer.errors import ConfigurationError, ReviewError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
+from code_reviewer.infrastructure.concurrency.thread_pool import ThreadPoolRunner
 from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
@@ -243,6 +245,21 @@ def _build_reviewer(args, tracer=None) -> Reviewer:
         extra={"fields": {"agents": [specialism.value for specialism in Specialism]}},
     )
     return orchestrator
+
+
+def _build_runner(args) -> TaskRunner:
+    """How the committee's members are run.
+
+    One worker selects the sequential runner outright rather than a pool of
+    one, so the old path stays the old path — including its inability to
+    interrupt a hung task, which a pool of one would quietly acquire.
+    """
+    if args.concurrency <= 1:
+        logger.info("Specialists run in sequence (--concurrency 1)")
+        return SequentialRunner()
+
+    logger.info("Specialists run concurrently", extra={"fields": {"workers": args.concurrency}})
+    return ThreadPoolRunner(max_workers=args.concurrency)
 
 
 def _build_memory(args, workspace) -> ProjectMemory | None:

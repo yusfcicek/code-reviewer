@@ -345,3 +345,30 @@ class TestTraceWiring(unittest.TestCase):
             _export_trace(SpanRecorder(), destination)
 
             self.assertEqual(os.listdir(directory), [])
+
+
+class TestConcurrencyWiring(unittest.TestCase):
+    """Level 17 — one worker is the old path, not a pool of one."""
+
+    def test_one_worker_selects_the_sequential_runner(self):
+        from code_reviewer.__main__ import _build_runner
+        from code_reviewer.application.tasks import SequentialRunner
+
+        self.assertIsInstance(_build_runner(_args("--concurrency", "1")), SequentialRunner)
+
+    def test_more_than_one_worker_builds_a_pool_with_that_ceiling(self):
+        from code_reviewer.__main__ import _build_runner
+        from code_reviewer.infrastructure.concurrency.thread_pool import ThreadPoolRunner
+
+        runner = _build_runner(_args("--concurrency", "6"))
+
+        self.assertIsInstance(runner, ThreadPoolRunner)
+        self.assertEqual(runner.max_workers, 6)
+
+    def test_a_concurrency_below_one_is_refused_at_parse_time(self):
+        with self.assertRaises(SystemExit):
+            _args("--concurrency", "0")
+
+    def test_a_non_numeric_concurrency_is_refused(self):
+        with self.assertRaises(SystemExit):
+            _args("--concurrency", "many")
