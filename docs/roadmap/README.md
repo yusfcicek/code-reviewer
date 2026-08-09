@@ -58,7 +58,7 @@ statement and what this repository does today.
 | [17](level-17/spec.md) | Asynchronous execution | ✅ Done |
 | [18](level-18/spec.md) | Service surface — HTTP API & webhooks | ✅ Done |
 | [19](level-19/spec.md) | Containerisation & cloud-native deployment | ✅ Done |
-| 20 | Governance, explainability & compliance | ⏳ Planned |
+| [20](level-20/spec.md) | Governance, explainability & compliance | 🚧 In progress |
 
 ### Why *this* order for 12–20
 
