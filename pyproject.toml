@@ -1,6 +1,6 @@
 [project]
 name = "enterprise-ai-code-reviewer"
-version = "2.11.0"
+version = "2.12.0"
 description = "Enterprise-grade AI Code Review Agent with CI/CD integration"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -55,6 +55,8 @@ ai-code-review = "code_reviewer.__main__:main"
 # `ai-code-review` with a fixed argument list, and moving it behind a
 # subcommand would break every one of them (Level 12, decision D-5).
 ai-code-review-eval = "code_reviewer.evaluate:main"
+# A third: a service is not a subcommand of a job (Level 18).
+ai-code-review-serve = "code_reviewer.serve:main"
 
 [build-system]
 requires = ["hatchling"]
