@@ -232,11 +232,17 @@ class TestWhatWasSuggested(unittest.TestCase):
     """
 
     SOURCE = "import hashlib\n\n\ndef digest(value):\n    return hashlib.md5(value).hexdigest()\n"
+    #: Touches line 5, which is where the finding is. Only lines the merge
+    #: request changed are eligible for a suggestion (self-review S-02).
+    DIFF = (
+        "@@ -1,4 +1,5 @@\n import hashlib\n \n \n def digest(value):\n"
+        "+    return hashlib.md5(value).hexdigest()\n"
+    )
 
     def _review(self):
         from code_reviewer.application.ports import FileChange as Change
 
-        forge = FakeForge([Change("src/hashing.py", _significant_diff())], {"src/hashing.py": self.SOURCE})
+        forge = FakeForge([Change("src/hashing.py", self.DIFF)], {"src/hashing.py": self.SOURCE})
         sink = CollectingSink()
         policy = ReviewPolicy()
         finding = Finding(

@@ -409,14 +409,14 @@ class ReviewService:
             findings = list(findings or []) + refusals
 
         section = self._render_section(change.path, review_text, findings)
-        self._collect_suggestions(pending, findings, full_content, change.path)
+        self._collect_suggestions(pending, findings, full_content, change)
 
         evaluation = self._gate.evaluate(review_text, findings)
         outcome.record(change.path, evaluation)
         return section, findings, evaluation.result.value, evaluation.scores.get("quality")
 
     def _collect_suggestions(
-        self, pending: list[Suggestion] | None, findings, full_content, path: str
+        self, pending: list[Suggestion] | None, findings, full_content, change: FileChange
     ) -> None:
         """Adds this file's applicable edits to the run's list, if any.
 
@@ -425,7 +425,9 @@ class ReviewService:
         """
         if pending is None or self._suggestions is None:
             return
-        pending.extend(self._suggestions.suggest_for(findings or [], full_content or "", path))
+        pending.extend(
+            self._suggestions.suggest_for(findings or [], full_content or "", change.path, diff=change.diff)
+        )
 
     def _retrieve(self, change: FileChange) -> list:
         """Related code from elsewhere in the checkout, or nothing.

@@ -18,9 +18,17 @@ from code_reviewer.domain.remediation import Suggestion
 from code_reviewer.domain.suppression import SuppressionResult
 from code_reviewer.domain.triage import ReviewTriage
 
-from .test_review_service import CLEAN_REVIEW, FakeForge, ScriptedReviewer, _significant_diff
+from .test_review_service import CLEAN_REVIEW, FakeForge, ScriptedReviewer
 
 SOURCE = "import hashlib\n\n\ndef digest(value):\n    return hashlib.md5(value).hexdigest()\n"
+
+#: A real unified diff touching line 5 — the line the finding is about. The
+#: service only proposes on lines the merge request changed, because a note
+#: cannot be anchored outside the diff (self-review S-02).
+DIFF = (
+    "@@ -1,4 +1,5 @@\n import hashlib\n \n \n def digest(value):\n"
+    "+    return hashlib.md5(value).hexdigest()\n"
+)
 
 
 def _finding(line=5):
@@ -76,7 +84,7 @@ def _service(forge, findings, suggest=True):
 
 
 def _forge():
-    return SuggestingForge([FileChange("src/hashing.py", _significant_diff())], {"src/hashing.py": SOURCE})
+    return SuggestingForge([FileChange("src/hashing.py", DIFF)], {"src/hashing.py": SOURCE})
 
 
 class TestTheSuggestionIsPosted(unittest.TestCase):

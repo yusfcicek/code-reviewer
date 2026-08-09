@@ -156,7 +156,9 @@ _VERDICT_CLAIMS = (
     re.compile(r"\b(?:this|it)\s+will\s+(?:block|fail)\s+the\s+pipeline\b", re.I),
     # The reviewer speaking as the decider.
     re.compile(r"\bI\s+(?:approve|reject|am\s+approving|am\s+rejecting)\b", re.I),
-    re.compile(r"\b(?:approving|rejecting|blocking)\s+(?:this|the)\s+(?:merge|change|request|merge request)\b", re.I),
+    re.compile(
+        r"\b(?:approving|rejecting|blocking)\s+(?:this|the)\s+(?:merge|change|request|merge request)\b", re.I
+    ),
     re.compile(r"^\s*(?:blocking|approving)\s+the\s+(?:merge|pipeline)\b", re.I | re.M),
     # The idioms. Short, unambiguous, and the ones a reviewer reaches for.
     re.compile(r"\b(?:LGTM|ship\s+it)\b", re.I),
@@ -169,6 +171,7 @@ _VERDICT_CLAIMS = (
 #: while calling something low is an opinion the gate ignores anyway
 #: (contract C-5).
 _CHECKED_SEVERITIES = (Severity.CRITICAL, Severity.HIGH)
+
 
 #: Where a severity word is a *claim* rather than an adjective. The first
 #: version searched the whole review for the word, and failed reviews that said
