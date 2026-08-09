@@ -7,6 +7,57 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.11.0] — 2026-08-09
+
+Level 17: the committee stops waiting one at a time.
+
+### Added
+
+- **`TaskRunner` port**, with `TaskOutcome` and `SequentialRunner` beside it.
+  Outcomes come back in the order the tasks were given, whatever order they
+  finished in; a task's exception is captured into its own outcome and does not
+  escape.
+- **`ThreadPoolRunner`.** Bounded, ordered, with a group deadline so ten hung
+  tasks cost one timeout rather than ten. A pool that abandoned a task is
+  marked tainted and replaced.
+- **`--concurrency N`.** `1` selects the sequential runner outright, which is
+  the behaviour of every level before this one.
+- **`Tracer.bind(parent_span_id)`**, and a per-thread stack behind it. A worker
+  attaches to the span that submitted its work, captured on the submitting
+  thread — a worker's own stack is empty and knows nothing about who queued it.
+- **Locks** in the tracer, `Workspace` and `SmartMemoryStrategy`, each with a
+  test that runs eight threads at it and checks the result: every span present
+  and uniquely identified, the budget spent exactly to its ceiling, no insight
+  lost, a duplicate stored once.
+
+### Fixed
+
+- **`PERFORMANCE.MEMORY_LEAK` no longer fires on `threading.Lock()`** (E-03).
+  Adding three locks for this level made the agent block its own build, which
+  is the rule working and the table being wrong: constructing a lock acquires
+  nothing. Fixed rather than suppressed, with a unit test and an evaluation
+  case. `acquire` stays — a lock taken and never released is the real defect
+  and is a different call.
+
+### Not taken, deliberately
+
+`asyncio`. Every port in this repository would become `async` in order to await
+two libraries — `python-gitlab` and LangChain's `ChatOpenAI.invoke` — that are
+synchronous anyway. A thread pool behind one small port buys the same wall
+clock; an async-native runner arrives as a third adapter if it is ever wanted.
+
+And concurrency across files. `ReviewOutcome`, the metrics, the report sections
+and the memory's observations are appended to per file and rendered in order;
+making that safe *and* deterministic is its own level.
+
+### Documented
+
+- [ADR 0019](docs/adr/0019-threads-behind-a-port.md) — why threads, why order
+  is by plan, why files stay sequential, why a timed-out task is abandoned
+  rather than cancelled, and why the parent span is captured at submission.
+
+---
+
 ## [2.10.0] — 2026-08-09
 
 Level 16: one review, one trace.

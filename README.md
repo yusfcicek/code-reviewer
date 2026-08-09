@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.10.0.** Rebuilt from an imported prototype across seventeen levels
+> **Status: 2.11.0.** Rebuilt from an imported prototype across eighteen levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1340 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1397 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -158,7 +158,24 @@ share of the file's budget:
   `--single-agent` gives you the one-call-per-file behaviour of earlier levels
   ([ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md)).
 
-### 🔬 10. A trace of the whole review
+### ⚡ 10. The committee runs concurrently
+- The four specialists reviewing one file run **at once**, bounded by
+  `--concurrency N`. `1` selects the sequential runner outright, which is the
+  behaviour of every level before 17.
+- **Order is by plan, not by completion.** The report, the per-agent accounting
+  and the verdict are byte-identical either way — asserted as equalities, which
+  is the only honest way to claim a concurrency change changed nothing else.
+- A specialist that hangs is **abandoned** at its timeout, reported as failed,
+  and the others still appear. Python cannot kill a thread, so the pool is
+  marked tainted and replaced rather than reused — saying "cancelled" would be
+  a lie.
+- Threads, not `asyncio`: the two clients in the critical path are synchronous,
+  and going async would turn every port in the repository `async` to await
+  them ([ADR 0019](docs/adr/0019-threads-behind-a-port.md)).
+- The tracer's stack is per thread and a worker binds to the span that
+  submitted it, so the trace comes out the same shape it would sequentially.
+
+### 🔬 11. A trace of the whole review
 One review produces one tree: the run, each file, each agent, each tool call,
 each retrieval, each memory access.
 
@@ -187,7 +204,7 @@ each retrieval, each memory access.
   ([ADR 0018](docs/adr/0018-a-trace-of-our-own.md)) — the port is there so that
   can change without the review path changing.
 
-### 🧾 11. A memory of this project
+### 🧾 12. A memory of this project
 - What a review found survives it. `.review-memory.json` in the checkout holds
   what each rule has done in each file: how many times, since when, and — for a
   `review-ignore` — the reason somebody wrote.
@@ -208,7 +225,7 @@ each retrieval, each memory access.
   degrades quietly to the behaviour of every earlier level, which is correct —
   and worth knowing before concluding the feature does nothing.
 
-### 🎯 12. Measured review quality
+### 🎯 13. Measured review quality
 - `ai-code-review-eval` grades the analysis suite against an annotated dataset
   (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
   and per rule.
@@ -257,6 +274,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
+| Concurrency | ✅ Works | Specialists run at once behind a `TaskRunner` port; identical results, bounded, with timeouts that are honest about abandonment |
 | Tracing | ✅ Works | One tree per review over runs, files, agents, tools, retrieval and memory; self time per kind; trace ids on every log record; JSON artefact |
 | Multi-agent orchestration | ✅ Works | Four specialists routed from findings, budget split by weight, one bounded handoff, deterministic composition, per-agent accounting; the verdict is unchanged |
 
@@ -557,7 +575,7 @@ CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-1340 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+1397 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -593,10 +611,12 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── retrieval_service.py   the hybrid retriever
 │   │   ├── project_memory.py      recall, observe, persist
 │   │   ├── orchestration_service.py  the committee, as one Reviewer
-│   │   └── tracing.py             the Tracer and TraceExporter ports
+│   │   ├── tracing.py             the Tracer and TraceExporter ports
+│   │   └── tasks.py               the TaskRunner port and its sequential default
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
+│   │   ├── concurrency/         the bounded thread pool
 │   │   ├── evaluation/          the dataset loader
 │   │   ├── retrieval/           chunking, BM25, embedding, vector index, corpus
 │   │   ├── forge/               GitLab client and CodeForge adapter
@@ -629,7 +649,7 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Eighteen decision records: what was decided, why, and what it costs |
+| [docs/adr/](docs/adr/README.md) | Nineteen decision records: what was decided, why, and what it costs |
 | [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |

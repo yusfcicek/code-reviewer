@@ -55,7 +55,7 @@ statement and what this repository does today.
 | [14](level-14/spec.md) | Long-term memory across reviews | ✅ Done |
 | [15](level-15/spec.md) | Multi-agent orchestration | ✅ Done |
 | [16](level-16/spec.md) | Tracing & agent observability | ✅ Done |
-| [17](level-17/spec.md) | Asynchronous execution | 🚧 In progress |
+| [17](level-17/spec.md) | Asynchronous execution | ✅ Done |
 | 18 | Service surface — HTTP API & webhooks | ⏳ Planned |
 | 19 | Containerisation & cloud-native deployment | ⏳ Planned |
 | 20 | Governance, explainability & compliance | ⏳ Planned |
