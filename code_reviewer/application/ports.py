@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from code_reviewer.domain.evaluation import EvaluationCase
+from code_reviewer.domain.recollection import Recollection
 from code_reviewer.domain.retrieval import CodeChunk, ScoredChunk, Vector
 from code_reviewer.domain.suppression import SuppressionResult
 
@@ -131,12 +132,14 @@ class Reviewer(ABC):
         full_file_content: str | None = None,
         other_files: list[str] | None = None,
         related: list[CodeChunk] | None = None,
+        recollections: list[Recollection] | None = None,
     ) -> str:
         """Returns the review report for one file, as markdown.
 
-        ``related`` is code retrieved from elsewhere in the checkout. It is
-        optional and it defaults to nothing, because a reviewer that cannot
-        retrieve is a complete reviewer — it is what this project was for
+        ``related`` is code retrieved from elsewhere in the checkout, and
+        ``recollections`` is what previous reviews of this project remember
+        about this file. Both default to nothing, because a reviewer with
+        neither is a complete reviewer — it is what this project was for
         twelve levels.
         """
 
@@ -209,6 +212,28 @@ class CodeRetriever(ABC):
         to say: retrieval is an improvement to the prompt, never a
         precondition for reviewing (Level 13, decision D-5).
         """
+
+
+class MemoryStore(ABC):
+    """Where one repository's accumulated review history is kept.
+
+    A port because the shipped adapter is a JSON file in the checkout, and a
+    team that wants its history somewhere durable — an object store, a table —
+    should be able to have that without the workflow learning about it.
+
+    Neither method may raise for an ordinary failure. A missing file, a corrupt
+    file, a read-only directory: each is an empty memory and a log line. Every
+    review before Level 14 ran without a history, and that is exactly what a
+    failed load produces (contract C-8).
+    """
+
+    @abstractmethod
+    def load(self) -> list[Recollection]:
+        """Everything remembered, or nothing when it cannot be read."""
+
+    @abstractmethod
+    def save(self, recollections: list[Recollection]) -> None:
+        """Replaces the stored memory. Atomic: a failure leaves the previous one."""
 
 
 @dataclass(frozen=True)
