@@ -1,0 +1,30 @@
+# A weak digest, reported at its call site.
+name: weak-crypto
+file: fixtures/weak_crypto.py
+findings:
+  - rule: SAST.WEAK_CRYPTO
+    line: 7
+    severity: high
+    title: Weak Crypto
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - High
+  - **Vulnerabilities Found**: Weak Crypto at `fixtures/weak_crypto.py:7`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/weak_crypto.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: High - the digest is not collision resistant
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None

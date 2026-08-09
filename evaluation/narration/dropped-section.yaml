@@ -1,0 +1,17 @@
+#
+# MEANT TO FAIL: required_sections_are_present.
+#
+# The regression a prompt edit actually causes.
+name: dropped-section
+file: fixtures/nested_loops.py
+expect_failures:
+  - required_sections_are_present
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS - Low
+
+  ## 🔗 Impact Analysis
+  - **Risk Assessment**: Low - contained change
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 80/100

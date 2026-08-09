@@ -1,0 +1,39 @@
+#
+# MEANT TO FAIL: citations_are_grounded.
+#
+# The review is competent about the file it was given and then cites a file it
+# never saw. This is the failure mode a language model actually has, and it is
+# in the corpus so that the check is known to be able to fire.
+name: hallucinated-citation
+file: fixtures/sql_injection.py
+expect_failures:
+  - citations_are_grounded
+findings:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+    title: SQL Injection
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: SQL Injection at `fixtures/sql_injection.py:11`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/sql_injection.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - user input reaches the query text
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  The same pattern appears at `fixtures/auth_service.py:412`, which should be fixed too.
