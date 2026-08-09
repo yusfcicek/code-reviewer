@@ -83,6 +83,7 @@ def render_review_comment(
     findings: Sequence[Finding] | None = None,
     max_chars: int | None = None,
     recurring: Mapping[tuple[str, str], Recollection] | None = None,
+    trace_id: str = "",
 ) -> str:
     """Builds the markdown comment posted on the merge request.
 
@@ -96,6 +97,10 @@ def render_review_comment(
         recurring: What the project already remembered about a finding's rule
             and file, keyed by ``(file_path, rule_id)``. Purely informational:
             the verdict above it is computed without it (Level 14, D-4).
+        trace_id: Names the run in the log and in the trace artefact. The tree
+            itself is not here: it is only complete after the comment has been
+            rendered, and a reader who wants it wants the artefact anyway
+            (Level 16).
 
     Returns:
         The comment body, beginning with :data:`REVIEW_COMMENT_MARKER` and
@@ -111,7 +116,9 @@ def render_review_comment(
         *_suppression_lines(outcome),
         *_summary_lines(findings or ()),
         *_recurrence_lines(findings or (), recurring or {}),
-        f"\n**Policy v{policy_version}** | **Files considered**: {outcome.files_considered}\n\n---\n",
+        f"\n**Policy v{policy_version}** | **Files considered**: {outcome.files_considered}"
+        + (f" | **Trace**: `{trace_id}`" if trace_id else "")
+        + "\n\n---\n",
         *sections,
     ]
 

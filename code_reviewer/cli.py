@@ -103,6 +103,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--trace-path",
+        type=str,
+        default=_env("REVIEW_TRACE_PATH", ""),
+        help=(
+            "Where to write the run's trace as JSON. Omitted, none is written — "
+            "the trace is still recorded, and still summarised in the log."
+        ),
+    )
+    parser.add_argument(
         "--single-agent",
         action="store_true",
         help=(

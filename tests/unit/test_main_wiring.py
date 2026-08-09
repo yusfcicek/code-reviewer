@@ -9,6 +9,8 @@ tests rather than argument-parsing ones. The parsing lives in
 `tests/unit/test_cli.py`.
 """
 
+import os
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -297,3 +299,49 @@ class TestCommitteeWiring(unittest.TestCase):
 
         self.assertEqual(_agent_totals(committee), {"security": (2, 1, 7)})
         self.assertEqual(_agent_totals(object()), {})
+
+
+class TestTraceWiring(unittest.TestCase):
+    """Level 16 — recording always, writing on request."""
+
+    def test_the_trace_is_written_when_a_path_is_given(self):
+        import json
+
+        from code_reviewer.__main__ import _export_trace
+        from code_reviewer.domain.trace import SpanKind
+        from code_reviewer.infrastructure.observability.tracer import SpanRecorder
+
+        tracer = SpanRecorder(trace_id="7-9")
+        with tracer.span(SpanKind.REVIEW, "review"):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = os.path.join(directory, "trace.json")
+            _export_trace(tracer, destination)
+
+            with open(destination, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["trace_id"], "7-9")
+
+    def test_nothing_is_written_without_a_path(self):
+        from code_reviewer.__main__ import _export_trace
+        from code_reviewer.domain.trace import SpanKind
+        from code_reviewer.infrastructure.observability.tracer import SpanRecorder
+
+        tracer = SpanRecorder(trace_id="7-9")
+        with tracer.span(SpanKind.REVIEW, "review"):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            _export_trace(tracer, "")
+
+            self.assertEqual(os.listdir(directory), [])
+
+    def test_an_empty_trace_writes_nothing_and_logs_nothing(self):
+        from code_reviewer.__main__ import _export_trace
+        from code_reviewer.infrastructure.observability.tracer import SpanRecorder
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = os.path.join(directory, "trace.json")
+            _export_trace(SpanRecorder(), destination)
+
+            self.assertEqual(os.listdir(directory), [])

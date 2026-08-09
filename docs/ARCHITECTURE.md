@@ -31,6 +31,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `retrieval.py` | `CodeChunk`, rank fusion, maximal marginal relevance, cosine. The arithmetic of choosing evidence; building the index is an adapter's job. |
 | `recollection.py` | What a project's reviews remember: identity, consolidation, salience with a half-life, forgetting, and recall scoped to a path. |
 | `orchestration.py` | Who reviews a file, for how much, in what order, and what may be handed on. Routing, the budget split, composition and the handoff rule — all pure. |
+| `trace.py` | What a review did, as a tree: spans, tree building that survives orphans and cycles, self time, the critical path. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
 
@@ -46,6 +47,7 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `retrieval_service.py` | `HybridRetriever`: two searches, fused and diversified, and what happens when one of them fails. |
 | `project_memory.py` | `ProjectMemory`: recall before the run, observe during it, persist after. |
 | `orchestration_service.py` | `ReviewOrchestrator`: a committee of specialists presented to the workflow as one `Reviewer`. |
+| `tracing.py` | The `Tracer` and `TraceExporter` ports, and the `NullTracer` that makes instrumentation free when nobody is looking. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -63,7 +65,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `llm/` | The vLLM provider, the review agent and token counting. |
 | `memory/` | `SmartMemoryStrategy`. |
 | `metrics/` | OpenMetrics aggregation and export. |
-| `observability/` | Logging configuration and formatters. |
+| `observability/` | Logging configuration and formatters, the span recorder, and the trace renderer and JSON exporter. |
 | `tools/` | The tools the agent can call, and the `Workspace` that confines them. |
 
 ## Ports and adapters
@@ -82,6 +84,8 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `CodeRetriever` | `HybridRetriever` | A different retrieval strategy entirely; the workflow knows one method |
 | `MemoryStore` | `JsonMemoryStore` | A durable store, if a team wants its history off the checkout |
 | `Specialist` | `SpecialistAgent` | A different agent per subject — a hosted assistant, a rule-only pass |
+| `Tracer` | `SpanRecorder`, `NullTracer` | A different recorder; the null one is the default everywhere |
+| `TraceExporter` | `JsonTraceExporter` | OTLP, or anything else — without the review path changing |
 
 ## The path of one review
 
@@ -156,6 +160,40 @@ still a prompt ([ADR 0015](adr/0015-retrieval-is-hybrid-local-and-untrusted.md))
 **Retrieved code is untrusted.** It sits in the checkout, and the checkout is
 what the merge request changed. Same trust boundary, same escaping, same
 declaration in the system prompt.
+
+## The trace over all of it
+
+```
+  1     review                          project, merge request
+  1.1   file        src/app.py
+  1.1.1 analysis    static analysis      path
+  1.1.2 retrieval   related code         path, chunks
+  1.1.3 memory      recall               path
+  1.1.4 agent       architecture         budget, tool_calls, ok
+  1.1.4.1 model     invoke               iteration
+  1.1.4.2 tool      run_semantic_analysis
+  1.1.5 agent       security             budget, tool_calls, ok
+```
+
+Identifiers are dotted counters, so the tree's shape is visible in a flat log
+line and two spans can be compared by eye. Every log record emitted inside a
+span carries `trace_id` and `span_id`, which is the join between a log line and
+this tree — and what makes two interleaved reviews separable.
+
+Three properties are deliberate.
+
+**Self time, not duration.** A parent's duration includes everything below it;
+the number that answers "where did the time went" is its own share, and it is
+totalled per kind.
+
+**Nothing is lost to bad input.** An orphan attaches to the root, a cycle is
+broken, a second root is adopted — each recorded as an anomaly rather than
+hidden.
+
+**Attributes are identifiers, never content.** Enforced by a length cap at
+construction and by a test that runs a real review whose diff contains a
+credential-shaped string and asserts it reaches no attribute
+([ADR 0018](adr/0018-a-trace-of-our-own.md)).
 
 ## The path of one committee
 

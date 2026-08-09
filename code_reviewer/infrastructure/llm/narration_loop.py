@@ -20,6 +20,9 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
+from code_reviewer.application.tracing import NullTracer, Tracer
+from code_reviewer.domain.trace import SpanKind
+
 from .tool_calls import FinalAnswer, ToolCallParser, ToolInvocation, response_text
 
 #: Tool rounds allowed for one file. A model that keeps asking for tools is
@@ -110,6 +113,7 @@ class NarrationLoop:
         max_observation_chars: int = DEFAULT_MAX_OBSERVATION_CHARS,
         clock: Callable[[], float] | None = None,
         log: Callable[..., None] | None = None,
+        tracer: "Tracer | None" = None,
     ):
         self.model = model
         self.tools = {tool.name: tool for tool in tools}
@@ -119,6 +123,10 @@ class NarrationLoop:
         self.max_observation_chars = max_observation_chars
         self.clock = clock or time.monotonic
         self.log = log or (lambda *args, **kwargs: None)
+        # Injected rather than ambient, like every other dependency here. The
+        # tool layer reads the ambient one because a LangChain tool is a plain
+        # function; this is a class with a constructor (Level 16, D-3).
+        self.tracer = tracer or NullTracer()
 
         #: Tool calls made during the most recent `run`. Per-agent accounting
         #: needs a number, and counting them here is the only place that knows
@@ -144,7 +152,8 @@ class NarrationLoop:
                 self.log("Narration stopped: time budget of %.0fs exhausted", self.max_seconds)
                 break
 
-            response = self.model.invoke(conversation)
+            with self.tracer.span(SpanKind.MODEL, "invoke", iteration=iteration + 1):
+                response = self.model.invoke(conversation)
             last_text = response_text(response)
 
             parsed = self.parser.parse(response)
@@ -153,7 +162,8 @@ class NarrationLoop:
 
             self.last_tool_call_count += 1
             self.log("Tool call %d: %s", iteration + 1, parsed.name)
-            observation = self._execute(parsed)
+            with self.tracer.span(SpanKind.TOOL, parsed.name):
+                observation = self._execute(parsed)
 
             conversation.append(response)
             conversation.append(self._observation_message(parsed, observation))
