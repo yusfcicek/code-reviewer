@@ -28,6 +28,7 @@ the reader's attention for every future finding.
 
 import ast
 import re
+import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
@@ -108,9 +109,11 @@ class SymbolIndex:
         the signature rule does, because reporting a mismatch against a class
         would be reporting nonsense.
         """
-        if name in self.signatures:
-            return self.signatures[name]
-        return self.signatures.get(name.rsplit(".", 1)[-1])
+        # Exact only, dotted or not. Falling back to the last segment made
+        # `yaml.load` resolve to a `load` defined somewhere in this tree, and
+        # the rule then reported a library's signature as this project's
+        # mistake. A qualified symbol the tree indexed is stored qualified.
+        return self.signatures.get(name)
 
     def knows_option(self, flag: str) -> bool:
         return flag in self.options
@@ -239,7 +242,12 @@ def claims_in(text: str) -> list[DocumentClaim]:
                             "",
                             fence_start,
                             heading,
-                            source="".join(f"{held}\n" for held in fenced),
+                            # Dedented: a fence inside a list item carries the
+                            # list's indentation, and `ast.parse` calls that an
+                            # IndentationError. This repository's own
+                            # CONTRIBUTING.md has one, and it was the single
+                            # false positive left in the first dry run.
+                            source=textwrap.dedent("".join(f"{held}\n" for held in fenced)),
                         )
                     )
                 fence_language = None
@@ -300,27 +308,58 @@ class DocDefect:
     detail: str = ""
 
 
-def documentation_defects(claims: "list[DocumentClaim]", index: SymbolIndex) -> list[DocDefect]:
-    """Every claim in ``claims`` the index refuses, in document order.
+@dataclass(frozen=True)
+class ChangeScope:
+    """What this merge request changed, as names.
 
-    An empty index silences every rule that needs one. Not a special case for
-    tests — a workspace that refused a read, a tree that would not parse and a
-    run with no checkout all arrive here as an empty index, and the honest
-    answer to "does `create_app` exist" when nothing was indexed is *unknown*,
-    which is not a defect. Syntax is exempt: a fenced block that will not parse
-    is broken whether or not anything else was readable.
+    The reason every rule takes one. A first cut of this module resolved every
+    backtick in every document against the tree, and a dry run over this
+    repository produced twenty-five findings in the README of which almost all
+    were wrong: `yaml.safe_load` and `hashlib.md5` are real functions in
+    libraries this tree does not define, `ConfigMap` is a Kubernetes noun,
+    `--cov` is a pytest flag and `id_rsa` is a filename. Nothing in the text
+    distinguishes those from a symbol this project once had and lost.
+
+    The diff does. A name the change **removed** is a name the repository was
+    responsible for, and a document still naming it is stale by proof rather
+    than by resemblance. So the rules ask what changed, and say nothing about
+    the rest — which is also what the level's own non-goals promised, before
+    the first implementation quietly scanned everything.
+    """
+
+    #: Names the change deleted or renamed away.
+    removed: frozenset[str] = frozenset()
+    #: Names whose definition the change altered, removals included.
+    touched: frozenset[str] = frozenset()
+    #: Whether this document itself was edited in the change. When it was, its
+    #: author is available to fix what is found, so the provable rules run over
+    #: the whole document rather than only over what the code changed.
+    document_changed: bool = False
+
+
+def documentation_defects(
+    claims: "list[DocumentClaim]", index: SymbolIndex, scope: ChangeScope
+) -> list[DocDefect]:
+    """Every claim the change proves wrong, in document order.
+
+    Two silences are deliberate. An empty index means nothing was read, and the
+    honest answer to "does `create_app` exist" is *unknown* rather than *no* —
+    without that, one shallow checkout reports every reference in every
+    document. And a claim outside ``scope`` is not examined at all, however
+    suspicious it looks: this level reports what a change made false, not what
+    it can find wrong with somebody's prose.
     """
     defects: list[DocDefect] = []
     for claim in claims:
-        defect = _defect_for(claim, index)
+        defect = _defect_for(claim, index, scope)
         if defect is not None:
             defects.append(defect)
     return defects
 
 
-def _defect_for(claim: DocumentClaim, index: SymbolIndex) -> DocDefect | None:
+def _defect_for(claim: DocumentClaim, index: SymbolIndex, scope: ChangeScope) -> DocDefect | None:
     if claim.kind is ClaimKind.EXAMPLE:
-        if parses(claim.source):
+        if not scope.document_changed or parses(claim.source):
             return None
         return DocDefect(BROKEN_EXAMPLE, claim.subject, claim.line, claim.heading, "the block does not parse")
 
@@ -328,42 +367,43 @@ def _defect_for(claim: DocumentClaim, index: SymbolIndex) -> DocDefect | None:
         return None
 
     if claim.kind in (ClaimKind.SYMBOL, ClaimKind.SIGNATURE):
-        return _symbol_defect(claim, index)
+        return _symbol_defect(claim, index, scope)
+
+    if claim.subject not in scope.removed:
+        return None
 
     if claim.kind is ClaimKind.OPTION and not index.knows_option(claim.subject):
-        return DocDefect(
-            UNKNOWN_OPTION, claim.subject, claim.line, claim.heading, "no such option in the code"
-        )
+        return DocDefect(UNKNOWN_OPTION, claim.subject, claim.line, claim.heading, "the change removed it")
 
     if claim.kind is ClaimKind.ENVIRONMENT and not index.knows_environment(claim.subject):
-        return DocDefect(UNKNOWN_OPTION, claim.subject, claim.line, claim.heading, "no such name in the code")
+        return DocDefect(UNKNOWN_OPTION, claim.subject, claim.line, claim.heading, "the change removed it")
 
     return None
 
 
-def _symbol_defect(claim: DocumentClaim, index: SymbolIndex) -> DocDefect | None:
+def _symbol_defect(claim: DocumentClaim, index: SymbolIndex, scope: ChangeScope) -> DocDefect | None:
     """A named symbol, and — when the document wrote one — its signature.
 
     A dead name produces one defect rather than two. The signature is
     unknowable until the name is, and reporting both would charge a reader
     twice for one mistake.
     """
-    if not index.resolves(claim.subject):
-        return DocDefect(
-            DEAD_REFERENCE, claim.subject, claim.line, claim.heading, "not defined in the source tree"
-        )
+    if claim.subject in scope.removed and not index.resolves(claim.subject):
+        return DocDefect(DEAD_REFERENCE, claim.subject, claim.line, claim.heading, "the change removed it")
 
     if claim.kind is not ClaimKind.SIGNATURE:
+        return None
+    if not (scope.document_changed or claim.subject in scope.touched):
         return None
 
     defined = index.parameters_of(claim.subject)
     if defined is None:
-        # Resolvable but not a function: a class, a constant, a module. There
-        # is nothing to compare parameter names against.
+        # Not indexed, or indexed as something without parameters: a class, a
+        # constant, a module, or a dotted name belonging to a library this tree
+        # does not define. There is nothing to compare against.
         return None
 
-    expected = tuple(name for name in defined if name not in _IMPLICIT)
-    if tuple(claim.arguments) == expected:
+    if tuple(claim.arguments) == defined:
         return None
 
     return DocDefect(
@@ -371,7 +411,7 @@ def _symbol_defect(claim: DocumentClaim, index: SymbolIndex) -> DocDefect | None
         claim.subject,
         claim.line,
         claim.heading,
-        f"documented ({', '.join(claim.arguments)}), defined ({', '.join(expected)})",
+        f"documented ({', '.join(claim.arguments)}), defined ({', '.join(defined)})",
     )
 
 

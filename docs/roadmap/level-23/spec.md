@@ -90,9 +90,12 @@ A code change is checked against the documents that describe it. A document
 changed in the same diff is checked against the code it describes. A run with
 neither produces nothing.
 
-### C-2 — A deterministic finding resolves, or it is not reported
+### C-2 — A deterministic finding is proved by the change, or it is not reported
 Every Tier A rule ends in a lookup that succeeds or fails against the parsed
-source tree. A rule that cannot complete its lookup — an unparseable file, a
+source tree, **and in a name the change is responsible for**. A name the
+repository never defined — a library call, a Kubernetes noun, another tool's
+flag — is not a defect however unresolvable it is; the diff is the only
+available evidence that a name was this project's to keep. A rule that cannot complete its lookup — an unparseable file, a
 symbol index that did not build — reports nothing rather than guessing, and the
 inability is recorded as a degradation (the pattern self-review finding 12–20
 S-02 established).
@@ -142,11 +145,11 @@ them, which Level 20 already records for the run.
 
 | # | Criterion | Verified by |
 |---|---|---|
-| AC-1 | A document naming a symbol absent from the tree yields `DOCS.DEAD_REFERENCE` | Analyzer test |
+| AC-1 | A document naming a symbol **the change removed** yields `DOCS.DEAD_REFERENCE`, and one it never owned yields nothing | Domain test |
 | AC-2 | A backtick token that is not a symbol shape (`async`, `false`) yields nothing | Analyzer test |
-| AC-3 | A document showing `f(a, b)` when the source defines `f(a, b, c)` yields `DOCS.SIGNATURE_MISMATCH` | Analyzer test |
-| AC-4 | A document naming a `--flag` or environment variable absent from the code yields `DOCS.UNKNOWN_OPTION` | Analyzer test |
-| AC-5 | A fenced Python block in a document that does not parse yields `DOCS.BROKEN_EXAMPLE` | Analyzer test |
+| AC-3 | A document showing `f(a, b)` when the source defines `f(a, b, c)` yields `DOCS.SIGNATURE_MISMATCH`, for a symbol the change touched or in a document the change edited | Domain test |
+| AC-4 | A document naming a `--flag` or environment variable **the change removed** yields `DOCS.UNKNOWN_OPTION`; another tool's flag yields nothing | Domain test |
+| AC-5 | A fenced Python block that does not parse yields `DOCS.BROKEN_EXAMPLE` in an edited document, and nothing in an untouched one | Domain test |
 | AC-6 | A docstring documenting a parameter the signature does not have yields `DOCS.DOCSTRING_DRIFT` | Analyzer test |
 | AC-7 | A docstring documenting `Raises:` for an exception never raised yields `DOCS.DOCSTRING_DRIFT` | Analyzer test |
 | AC-8 | A correct document over the same code yields nothing | Analyzer test |

@@ -45,17 +45,29 @@ right way round.
 
 *Tests* — `tests/unit/domain/test_documentation_rules.py`
 
-- AC-1: a symbol claim that does not resolve yields `DEAD_REFERENCE`.
+Every rule is scoped by a `ChangeScope` — what the diff removed, what it
+touched, and whether it edited this document. That is not an optimisation: a
+first cut resolved every backtick against the tree and produced twenty-five
+findings in this repository's README, nearly all wrong, because a library call
+and a lost symbol look identical in text. The diff is the only evidence that a
+name was ever this project's.
+
+- AC-1: a symbol claim the change *removed* yields `DEAD_REFERENCE`; a name the
+  project never owned (`hashlib.md5`, `ConfigMap`) yields nothing, in either
+  direction of the scan.
 - AC-3: a signature claim whose argument names are not the symbol's yields
-  `SIGNATURE_MISMATCH`; the same claim with the right names yields nothing, and
-  neither does a call written with values rather than names (`f(1, 2)`) — a
-  document showing usage is not a document stating a signature.
-- AC-4: an option claim absent from the index yields `UNKNOWN_OPTION`.
-- AC-5: an example claim that does not `ast.parse` yields `BROKEN_EXAMPLE`; one
-  that parses yields nothing, and a non-Python fence is never an example claim.
+  `SIGNATURE_MISMATCH` — checked for a touched symbol or anywhere in an edited
+  document. The same claim with the right names yields nothing, and neither does
+  a call written with values rather than names (`f(1, 2)`) or a dotted name from
+  a library.
+- AC-4: an option or environment claim the change *removed* yields
+  `UNKNOWN_OPTION`; `--cov` and `--no-ff` yield nothing.
+- AC-5: an example that does not `ast.parse` yields `BROKEN_EXAMPLE` in an
+  edited document and nothing in an untouched one, and an indented fence is
+  dedented before it is parsed.
 - AC-8: a correct document over the same index yields nothing at all.
 
-*Change* — `documentation_defects(claims, index)` in the same module.
+*Change* — `documentation_defects(claims, index, scope)` in the same module.
 
 ## Step 4 — The docstring half
 
@@ -71,7 +83,7 @@ right way round.
 - A file that does not parse yields nothing and says why.
 - A docstring with no sections yields nothing.
 
-*Change* — `docstring_defects(path, source)` in the same module.
+*Change* — `docstring_defects(source)` in the same module.
 
 ## Step 5 — Building the index, and reading the documents
 
