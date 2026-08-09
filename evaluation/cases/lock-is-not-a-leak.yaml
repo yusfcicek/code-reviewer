@@ -1,0 +1,8 @@
+# E-03. `threading.Lock()` used the way every thread-safe object uses one:
+# constructed once, entered with `with` at every use site.
+#
+# PERFORMANCE.MEMORY_LEAK fired on the construction until Level 17, which is
+# how the agent blocked its own build the moment concurrency needed a lock.
+# Nothing is expected and everything is graded.
+name: lock-is-not-a-leak
+file: fixtures/thread_safe_counter.py

@@ -36,6 +36,22 @@ def _env(name: str, fallback: str) -> str:
     return value if value else fallback
 
 
+def _positive(raw: str | int) -> int:
+    """A count that has to be at least one.
+
+    Rejected at parse time rather than clamped later: a pipeline that asked
+    for zero workers meant something, and silently giving it one hides the
+    typo until somebody wonders why nothing is faster.
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError(f"'{raw}' is not a whole number") from error
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"'{raw}' must be at least 1")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ai-code-review",
@@ -100,6 +116,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Review without the project's history, and record nothing. The "
             "verdict is unchanged either way: memory informs, it never decides."
+        ),
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=_positive,
+        default=_positive(_env("REVIEW_CONCURRENCY", "4")),
+        help=(
+            "How many specialists may review one file at once. 1 runs them in "
+            "sequence, which is the behaviour of every level before 17."
         ),
     )
     parser.add_argument(

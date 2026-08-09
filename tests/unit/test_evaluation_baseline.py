@@ -42,7 +42,7 @@ def report(dataset):
 
 
 def test_the_shipped_dataset_loads(dataset):
-    assert len(dataset.cases()) >= 10
+    assert len(dataset.cases()) >= 11
 
 
 def test_every_fixture_on_disk_is_referenced_by_a_case(dataset):

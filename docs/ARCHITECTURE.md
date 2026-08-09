@@ -48,6 +48,7 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `project_memory.py` | `ProjectMemory`: recall before the run, observe during it, persist after. |
 | `orchestration_service.py` | `ReviewOrchestrator`: a committee of specialists presented to the workflow as one `Reviewer`. |
 | `tracing.py` | The `Tracer` and `TraceExporter` ports, and the `NullTracer` that makes instrumentation free when nobody is looking. |
+| `tasks.py` | The `TaskRunner` port, `TaskOutcome`, and the `SequentialRunner` that is the default. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -65,6 +66,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `llm/` | The vLLM provider, the review agent and token counting. |
 | `memory/` | `SmartMemoryStrategy`. |
 | `metrics/` | OpenMetrics aggregation and export. |
+| `concurrency/` | `ThreadPoolRunner`: bounded, ordered, and honest about what a timeout can and cannot do. |
 | `observability/` | Logging configuration and formatters, the span recorder, and the trace renderer and JSON exporter. |
 | `tools/` | The tools the agent can call, and the `Workspace` that confines them. |
 
@@ -86,6 +88,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `Specialist` | `SpecialistAgent` | A different agent per subject — a hosted assistant, a rule-only pass |
 | `Tracer` | `SpanRecorder`, `NullTracer` | A different recorder; the null one is the default everywhere |
 | `TraceExporter` | `JsonTraceExporter` | OTLP, or anything else — without the review path changing |
+| `TaskRunner` | `SequentialRunner`, `ThreadPoolRunner` | An async-native runner, if the clients ever become async |
 
 ## The path of one review
 
@@ -160,6 +163,39 @@ still a prompt ([ADR 0015](adr/0015-retrieval-is-hybrid-local-and-untrusted.md))
 **Retrieved code is untrusted.** It sits in the checkout, and the checkout is
 what the merge request changed. Same trust boundary, same escaping, same
 declaration in the system prompt.
+
+## What runs at once
+
+The specialists reviewing one file run concurrently; files stay sequential.
+
+```
+  ReviewOrchestrator._run_group(brief, assignments)
+    │
+    ├─ parent = tracer.current_span_id      ← captured HERE, on this thread
+    │
+    └─► TaskRunner.run_all([task, task, task, task], timeout_s)
+          each task:  with tracer.bind(parent):  Specialist.review(...)
+    │
+    └─► outcomes, in the order the assignments were planned
+```
+
+Three properties, and each is asserted as an equality against the sequential
+path rather than described.
+
+**Order is by plan.** The futures list *is* the plan; the composed report, the
+per-agent accounting and the verdict are byte-identical under either runner.
+
+**The parent span is captured at submission.** A worker has its own stack and
+it is empty — it does not know what queued it. That one argument is the whole
+of the concurrency-correctness story for tracing.
+
+**A timed-out task is abandoned, not cancelled.** Python cannot kill a thread,
+so the pool is marked tainted and replaced rather than reused
+([ADR 0019](adr/0019-threads-behind-a-port.md)).
+
+Three objects acquired locks with this level: the tracer's span list, the
+workspace's read budget, and the memory's insight lists. Each has a test that
+runs eight threads at it and checks the result.
 
 ## The trace over all of it
 

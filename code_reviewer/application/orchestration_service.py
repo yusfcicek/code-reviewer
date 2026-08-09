@@ -41,6 +41,7 @@ from code_reviewer.domain.orchestration import (
 from code_reviewer.domain.trace import SpanKind
 
 from .ports import ReviewBrief, Reviewer, Specialist
+from .tasks import SequentialRunner, TaskOutcome, TaskRunner
 from .tracing import NullTracer, Tracer
 
 logger = logging.getLogger(__name__)
@@ -84,10 +85,17 @@ class ReviewOrchestrator(Reviewer):
         specialists: Mapping[Specialism, Specialist],
         total_budget: int = DEFAULT_FILE_BUDGET,
         tracer: Tracer | None = None,
+        runner: TaskRunner | None = None,
+        agent_timeout_s: float | None = None,
     ):
         self._specialists = dict(specialists)
         self._total_budget = total_budget
         self._tracer = tracer or NullTracer()
+        # Sequential by default, which is exactly the pre-Level-17 behaviour.
+        # A pool changes the wall clock and nothing else: outcomes come back in
+        # the order the assignments were planned (Level 17, contract C-2).
+        self._runner = runner or SequentialRunner()
+        self._agent_timeout_s = agent_timeout_s
         self._last_outcome = OrchestrationOutcome()
         #: Across every file of the run, for the metrics export. Per-file
         #: accounting is `last_outcome`; a pipeline wants the totals.
@@ -108,33 +116,46 @@ class ReviewOrchestrator(Reviewer):
         reserve = max(len(Specialism), self._total_budget // HANDOFF_RESERVE_DIVISOR)
         budgets = split_budget(max(len(plan), self._total_budget - reserve), plan)
 
-        reports: list[AgentReport] = []
-        skipped: list[tuple[Specialism, str]] = []
-        ran: set[Specialism] = set()
+        # Decided before anything runs, so no worker appends to a shared list:
+        # whether a specialism has an agent registered is known from the
+        # registry alone.
+        runnable = [specialism for specialism in plan if specialism in self._specialists]
+        skipped = [
+            (specialism, "no specialist is registered for this subject")
+            for specialism in plan
+            if specialism not in self._specialists
+        ]
+        for specialism, reason in skipped:
+            logger.warning("Skipping %s: %s", specialism.value, reason)
 
-        for specialism in plan:
-            assignment = Assignment(specialism=specialism, token_budget=budgets[specialism])
-            report = self._run(brief, assignment, skipped)
-            if report is not None:
-                reports.append(report)
-                ran.add(specialism)
+        assignments = [
+            Assignment(specialism=specialism, token_budget=budgets[specialism]) for specialism in runnable
+        ]
+        reports = self._run_group(brief, assignments)
+        ran = {report.specialism for report in reports}
 
         decision = accept_handoffs(
             [handoff for report in reports for handoff in report.handoffs], ran, depth=0
         )
         if decision.accepted:
+            # After the first round, not alongside it: a handoff cannot be
+            # planned until the requests exist.
             handoff_budgets = split_budget(max(len(decision.accepted), reserve), decision.accepted)
+            handoffs = []
             for specialism in decision.accepted:
+                if specialism not in self._specialists:
+                    skipped.append((specialism, "no specialist is registered for this subject"))
+                    continue
                 source = _requester(reports, specialism)
-                assignment = Assignment(
-                    specialism=specialism,
-                    token_budget=handoff_budgets[specialism],
-                    handed_from=source[0],
-                    handoff_reason=source[1],
+                handoffs.append(
+                    Assignment(
+                        specialism=specialism,
+                        token_budget=handoff_budgets[specialism],
+                        handed_from=source[0],
+                        handoff_reason=source[1],
+                    )
                 )
-                report = self._run(brief, assignment, skipped)
-                if report is not None:
-                    reports.append(report)
+            reports = [*reports, *self._run_group(brief, handoffs)]
 
         self._last_outcome = OrchestrationOutcome(
             reports=tuple(reports),
@@ -143,6 +164,33 @@ class ReviewOrchestrator(Reviewer):
         )
         self._accumulate(reports)
         return compose(reports) + _footer(self._last_outcome, budgets)
+
+    def _run_group(self, brief: ReviewBrief, assignments: list[Assignment]) -> list[AgentReport]:
+        """Runs a round of specialists, in plan order out.
+
+        The parent span is captured *here*, on the submitting thread, and each
+        task binds to it. Reading it from a worker would be wrong: a worker has
+        its own stack and does not know what queued it (decision D-4).
+        """
+        if not assignments:
+            return []
+
+        parent_span = self._tracer.current_span_id
+
+        def make(assignment: Assignment):
+            def task() -> AgentReport:
+                with self._tracer.bind(parent_span):
+                    return self._run(brief, assignment)
+
+            return task
+
+        outcomes = self._runner.run_all(
+            [make(assignment) for assignment in assignments], timeout_s=self._agent_timeout_s
+        )
+        return [
+            _report_from(outcome, assignment)
+            for outcome, assignment in zip(outcomes, assignments, strict=True)
+        ]
 
     def _accumulate(self, reports: list[AgentReport]) -> None:
         for report in reports:
@@ -157,19 +205,9 @@ class ReviewOrchestrator(Reviewer):
 
     # -- internals ----------------------------------------------------------
 
-    def _run(
-        self,
-        brief: ReviewBrief,
-        assignment: Assignment,
-        skipped: list[tuple[Specialism, str]],
-    ) -> AgentReport | None:
+    def _run(self, brief: ReviewBrief, assignment: Assignment) -> AgentReport:
         """Runs one specialist, turning any failure into a stated report."""
-        specialist = self._specialists.get(assignment.specialism)
-        if specialist is None:
-            reason = "no specialist is registered for this subject"
-            logger.warning("Skipping %s: %s", assignment.specialism.value, reason)
-            skipped.append((assignment.specialism, reason))
-            return None
+        specialist = self._specialists[assignment.specialism]
 
         try:
             with self._tracer.span(
@@ -198,6 +236,24 @@ class ReviewOrchestrator(Reviewer):
                 f"{type(error).__name__}: {error}",
                 tokens_allowed=assignment.token_budget,
             )
+
+
+def _report_from(outcome: TaskOutcome[AgentReport], assignment: Assignment) -> AgentReport:
+    """An outcome as a report, including the two failures only a runner sees.
+
+    A timeout is not an exception the specialist raised — it is the runner
+    declining to wait any longer, and the thread it abandoned may still be
+    running. Reported as its own kind of failure rather than folded into
+    'something went wrong' (decision D-3).
+    """
+    if outcome.succeeded:
+        return outcome.value
+    return AgentReport.failed(
+        assignment.specialism,
+        outcome.error_type,
+        tokens_allowed=assignment.token_budget,
+        duration_ms=outcome.duration_ms,
+    )
 
 
 def _requester(reports: list[AgentReport], target: Specialism) -> tuple[Specialism | None, str]:
