@@ -19,16 +19,20 @@ directly would be a large change with no behavioural gain, and their tests pin
 the current output (decision D-2).
 """
 
+import logging
+
 from code_reviewer.application.ports import StaticAnalysis
 from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
-from code_reviewer.domain.suppression import SuppressionResult, apply_suppressions
+from code_reviewer.domain.suppression import DegradedAnalyzer, SuppressionResult, apply_suppressions
 
 from .performance import PerformanceAnalyzer
 from .quality import QualityAnalyzer
 from .sast import SASTAnalyzer
 from .semantic import SemanticChangeAnalyzer
+
+logger = logging.getLogger(__name__)
 
 #: Change types the semantic analyzer reports that warrant a finding of their
 #: own. A refactor or a feature is normal; a breaking change is not.
@@ -70,20 +74,23 @@ class StaticAnalysisSuite(StaticAnalysis):
         (finding G-09).
         """
         findings: list[Finding] = []
+        degraded: list[DegradedAnalyzer] = []
 
         if content:
-            findings.extend(self._security_findings(file_path, content))
-            findings.extend(self._quality_findings(file_path, content))
-            findings.extend(self._performance_findings(file_path, content))
+            findings.extend(self._security_findings(file_path, content, degraded))
+            findings.extend(self._quality_findings(file_path, content, degraded))
+            findings.extend(self._performance_findings(file_path, content, degraded))
 
         if diff:
-            findings.extend(self._semantic_findings(file_path, content, diff))
+            findings.extend(self._semantic_findings(file_path, content, diff, degraded))
 
         # Deduplicated before suppression, so one directive silences one
         # finding rather than a duplicate pair — otherwise the count would
         # report two silences where the author wrote one.
         result = apply_suppressions(sorted(self.deduplicate(findings)), content)
-        return SuppressionResult(findings=sorted(result.findings), suppressed=result.suppressed)
+        return SuppressionResult(
+            findings=sorted(result.findings), suppressed=result.suppressed, degraded=degraded
+        )
 
     @staticmethod
     def deduplicate(findings: list[Finding]) -> list[Finding]:
@@ -115,10 +122,13 @@ class StaticAnalysisSuite(StaticAnalysis):
 
     # -- per-analyzer adapters ----------------------------------------------
 
-    def _security_findings(self, file_path: str, content: str) -> list[Finding]:
+    def _security_findings(
+        self, file_path: str, content: str, degraded: list[DegradedAnalyzer]
+    ) -> list[Finding]:
         try:
             report = self._sast.analyze(content, file_path)
-        except Exception:
+        except Exception as error:
+            _degrade(degraded, "SASTAnalyzer", file_path, error)
             return []
 
         return [
@@ -138,10 +148,13 @@ class StaticAnalysisSuite(StaticAnalysis):
             for item in report.findings
         ]
 
-    def _quality_findings(self, file_path: str, content: str) -> list[Finding]:
+    def _quality_findings(
+        self, file_path: str, content: str, degraded: list[DegradedAnalyzer]
+    ) -> list[Finding]:
         try:
             report = self._quality.analyze(content, file_path)
-        except Exception:
+        except Exception as error:
+            _degrade(degraded, "QualityAnalyzer", file_path, error)
             return []
 
         return [
@@ -160,10 +173,13 @@ class StaticAnalysisSuite(StaticAnalysis):
             for issue in report.all_issues
         ]
 
-    def _performance_findings(self, file_path: str, content: str) -> list[Finding]:
+    def _performance_findings(
+        self, file_path: str, content: str, degraded: list[DegradedAnalyzer]
+    ) -> list[Finding]:
         try:
             report = self._performance.analyze(content, file_path)
-        except Exception:
+        except Exception as error:
+            _degrade(degraded, "PerformanceAnalyzer", file_path, error)
             return []
 
         return [
@@ -182,10 +198,13 @@ class StaticAnalysisSuite(StaticAnalysis):
             for issue in report.issues
         ]
 
-    def _semantic_findings(self, file_path: str, content: str, diff: str) -> list[Finding]:
+    def _semantic_findings(
+        self, file_path: str, content: str, diff: str, degraded: list[DegradedAnalyzer]
+    ) -> list[Finding]:
         try:
             analysis = self._semantic.analyze_diff(diff, content or None, file_path)
-        except Exception:
+        except Exception as error:
+            _degrade(degraded, "SemanticChangeAnalyzer", file_path, error)
             return []
 
         findings = []
@@ -221,3 +240,20 @@ class StaticAnalysisSuite(StaticAnalysis):
             )
 
         return findings
+
+
+def _degrade(degraded: list[DegradedAnalyzer], analyzer: str, file_path: str, error: Exception) -> None:
+    """Records an analyzer that could not run, and says so out loud.
+
+    Catching the exception is deliberate — a file that does not parse is a
+    reason to say less rather than to abort the review. Catching it *silently*
+    was not: an analyzer that crashed on every file produced a clean report,
+    which is the one shape of "unknown means pass" ADR 0011 exists to forbid
+    (self-review R-02).
+    """
+    reason = f"{type(error).__name__}: {error}"
+    logger.warning(
+        "An analyzer could not run; its findings are missing from this file",
+        extra={"fields": {"analyzer": analyzer, "path": file_path, "error": reason}},
+    )
+    degraded.append(DegradedAnalyzer(analyzer=analyzer, reason=reason))

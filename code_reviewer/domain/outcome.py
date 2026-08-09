@@ -46,6 +46,10 @@ class ReviewOutcome:
     #: report can state the count: a suppression nobody can see is
     #: indistinguishable from a rule that never fired (finding G-07).
     suppressions: list[tuple[str, Any]] = field(default_factory=list)
+    #: Analyzers that raised on a file, by file. Distinct from
+    #: `unanalysed_files`: there, nothing was examined; here, part of the
+    #: evidence is missing and the rest of it is real (self-review R-02).
+    degraded_analyzers: list[tuple[str, str, str]] = field(default_factory=list)
 
     def record(self, file_path: str, evaluation: GateEvaluation) -> None:
         self.evaluations.append((file_path, evaluation))
@@ -56,6 +60,18 @@ class ReviewOutcome:
     def record_failure(self, file_path: str, reason: str) -> None:
         """Records that a file could not be reviewed at all."""
         self.failed_files.append((file_path, reason))
+
+    def record_degraded(self, file_path: str, analyzer: str, reason: str) -> None:
+        """Records that one analyzer could not run on a file.
+
+        Zero findings from an analyzer that crashed is not the same fact as
+        zero findings from one that ran. It does not fail the file — the
+        common cause is a file that does not parse, and a half-finished branch
+        is a reason to say less rather than to block — but a reader who is
+        told "no findings" has to be told which analyzer was not among the
+        things that found nothing (ADR 0011, self-review R-02).
+        """
+        self.degraded_analyzers.append((file_path, analyzer, reason))
 
     def record_suppressions(self, file_path: str, suppressed) -> None:
         """Records what a file's `review-ignore` directives silenced."""
@@ -141,7 +157,12 @@ class ReviewOutcome:
             f"{file_path}: static analysis could not run — {reason}"
             for file_path, reason in self.unanalysed_files
         ]
-        return gate_warnings + failures + unanalysed
+        degraded = [
+            f"{file_path}: {analyzer} could not run — {reason}. Its findings are "
+            f"missing from this file; the other analyzers' are not."
+            for file_path, analyzer, reason in self.degraded_analyzers
+        ]
+        return gate_warnings + failures + unanalysed + degraded
 
     @property
     def files_considered(self) -> int:

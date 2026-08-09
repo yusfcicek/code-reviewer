@@ -15,7 +15,7 @@ Each closed row names the commit that closed it.
 | # | Severity | Where | What | Status |
 |---|---|---|---|---|
 | R-01 | 🔴 High | `serve.py` | Under `gunicorn` — the documented production command — nothing drains the review worker on `SIGTERM`. The drain is wired only into the `wsgiref` entry point. | open |
-| R-02 | 🔴 High | `analyzers/suite.py` | An analyzer that raises contributes nothing, silently: no log, no warning in the comment, no field in the decision record. "Unknown" becomes "pass" with nothing saying so. | open |
+| R-02 | 🔴 High | `analyzers/suite.py` | An analyzer that raises contributes nothing, silently: no log, no warning in the comment, no field in the decision record. "Unknown" becomes "pass" with nothing saying so. | ✅ closed |
 | R-03 | 🟠 Medium | `forge/gitlab_forge.py` | Exception text reaches the merge-request comment un-redacted. The model's prose is redacted; a failure message built from an exception is not. | open |
 | R-04 | 🟠 Medium | `__main__.py` | `--trace-path` has no test. `_export_trace` is tested directly; nothing asserts the flag reaches it. | open |
 | R-05 | 🟡 Low | `concurrency/thread_pool.py` | The group deadline is deliberate, but a task that was about to return is reported "abandoned" once an *earlier* task in the batch has timed out. | open |
