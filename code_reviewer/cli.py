@@ -103,6 +103,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--single-agent",
+        action="store_true",
+        help=(
+            "Review with one agent instead of the committee of specialists. "
+            "Fewer model calls per file, and the behaviour of every level before 15."
+        ),
+    )
+    parser.add_argument(
         "--no-llm",
         action="store_true",
         help=(
