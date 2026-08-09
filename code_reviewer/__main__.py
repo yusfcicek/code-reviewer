@@ -199,6 +199,9 @@ def build_review_service(args, tracer=None) -> tuple[ReviewService, Reviewer]:
         memory=memory,
         tracer=tracer,
         recorder=recorder,
+        # Proposals, never applications: the flag turns off the offering, and
+        # there has never been anything that applies one (Level 22).
+        suggest_fixes=not getattr(args, "no_suggestions", False),
     )
     return service, reviewer
 

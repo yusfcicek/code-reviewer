@@ -6,7 +6,9 @@ second forge means adding a sibling of this module and nothing else
 (finding F-27).
 """
 
-from code_reviewer.application.ports import CodeForge, FileChange, MergeRequestRef
+from collections.abc import Mapping
+
+from code_reviewer.application.ports import CodeForge, DiffPosition, FileChange, MergeRequestRef
 from code_reviewer.application.report import REVIEW_COMMENT_MARKER
 from code_reviewer.infrastructure.observability.logging import get_logger
 from code_reviewer.infrastructure.security.redaction import SecretRedactor
@@ -34,11 +36,21 @@ class GitLabForge(CodeForge):
         project = self._client.projects.get(project_id)
         merge_request = project.mergerequests.get(merge_request_iid)
 
+        # The commits a note anchors on. Absent on older instances and in
+        # unusual states; empty then, which costs suggestions and nothing else
+        # (Level 22).
+        # Read as a mapping or not at all: the client returns a dict, and
+        # anything else is a shape this adapter does not understand.
+        raw_refs = getattr(merge_request, "diff_refs", None)
+        refs: Mapping[str, object] = raw_refs if isinstance(raw_refs, Mapping) else {}
+
         reference = MergeRequestRef(
             project_id=str(project_id),
             merge_request_id=str(merge_request_iid),
             project_name=getattr(project, "name", ""),
-            head_sha=getattr(merge_request, "sha", "") or "",
+            head_sha=str(refs.get("head_sha") or getattr(merge_request, "sha", "") or ""),
+            base_sha=str(refs.get("base_sha") or ""),
+            start_sha=str(refs.get("start_sha") or ""),
         )
         # Cached so each port call does not re-fetch; one review targets one
         # merge request.
@@ -99,6 +111,30 @@ class GitLabForge(CodeForge):
                 )
 
         merge_request.notes.create({"body": body})
+
+    def publish_suggestion(self, reference: MergeRequestRef, position: DiffPosition, body: str) -> None:
+        """Posts an applicable suggestion as a note on the line it edits.
+
+        A discussion rather than a note: GitLab applies a `suggestion` block
+        only from a note attached to the diff. It is still a comment — nothing
+        here writes to the repository, and applying the change stays a
+        deliberate click by somebody with commit rights (Level 22, D-1).
+        """
+        merge_request = self._merge_request(reference)
+        merge_request.discussions.create(
+            {
+                "body": self._redact(body),
+                "position": {
+                    "position_type": "text",
+                    "base_sha": position.base_sha,
+                    "start_sha": position.start_sha,
+                    "head_sha": position.head_sha,
+                    "new_path": position.path,
+                    "old_path": position.path,
+                    "new_line": position.line,
+                },
+            }
+        )
 
     def _redact(self, body: str) -> str:
         """Masks anything secret-shaped on the way to the merge request.
