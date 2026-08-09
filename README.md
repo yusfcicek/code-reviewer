@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.11.0.** Rebuilt from an imported prototype across eighteen levels
+> **Status: 2.12.0.** Rebuilt from an imported prototype across nineteen levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1397 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1511 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -158,7 +158,35 @@ share of the file's budget:
   `--single-agent` gives you the one-call-per-file behaviour of earlier levels
   ([ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md)).
 
-### ⚡ 10. The committee runs concurrently
+### 🌐 10. A service, not only a job
+```
+POST /reviews          → 202 + id + Location   (200 if already in flight)
+GET  /reviews/{id}     → state, verdict, exit code, trace id
+POST /webhooks/gitlab  → X-Gitlab-Token verified before the body is read
+GET  /healthz          → this process is running
+GET  /readyz           → it can accept work (no third party is called)
+GET  /metrics          → OpenMetrics
+```
+
+- **Idempotency is keyed on the commit**, not the merge request: a push is a
+  new review, and collapsing the two would silently drop it. `Idempotency-Key`
+  is honoured too.
+- **Authentication is asserted over the route table**, which is data — a route
+  added later is covered by construction. The only open routes are the two
+  probes, and a test says so.
+- The status endpoint **never returns the comment**: it may quote the diff, and
+  the merge request already has it.
+- The webhook **refuses everything with no secret configured**, compares in
+  constant time, and answers `204` to events it does not care about — an
+  endpoint that errors on those gets disabled by whoever watches the delivery
+  log.
+- **No framework.** A WSGI application: `gunicorn code_reviewer.serve:create_app`
+  in a container, `wsgiref` on a laptop, and forty-eight tests that call it with
+  a dictionary ([ADR 0020](docs/adr/0020-a-wsgi-application-not-a-framework.md)).
+- It **refuses to start without `REVIEW_API_TOKEN`**, and binds loopback by
+  default.
+
+### ⚡ 11. The committee runs concurrently
 - The four specialists reviewing one file run **at once**, bounded by
   `--concurrency N`. `1` selects the sequential runner outright, which is the
   behaviour of every level before 17.
@@ -175,7 +203,7 @@ share of the file's budget:
 - The tracer's stack is per thread and a worker binds to the span that
   submitted it, so the trace comes out the same shape it would sequentially.
 
-### 🔬 11. A trace of the whole review
+### 🔬 12. A trace of the whole review
 One review produces one tree: the run, each file, each agent, each tool call,
 each retrieval, each memory access.
 
@@ -204,7 +232,7 @@ each retrieval, each memory access.
   ([ADR 0018](docs/adr/0018-a-trace-of-our-own.md)) — the port is there so that
   can change without the review path changing.
 
-### 🧾 12. A memory of this project
+### 🧾 13. A memory of this project
 - What a review found survives it. `.review-memory.json` in the checkout holds
   what each rule has done in each file: how many times, since when, and — for a
   `review-ignore` — the reason somebody wrote.
@@ -225,7 +253,7 @@ each retrieval, each memory access.
   degrades quietly to the behaviour of every earlier level, which is correct —
   and worth knowing before concluding the feature does nothing.
 
-### 🎯 13. Measured review quality
+### 🎯 14. Measured review quality
 - `ai-code-review-eval` grades the analysis suite against an annotated dataset
   (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
   and per rule.
@@ -274,6 +302,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
+| HTTP service | ✅ Works | Six endpoints behind a bearer token, a verified GitLab webhook, a bounded queue with a worker, and probes Kubernetes can read |
 | Concurrency | ✅ Works | Specialists run at once behind a `TaskRunner` port; identical results, bounded, with timeouts that are honest about abandonment |
 | Tracing | ✅ Works | One tree per review over runs, files, agents, tools, retrieval and memory; self time per kind; trace ids on every log record; JSON artefact |
 | Multi-agent orchestration | ✅ Works | Four specialists routed from findings, budget split by weight, one bounded handoff, deterministic composition, per-agent accounting; the verdict is unchanged |
@@ -575,7 +604,7 @@ CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-1397 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+1511 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -601,7 +630,8 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── retrieval.py         chunks, rank fusion, marginal relevance
 │   │   ├── recollection.py      what past reviews remember, and forget
 │   │   ├── orchestration.py     who reviews what, for how much, in what order
-│   │   └── trace.py             spans, the tree, self time
+│   │   ├── trace.py             spans, the tree, self time
+│   │   └── job.py               a review request and its lifecycle
 │   ├── application/             the workflow and the ports it needs
 │   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer, EvaluationDataset
 │   │   ├── review_service.py    the use case
@@ -612,12 +642,14 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── project_memory.py      recall, observe, persist
 │   │   ├── orchestration_service.py  the committee, as one Reviewer
 │   │   ├── tracing.py             the Tracer and TraceExporter ports
-│   │   └── tasks.py               the TaskRunner port and its sequential default
+│   │   ├── tasks.py               the TaskRunner port and its sequential default
+│   │   └── jobs.py                accepting a review, once
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
 │   │   ├── concurrency/         the bounded thread pool
 │   │   ├── evaluation/          the dataset loader
+│   │   ├── http/                the WSGI application, the webhook, the worker
 │   │   ├── retrieval/           chunking, BM25, embedding, vector index, corpus
 │   │   ├── forge/               GitLab client and CodeForge adapter
 │   │   ├── llm/                 vLLM provider, review agent, specialists, tool loop
@@ -627,6 +659,7 @@ test that pins a fix is observed failing before the fix lands.
 │   │   └── tools/               tool definitions, workspace limits, safe search
 │   ├── cli.py                   argument parsing
 │   ├── evaluate.py              the ai-code-review-eval entry point
+│   ├── serve.py                 the ai-code-review-serve entry point
 │   ├── errors.py                operational error categories
 │   └── __main__.py              composition root
 ├── tests/
@@ -649,7 +682,7 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Nineteen decision records: what was decided, why, and what it costs |
+| [docs/adr/](docs/adr/README.md) | Twenty decision records: what was decided, why, and what it costs |
 | [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |

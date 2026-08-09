@@ -32,6 +32,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `recollection.py` | What a project's reviews remember: identity, consolidation, salience with a half-life, forgetting, and recall scoped to a path. |
 | `orchestration.py` | Who reviews a file, for how much, in what order, and what may be handed on. Routing, the budget split, composition and the handoff rule — all pure. |
 | `trace.py` | What a review did, as a tree: spans, tree building that survives orphans and cycles, self time, the critical path. |
+| `job.py` | One request for a review: its target, its lifecycle, and every transition that is refused. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
 
@@ -49,6 +50,7 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `orchestration_service.py` | `ReviewOrchestrator`: a committee of specialists presented to the workflow as one `Reviewer`. |
 | `tracing.py` | The `Tracer` and `TraceExporter` ports, and the `NullTracer` that makes instrumentation free when nobody is looking. |
 | `tasks.py` | The `TaskRunner` port, `TaskOutcome`, and the `SequentialRunner` that is the default. |
+| `jobs.py` | The `JobStore` port, an in-memory one, and `JobService`: accept once, hand out, record. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -67,6 +69,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `memory/` | `SmartMemoryStrategy`. |
 | `metrics/` | OpenMetrics aggregation and export. |
 | `concurrency/` | `ThreadPoolRunner`: bounded, ordered, and honest about what a timeout can and cannot do. |
+| `http/` | The WSGI application, the GitLab webhook reader, and the worker that drains the queue. |
 | `observability/` | Logging configuration and formatters, the span recorder, and the trace renderer and JSON exporter. |
 | `tools/` | The tools the agent can call, and the `Workspace` that confines them. |
 
@@ -89,6 +92,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `Tracer` | `SpanRecorder`, `NullTracer` | A different recorder; the null one is the default everywhere |
 | `TraceExporter` | `JsonTraceExporter` | OTLP, or anything else — without the review path changing |
 | `TaskRunner` | `SequentialRunner`, `ThreadPoolRunner` | An async-native runner, if the clients ever become async |
+| `JobStore` | `InMemoryJobStore` | A store that survives a restart, when somebody decides which |
 
 ## The path of one review
 
@@ -163,6 +167,41 @@ still a prompt ([ADR 0015](adr/0015-retrieval-is-hybrid-local-and-untrusted.md))
 **Retrieved code is untrusted.** It sits in the checkout, and the checkout is
 what the merge request changed. Same trust boundary, same escaping, same
 declaration in the system prompt.
+
+## The service surface
+
+```
+  POST /reviews          202 + id + Location   ← or 200 when it is already in flight
+  GET  /reviews/{id}     state, verdict, exit code, trace id — never the comment
+  POST /webhooks/gitlab  X-Gitlab-Token, verified before the body is read
+  GET  /healthz          this process is running
+  GET  /readyz           it can accept work — no third party is called
+  GET  /metrics          OpenMetrics text
+```
+
+A WSGI callable, not a framework
+([ADR 0020](adr/0020-a-wsgi-application-not-a-framework.md)). It is one adapter:
+it calls `JobService`, and a worker thread takes what it accepted through
+`ReviewService`. No gate logic, no policy, no rendering — a gRPC surface would
+be a sibling module against the same objects.
+
+```
+  ReviewApi (WSGI)  ──►  JobService  ──►  JobStore
+                              ▲
+                              │ claim / complete / fail
+                        ReviewWorker  ──►  ReviewService.review(...)
+```
+
+Three properties are deliberate.
+
+**Authentication is asserted over the route table**, which is data — so a route
+added later is covered by construction rather than by somebody remembering.
+
+**Idempotency is keyed on the commit**, not the merge request: a push is a new
+review, and collapsing the two would silently drop it.
+
+**Job state is in memory and the process says so.** The store is a port, so the
+decision about persistence has somewhere to go.
 
 ## What runs at once
 
