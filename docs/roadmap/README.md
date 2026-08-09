@@ -54,7 +54,7 @@ statement and what this repository does today.
 | [13](level-13/spec.md) | Retrieval over the repository | ✅ Done |
 | [14](level-14/spec.md) | Long-term memory across reviews | ✅ Done |
 | [15](level-15/spec.md) | Multi-agent orchestration | ✅ Done |
-| 16 | Tracing & agent observability | ⏳ Planned |
+| [16](level-16/spec.md) | Tracing & agent observability | 🚧 In progress |
 | 17 | Asynchronous execution | ⏳ Planned |
 | 18 | Service surface — HTTP API & webhooks | ⏳ Planned |
 | 19 | Containerisation & cloud-native deployment | ⏳ Planned |
