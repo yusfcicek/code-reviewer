@@ -7,6 +7,56 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.0] — 2026-08-09
+
+Level 16: one review, one trace.
+
+### Added
+
+- **`domain/trace.py`.** Spans, tree building, self time, the critical path.
+  Tree building survives an orphan, a two-span cycle, a three-span cycle, a
+  span that is its own parent and two roots — each recorded as an *anomaly*
+  rather than hidden, and none of them able to make it fail to terminate.
+- **`SpanRecorder`** with dotted-counter identifiers (`1.4.2`), so the tree's
+  shape is visible in a flat log line and two spans can be compared by eye.
+- **`Tracer` and `TraceExporter` ports**, plus a `NullTracer` that is the
+  default everywhere — which is what lets the instrumentation be unconditional
+  rather than wrapped in `if tracer is not None`.
+- **Instrumentation** of the run, each file, static analysis, retrieval, memory
+  recall, each agent, each model call and each tool call.
+- **Trace context on every log record.** `trace_id` and `span_id` in both the
+  human and the JSON format, added by a filter on the handler.
+- **`render_trace_tree`** — indented, bounded by depth and node count, stating
+  what it omitted, with self time per kind and the anomalies — and
+  **`trace_to_json`** behind `JsonTraceExporter`.
+- **`--trace-path`.** Recording is always on; writing the file is the flag.
+
+### Changed
+
+- The merge-request comment's footer names the trace id. The tree itself is
+  not in the comment: it is only complete *after* the comment has been
+  rendered. The spec said otherwise, and implementation disagreed — recorded
+  in the ADR rather than quietly done.
+- `application/tracing.py` exists because the architecture test refused the
+  first attempt: `ReviewService` had imported the recorder from
+  `infrastructure` directly.
+
+### Not taken, deliberately
+
+OpenTelemetry. It is the industry answer and this level does not take it: the
+SDK plus an exporter is a large dependency tree in a process whose entire job
+is to be trustworthy, and Level 7 already spent itself on what a framework in
+the critical path costs. `TraceExporter` is a port precisely so this can be
+reversed without the review path changing.
+
+### Documented
+
+- [ADR 0018](docs/adr/0018-a-trace-of-our-own.md) — why not OTel, why the model
+  is in the domain, why identifiers are counters, and why attributes are a
+  closed vocabulary enforced by a test rather than by advice.
+
+---
+
 ## [2.9.0] — 2026-08-09
 
 Level 15: one reviewer becomes four.

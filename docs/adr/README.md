@@ -25,6 +25,7 @@ nobody has taken turns this directory into a wish list.
 | [0015](0015-retrieval-is-hybrid-local-and-untrusted.md) | Retrieval is hybrid, local, and untrusted | Accepted |
 | [0016](0016-memory-informs-and-never-decides.md) | Memory informs, and never decides | Accepted |
 | [0017](0017-an-orchestrator-of-specialists-not-a-framework.md) | An orchestrator of specialists, not a framework | Accepted |
+| [0018](0018-a-trace-of-our-own.md) | A trace of our own, not OpenTelemetry | Accepted |
 
 ## Adding one
 

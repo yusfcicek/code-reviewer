@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.9.0.** Rebuilt from an imported prototype across sixteen levels
+> **Status: 2.10.0.** Rebuilt from an imported prototype across seventeen levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1244 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1340 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -158,7 +158,36 @@ share of the file's budget:
   `--single-agent` gives you the one-call-per-file behaviour of earlier levels
   ([ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md)).
 
-### 🧾 10. A memory of this project
+### 🔬 10. A trace of the whole review
+One review produces one tree: the run, each file, each agent, each tool call,
+each retrieval, each memory access.
+
+```
+1     review                        [merge_request=42 project=17]
+1.1   file      src/app.py          900 ms (self 120 ms)
+1.1.1 analysis  static analysis      80 ms
+1.1.2 retrieval related code         40 ms  [chunks=4]
+1.1.3 agent     security            400 ms  [budget=4000 tool_calls=3]
+1.1.3.1 model   invoke              310 ms
+```
+
+- **Self time, not duration.** A parent's duration includes everything below
+  it; each span reports its own share, totalled per kind — so "40 % of this
+  review was tool calls" is a number rather than a guess.
+- **Every log record inside a review carries `trace_id` and `span_id`**, in
+  both the human and the JSON format. That is the join between a log line and
+  the trace, and what makes two interleaved reviews separable.
+- **Attributes are identifiers, never content.** A path, a rule, an agent, a
+  count, a budget — never a diff, a file's contents or a model's prose.
+  Enforced by a length cap and by a test that runs a real review whose diff
+  contains a credential-shaped string.
+- **Nothing is lost to bad input.** An orphan attaches to the root, a cycle is
+  broken, a second root is adopted — each recorded as an anomaly.
+- Recording is always on; `--trace-path` writes the JSON. **No OpenTelemetry**
+  ([ADR 0018](docs/adr/0018-a-trace-of-our-own.md)) — the port is there so that
+  can change without the review path changing.
+
+### 🧾 11. A memory of this project
 - What a review found survives it. `.review-memory.json` in the checkout holds
   what each rule has done in each file: how many times, since when, and — for a
   `review-ignore` — the reason somebody wrote.
@@ -179,7 +208,7 @@ share of the file's budget:
   degrades quietly to the behaviour of every earlier level, which is correct —
   and worth knowing before concluding the feature does nothing.
 
-### 🎯 11. Measured review quality
+### 🎯 12. Measured review quality
 - `ai-code-review-eval` grades the analysis suite against an annotated dataset
   (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
   and per rule.
@@ -228,6 +257,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
+| Tracing | ✅ Works | One tree per review over runs, files, agents, tools, retrieval and memory; self time per kind; trace ids on every log record; JSON artefact |
 | Multi-agent orchestration | ✅ Works | Four specialists routed from findings, budget split by weight, one bounded handoff, deterministic composition, per-agent accounting; the verdict is unchanged |
 
 Every gap the variant comparison found is closed. What the levels did, and
@@ -527,7 +557,7 @@ CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-1244 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+1340 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -552,7 +582,8 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── evaluation.py        grading findings against a case
 │   │   ├── retrieval.py         chunks, rank fusion, marginal relevance
 │   │   ├── recollection.py      what past reviews remember, and forget
-│   │   └── orchestration.py     who reviews what, for how much, in what order
+│   │   ├── orchestration.py     who reviews what, for how much, in what order
+│   │   └── trace.py             spans, the tree, self time
 │   ├── application/             the workflow and the ports it needs
 │   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer, EvaluationDataset
 │   │   ├── review_service.py    the use case
@@ -561,7 +592,8 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── evaluation_report.py   the run, as markdown and as JSON
 │   │   ├── retrieval_service.py   the hybrid retriever
 │   │   ├── project_memory.py      recall, observe, persist
-│   │   └── orchestration_service.py  the committee, as one Reviewer
+│   │   ├── orchestration_service.py  the committee, as one Reviewer
+│   │   └── tracing.py             the Tracer and TraceExporter ports
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
@@ -597,7 +629,7 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Seventeen decision records: what was decided, why, and what it costs |
+| [docs/adr/](docs/adr/README.md) | Eighteen decision records: what was decided, why, and what it costs |
 | [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |
