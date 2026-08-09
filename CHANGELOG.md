@@ -7,6 +7,59 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.0] — 2026-08-09
+
+Level 14: the agent stops starting from zero.
+
+### Added
+
+- **A memory of each project.** `.review-memory.json` in the checkout records
+  what each rule has done in each file: how many times, since when, and — for a
+  `review-ignore` — the reason somebody wrote. `--memory-path` moves it,
+  `--no-memory` turns it off.
+- **`domain/recollection.py`.** Identity (kind, path, rule — not line, not
+  severity), consolidation, salience with a 30-day half-life, a forgetting
+  floor, a capacity, and recall scoped to a file and then its directory.
+- **`MemoryStore` port** and `JsonMemoryStore`: written to a temporary file and
+  renamed, so a run killed mid-write leaves the previous memory rather than a
+  truncated one. A corrupt file loads as empty, is logged, and is left on disk.
+- **Recall in the prompt**, inside `<untrusted_project_memory>`, as a table of
+  identifiers and counts.
+- **Recurrence in the report**: findings this project has reported before, with
+  the count and the date first seen.
+- **`code_review_recurring_findings`** in the metrics export.
+
+### Changed
+
+- `Reviewer.review_diff` takes a `recollections` argument, defaulting to
+  `None`.
+- `ReviewService` takes an optional `memory`. It recalls before the review,
+  observes after it, and persists once the comment has already been rendered.
+- `render_review_comment` was split into one builder per block — the agent
+  reported it at cyclomatic complexity 17 against its own source when the
+  recurrence section was added, which was fair.
+
+### Not changed, deliberately
+
+The verdict. No recollection touches a severity, a gate result or an exit code,
+and `TestMemoryNeverDecides` runs the same review twice — against a history of
+99 sightings of exactly the finding it is about to report, and against none —
+requiring both to be identical. The tempting feature is a tool learning to stop
+complaining.
+
+Nor is anything a contributor wrote ever stored. Rule ids, paths, severities,
+dates and counts, plus a suppression's own source comment. An evidence line in
+a memory file is a stored injection with a long half-life and a credential
+store nobody declared.
+
+### Documented
+
+- [ADR 0016](docs/adr/0016-memory-informs-and-never-decides.md) — what the
+  history may do, what it may contain, how it is found, and why it is a keyed
+  store rather than a second index.
+
+---
+
 ## [2.7.0] — 2026-08-09
 
 Level 13: the reviewer stops seeing only the diff, and the Level 12 harness

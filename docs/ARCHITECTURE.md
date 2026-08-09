@@ -29,6 +29,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `outcome.py` | The merge request's verdict, aggregated from the files'. |
 | `evaluation.py` | Whether a produced finding *is* the expected one, and the confusion matrix that follows. Beside `gate.py` because both turn findings into a verdict. |
 | `retrieval.py` | `CodeChunk`, rank fusion, maximal marginal relevance, cosine. The arithmetic of choosing evidence; building the index is an adapter's job. |
+| `recollection.py` | What a project's reviews remember: identity, consolidation, salience with a half-life, forgetting, and recall scoped to a path. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
 
@@ -42,6 +43,7 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `evaluation_service.py` | The second use case: grade the suite against a dataset. |
 | `evaluation_report.py` | The evaluation run, as markdown and as JSON. |
 | `retrieval_service.py` | `HybridRetriever`: two searches, fused and diversified, and what happens when one of them fails. |
+| `project_memory.py` | `ProjectMemory`: recall before the run, observe during it, persist after. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -54,6 +56,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `config/` | The YAML policy loader and the shipped `review_policy.yaml`. |
 | `evaluation/` | `FileSystemDataset`, which reads `evaluation/cases/*.yaml` and their fixtures. |
 | `retrieval/` | Chunking, BM25, the hashed embedding, the in-memory vector index, and the corpus builder. |
+| `memory/` | `SmartMemoryStrategy` for one run, and `JsonMemoryStore` for the project's history across them. |
 | `forge/` | The GitLab client (`gitlab_client.py`) and `GitLabForge`, the `CodeForge` adapter. |
 | `llm/` | The vLLM provider, the review agent and token counting. |
 | `memory/` | `SmartMemoryStrategy`. |
@@ -75,6 +78,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `LexicalIndex` | `BM25Index` | A search server, if a repository outgrows an in-process index |
 | `VectorIndex` | `InMemoryVectorIndex` | Qdrant, or any approximate index, above ~10⁵ vectors |
 | `CodeRetriever` | `HybridRetriever` | A different retrieval strategy entirely; the workflow knows one method |
+| `MemoryStore` | `JsonMemoryStore` | A durable store, if a team wants its history off the checkout |
 
 ## The path of one review
 
@@ -149,6 +153,34 @@ still a prompt ([ADR 0015](adr/0015-retrieval-is-hybrid-local-and-untrusted.md))
 **Retrieved code is untrusted.** It sits in the checkout, and the checkout is
 what the merge request changed. Same trust boundary, same escaping, same
 declaration in the system prompt.
+
+## The path of one memory
+
+```
+  main()                          JsonMemoryStore(.review-memory.json)
+    │                               unless --no-memory
+    ▼
+  ReviewService.review(...)
+    │
+    ├─► ProjectMemory.recall(path)          → Reviewer.review_diff(recollections=…)
+    │     what was known BEFORE this run
+    │
+    ├─► ProjectMemory.recurrence_of(finding) → render_review_comment(recurring=…)
+    │
+    └─► after the comment is built:
+          ├─► observe_findings() / observe_suppressions()
+          ├─► consolidate → forget → retain
+          └─► MemoryStore.save()            atomic: temp file, then rename
+```
+
+Recall reads the state from *before* the run. A finding reported for the first
+time this morning is not a recurring finding, and a memory that counted the
+sighting it is describing would say it was.
+
+Nothing on this path reaches the gate. `TestMemoryNeverDecides` runs one review
+twice — with a 99-sighting history and with none — and requires the verdict, the
+exit code and the findings to be identical
+([ADR 0016](adr/0016-memory-informs-and-never-decides.md)).
 
 ## The path of one evaluation
 
