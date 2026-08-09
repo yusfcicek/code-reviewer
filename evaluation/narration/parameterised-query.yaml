@@ -1,0 +1,28 @@
+# A file that looks like the injection case and is not. The review says so
+# without inventing a severity for it.
+name: parameterised-query
+file: fixtures/parameterised_query.py
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS - Low
+  - **Vulnerabilities Found**: None - the queries are parameterised
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/parameterised_query.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Low - contained change
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  The placeholders are bound rather than interpolated, which is correct.

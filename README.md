@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.14.1.** Rebuilt from an imported prototype across twenty levels
+> **Status: 2.15.0.** Rebuilt from an imported prototype across twenty levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1669 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1748 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -292,7 +292,29 @@ each retrieval, each memory access.
   recall 0.89 — the gap was a real defect the dataset recorded rather than
   annotated away, and Level 13 closed it.
 
-### 🧾 16. A verdict that can be audited
+### 🔬 16. Measured narration
+- The analyzers have had a scoreboard since Level 12. The **model's prose** now
+  has one: fourteen recorded reviews, five checks each, graded offline.
+- **A citation that does not exist is the headline defect.** Every `path:line`
+  in the prose must name the file under review and a line that exists in it —
+  the failure mode a language model actually has.
+- The prose **may not claim a verdict** ([ADR 0004](docs/adr/0004-findings-drive-the-gate.md)
+  made measurable in the text), a `CRITICAL` needs a finding behind it, a
+  critical finding needs a mention, and the sections the prompt asks for have to
+  be there.
+- **The grader is code, not a model.** An LLM judge needs an endpoint in CI,
+  makes the score depend on a second unmeasured model, and produces a number
+  nobody can recompute by hand
+  ([ADR 0023](docs/adr/0023-the-prose-is-graded-by-code.md)).
+- **Five cases are deliberately bad**, each declaring the check it should fail,
+  so the corpus shows the checks can fire rather than only that they stay quiet.
+- `ai-code-review-eval --narration`, with a floor, exiting `1` for a low score
+  and `2` for a corpus it could not read.
+- The shipped recordings are **authored rather than captured from a model**, and
+  the corpus says so in its first paragraph: every case is reported as *stale*
+  until somebody records one under a known prompt fingerprint.
+
+### 🧾 17. A verdict that can be audited
 - Every review writes one **decision record**: what was decided, the exit code,
   which package, policy, rule set, model and prompt digest produced it, which
   rules blocked, what was suppressed and why, what each specialism cost, and

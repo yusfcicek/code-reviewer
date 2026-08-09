@@ -1,0 +1,30 @@
+# A query inside a loop.
+name: n-plus-one
+file: fixtures/n_plus_one.py
+findings:
+  - rule: PERFORMANCE.N_PLUS_ONE
+    line: 5
+    severity: medium
+    title: N Plus One
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS - Low
+  - **Vulnerabilities Found**: None
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/n_plus_one.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Medium - one query per row
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: N Plus One at `fixtures/n_plus_one.py:5` - a query inside a loop
+  - **Resource Leaks**: None

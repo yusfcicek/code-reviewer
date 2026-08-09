@@ -7,6 +7,40 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.15.0] — 2026-08-09
+
+Level 21: the model's prose gets a scoreboard, and the roadmap stops claiming
+Level 12 already gave it one.
+
+### Added
+
+- **`domain/narration.py`.** Five checks, all pure functions over a case and its
+  recorded text: grounded citations, no verdict claimed, severity claims backed
+  by findings, critical findings mentioned, required sections present. Each
+  failure names the substring that caused it.
+- **`application/narration_evaluation.py` and `narration_report.py`.** The
+  corpus scored as *agreement with what each case declared*, so a check that
+  stops working shows up as a case that suddenly passes.
+- **`infrastructure/evaluation/narration_dataset.py`.** A strict loader. A
+  recorded review carrying credential-shaped text refuses to load, and the
+  refusal does not quote it.
+- **`evaluation/narration/`** — fourteen cases, five of them deliberately bad
+  and each declaring the check it should break. Authored rather than captured
+  from a model endpoint, which the corpus README says in its first paragraph.
+- **`ai-code-review-eval --narration`**, `--min-narration`, and
+  `EVALUATION_MIN_NARRATION`. Same three exit codes as the analyzer harness.
+- An architecture test asserting that nothing in the review path imports the
+  grader, and that the evaluation entry point does.
+- [ADR 0023](docs/adr/0023-the-prose-is-graded-by-code.md).
+
+### Fixed
+
+- **`capability-sources.md` overstated Level 12.** C-02 and C-03 were recorded
+  as closed by it while Level 12's own non-goals said it did not grade the
+  model's prose. Both rows now name both levels.
+
+---
+
 ## [2.14.1] — 2026-08-09
 
 The self-review of levels 12–20, and its eight findings closed. Recorded in

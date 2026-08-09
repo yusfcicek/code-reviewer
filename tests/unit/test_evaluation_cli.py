@@ -122,3 +122,73 @@ def test_the_shipped_dataset_is_the_default_when_nothing_says_otherwise(monkeypa
     from code_reviewer.evaluate import build_parser
 
     assert build_parser().parse_args([]).dataset == "evaluation"
+
+
+# -- Level 21: grading what the model said -----------------------------------
+#
+# One entry point rather than two: a team that runs one measurement in CI will
+# run the second only if it costs a flag.
+
+POOR_CASE = """\
+name: hallucinating
+file: fixtures/subject.py
+review: |
+  ## Security Analysis
+  The problem is at `fixtures/elsewhere.py:900`.
+"""
+
+
+def _corpus(root, case_body: str = POOR_CASE) -> str:
+    (root / "narration").mkdir(parents=True, exist_ok=True)
+    (root / "fixtures").mkdir(parents=True, exist_ok=True)
+    (root / "fixtures" / "subject.py").write_text("value = 1\n", encoding="utf-8")
+    (root / "narration" / "case.yaml").write_text(case_body, encoding="utf-8")
+    return str(root)
+
+
+def test_the_shipped_corpus_is_graded_and_reported(capsys):
+    code = main(["--narration", "--dataset", "evaluation"])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "citations_are_grounded" in output
+    assert "14" in output
+
+
+def test_a_floor_the_corpus_does_not_meet_exits_one(tmp_path, capsys):
+    code = main(["--narration", "--dataset", _corpus(tmp_path), "--min-narration", "1.0"])
+
+    assert code == 1
+
+
+def test_a_corpus_that_cannot_be_read_exits_two(tmp_path, capsys):
+    """Distinct from a low score: a pipeline that cannot tell a broken harness
+    from a bad measurement has to treat both as advice."""
+    code = main(["--narration", "--dataset", str(tmp_path / "absent")])
+
+    assert code == 2
+
+
+def test_the_report_names_the_failing_case_and_what_it_cited(tmp_path, capsys):
+    main(["--narration", "--dataset", _corpus(tmp_path)])
+
+    output = capsys.readouterr().out
+    assert "hallucinating" in output
+    assert "fixtures/elsewhere.py:900" in output
+
+
+def test_stale_recordings_are_reported(capsys):
+    """Every case shipped today was authored rather than recorded under a known
+    prompt, and the report says so rather than letting the floor look better
+    than it is."""
+    main(["--narration", "--dataset", "evaluation"])
+
+    assert "stale" in capsys.readouterr().out.lower()
+
+
+def test_the_analyzer_grading_is_untouched_by_the_flag(capsys):
+    """Two measurements, one command, and neither runs the other."""
+    code = main(["--dataset", "evaluation"])
+
+    assert code == 0
+    assert "citations_are_grounded" not in capsys.readouterr().out

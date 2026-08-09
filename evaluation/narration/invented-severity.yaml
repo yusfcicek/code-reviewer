@@ -1,0 +1,32 @@
+#
+# MEANT TO FAIL: severity_claims_are_backed.
+#
+# CRITICAL, with nothing critical behind it.
+name: invented-severity
+file: fixtures/clean_module.py
+expect_failures:
+  - severity_claims_are_backed
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS - Low
+  - **Vulnerabilities Found**: None
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/clean_module.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - this module is a CRITICAL risk to the system
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  Nothing in the analysis supports that sentence.

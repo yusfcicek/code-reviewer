@@ -1,0 +1,30 @@
+# Quadratic growth, named in the section that owns it.
+name: nested-loops
+file: fixtures/nested_loops.py
+findings:
+  - rule: PERFORMANCE.NESTED_LOOPS
+    line: 4
+    severity: medium
+    title: Nested Loops
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS - Low
+  - **Vulnerabilities Found**: None
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/nested_loops.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Medium - quadratic growth
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: Nested Loops at `fixtures/nested_loops.py:4` - quadratic in the input
+  - **Resource Leaks**: None

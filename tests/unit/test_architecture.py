@@ -156,3 +156,59 @@ class TestSingleSharedModels(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheInstrumentIsNotInTheReviewPath(unittest.TestCase):
+    """Level 21, AC-14 — a grader that can change a verdict is not a grader.
+
+    The narration harness reads recorded reviews and scores them. Nothing in
+    the path that produces a review may import it: the moment a check can
+    influence what gets published, the number it reports is about a system
+    that was watching itself being measured.
+    """
+
+    #: Modules that run when a merge request is reviewed.
+    REVIEW_PATH = (
+        "code_reviewer/application/review_service.py",
+        "code_reviewer/application/report.py",
+        "code_reviewer/application/orchestration_service.py",
+        "code_reviewer/application/governance.py",
+        "code_reviewer/__main__.py",
+        "code_reviewer/serve.py",
+        "code_reviewer/cli.py",
+    )
+
+    GRADER = ("narration", "narration_evaluation", "narration_report", "narration_dataset")
+
+    def test_no_module_in_the_review_path_imports_the_grader(self):
+        import ast
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        for relative in self.REVIEW_PATH:
+            with self.subTest(module=relative):
+                tree = ast.parse((root / relative).read_text(encoding="utf-8"))
+                imported = {
+                    name.split(".")[-1]
+                    for node in ast.walk(tree)
+                    if isinstance(node, ast.ImportFrom) and node.module
+                    for name in (node.module,)
+                }
+                self.assertEqual(imported & set(self.GRADER), set(), relative)
+
+    def test_the_grader_is_reachable_from_the_evaluation_entry_point(self):
+        """The other half of the rule: unreachable is not the same as
+        uninvolved, and a harness nothing can run is not a harness."""
+        import ast
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[2] / "code_reviewer/evaluate.py").read_text(
+            encoding="utf-8"
+        )
+        modules = {
+            node.module
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+
+        assert any("narration" in module for module in modules)

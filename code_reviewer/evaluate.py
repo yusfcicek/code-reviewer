@@ -25,14 +25,22 @@ from pathlib import Path
 
 from code_reviewer.application.evaluation_report import evaluation_summary, render_evaluation_report
 from code_reviewer.application.evaluation_service import EvaluationService
+from code_reviewer.application.narration_evaluation import NarrationEvaluator
+from code_reviewer.application.narration_report import render_narration_report
 from code_reviewer.domain.evaluation import EvaluationThreshold
 from code_reviewer.errors import ConfigurationError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.evaluation.dataset import FileSystemDataset
+from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationCorpus
 
 #: The dataset shipped with this repository.
 DEFAULT_DATASET = "evaluation"
+
+#: The floor the shipped narration corpus holds. Every case either passes every
+#: check or declares the one it is built to break, so the measured value is
+#: 1.00 and the floor is the measurement rather than a hope (Level 21).
+DEFAULT_NARRATION_FLOOR = 1.0
 
 EXIT_OK = 0
 EXIT_BELOW_THRESHOLD = 1
@@ -83,6 +91,20 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"Minimum acceptable {metric}. Below it, the command exits 1.",
         )
     parser.add_argument(
+        "--narration",
+        action="store_true",
+        help=(
+            "Grade the recorded reviews instead of the analyzers: whether the "
+            "prose is consistent with the facts it was written about."
+        ),
+    )
+    parser.add_argument(
+        "--min-narration",
+        type=_floor,
+        default=_floor(_env("EVALUATION_MIN_NARRATION", str(DEFAULT_NARRATION_FLOOR))),
+        help="Minimum acceptable narration score. Below it, the command exits 1.",
+    )
+    parser.add_argument(
         "--markdown",
         type=str,
         default="-",
@@ -100,6 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else sys.argv[1:])
+    if args.narration:
+        return _grade_narration(args)
 
     threshold = EvaluationThreshold(
         min_precision=args.min_precision,
@@ -128,6 +152,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     if report.has_errors:
         return EXIT_CANNOT_MEASURE
     return EXIT_OK if threshold.is_met(report) else EXIT_BELOW_THRESHOLD
+
+
+def _grade_narration(args) -> int:
+    """Grades the recorded reviews. Same three exit codes, same meanings.
+
+    The prompt fingerprint is read from the running package so the report can
+    say which cases were recorded under some other prompt — a floor held
+    entirely by recordings nobody can attribute is a floor holding nothing
+    (Level 21, decision D-4).
+    """
+    from code_reviewer.infrastructure.governance.identity import prompt_fingerprint
+
+    try:
+        cases = NarrationCorpus(args.dataset).cases()
+        report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
+    except ConfigurationError as error:
+        print(f"Narration evaluation could not run: {error}", file=sys.stderr)  # stdout: the output
+        return EXIT_CANNOT_MEASURE
+
+    try:
+        _emit(render_narration_report(report, args.min_narration), args.markdown)
+    except OSError as error:
+        print(  # stdout: the program's output, not a diagnostic
+            f"Narration evaluation ran but could not be written: {error}", file=sys.stderr
+        )
+        return EXIT_CANNOT_MEASURE
+
+    return EXIT_OK if report.score >= args.min_narration else EXIT_BELOW_THRESHOLD
 
 
 def _emit(text: str, destination: str) -> None:

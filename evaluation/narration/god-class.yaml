@@ -1,0 +1,30 @@
+# A class doing too many things, reported under Code Quality.
+name: god-class
+file: fixtures/god_class.py
+findings:
+  - rule: QUALITY.SRP
+    line: 4
+    severity: medium
+    title: SRP
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS - Low
+  - **Vulnerabilities Found**: None
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/god_class.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Medium - the class will keep growing
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 55/100
+  - **Issues Found**: SRP at `fixtures/god_class.py:4` - the class does too many things
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None

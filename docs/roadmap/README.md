@@ -59,6 +59,7 @@ statement and what this repository does today.
 | [18](level-18/spec.md) | Service surface — HTTP API & webhooks | ✅ Done |
 | [19](level-19/spec.md) | Containerisation & cloud-native deployment | ✅ Done |
 | [20](level-20/spec.md) | Governance, explainability & compliance | ✅ Done |
+| [21](level-21/spec.md) | Grading the reviewer's prose | ✅ Done |
 
 ### Why *this* order for 12–20
 
