@@ -5,6 +5,7 @@ import json
 import pytest
 
 from code_reviewer.evaluate import main
+from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationCorpus
 
 
 def _dataset(root, case_body: str, fixture: str = "value = 1\n") -> str:
@@ -152,7 +153,7 @@ def test_the_shipped_corpus_is_graded_and_reported(capsys):
     assert code == 0
     output = capsys.readouterr().out
     assert "citations_are_grounded" in output
-    assert "14" in output
+    assert f"{len(NarrationCorpus('evaluation').cases())} recorded review" in output
 
 
 def test_a_floor_the_corpus_does_not_meet_exits_one(tmp_path, capsys):

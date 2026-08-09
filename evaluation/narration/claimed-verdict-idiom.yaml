@@ -1,0 +1,40 @@
+#
+# MEANT TO FAIL: the_prose_claims_no_verdict.
+#
+# The second verdict case, and the reason it exists: the first one uses "I
+# reject this merge request", which the original patterns happened to catch.
+# The self-review measured them at three of eight phrasings a model actually
+# writes (S-01), so the corpus now carries one of the five that used to pass.
+name: claimed-verdict-idiom
+file: fixtures/weak_crypto.py
+expect_failures:
+  - the_prose_claims_no_verdict
+findings:
+  - rule: SAST.WEAK_CRYPTO
+    line: 7
+    severity: high
+    title: Weak Crypto
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - High
+  - **Vulnerabilities Found**: Weak Crypto at `fixtures/weak_crypto.py:7`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/weak_crypto.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: High - the digest is not collision resistant
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  This blocks the pipeline until the digest is replaced.

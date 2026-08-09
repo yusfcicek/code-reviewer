@@ -178,3 +178,81 @@ def test_every_check_names_itself():
         required_sections_are_present,
     ):
         assert check(_case(WELL_FORMED)).check
+
+
+# -- S-01: the phrasings a model actually writes -----------------------------
+#
+# The patterns were written against the phrasings that came to mind while
+# writing them, and the corpus case built to demonstrate the check uses one of
+# the three that happened to work. So the corpus proved the check can fire and
+# nothing about what it covers.
+
+CLAIMS_A_VERDICT = (
+    "This blocks the pipeline.",
+    "This merge request is blocked.",
+    "LGTM, approved.",
+    "The pipeline will be blocked by this.",
+    "Recommendation: do not merge.",
+    "Approving this change.",
+    "This will block the pipeline.",
+    "I reject this merge request.",
+    "Do not merge until the key is rotated.",
+    "This change is approved.",
+    "Blocking the merge.",
+    "Ship it.",
+)
+
+STATES_A_FACT = (
+    "- **SAST Scan Result**: PASS - Low",
+    "A critical finding fails the pipeline under the current policy.",
+    "A critical finding blocks the pipeline under the current policy.",
+    "The gate blocks on critical findings; this one is medium.",
+    "The blocking severity is configured as critical.",
+    "This function is not approved for reuse elsewhere in the codebase.",
+    "The merge conflict marker on line 4 was left in.",
+)
+
+
+def test_every_phrasing_that_claims_a_verdict_is_caught():
+    for phrasing in CLAIMS_A_VERDICT:
+        result = the_prose_claims_no_verdict(_case(phrasing))
+
+        assert not result.passed, f"not caught: {phrasing}"
+        assert result.detail, phrasing
+
+
+def test_no_statement_of_fact_is_mistaken_for_a_verdict():
+    """The other half. A check that fires on "the gate blocks on critical
+    findings" would make the true sentence unwritable, and a reviewer who
+    cannot describe the policy writes worse reviews."""
+    for phrasing in STATES_A_FACT:
+        assert the_prose_claims_no_verdict(_case(phrasing)).passed, f"wrongly caught: {phrasing}"
+
+
+# -- S-04: a severity word is not always a severity claim --------------------
+
+
+def test_ordinary_prose_about_complexity_is_not_a_severity_claim():
+    """Real reviews say "high complexity" and "high coupling". A check that
+    fails those fails reviews that said nothing wrong."""
+    for phrasing in (
+        "The function has high complexity and should be split.",
+        "This introduces high coupling between the two modules.",
+        "A high number of branches makes this hard to test.",
+        "The critical path through this function is the loop.",
+        "This is a critical section guarded by the lock.",
+    ):
+        assert severity_claims_are_backed(_case(phrasing)).passed, f"wrongly caught: {phrasing}"
+
+
+def test_a_severity_claim_in_the_shape_a_review_writes_it_is_caught():
+    for phrasing in (
+        "- **Risk Assessment**: Critical - the credential is live",
+        "- **SAST Scan Result**: FAIL - Critical",
+        "Severity: HIGH",
+        "This is a CRITICAL vulnerability.",
+        "**Vulnerabilities Found**: SQL Injection (critical)",
+    ):
+        result = severity_claims_are_backed(_case(phrasing))
+
+        assert not result.passed, f"not caught: {phrasing}"

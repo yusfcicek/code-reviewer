@@ -26,7 +26,7 @@ def report(cases):
 
 
 def test_the_corpus_loads(cases):
-    assert len(cases) >= 14
+    assert len(cases) >= 15
 
 
 def test_the_corpus_holds_the_committed_floor(report):

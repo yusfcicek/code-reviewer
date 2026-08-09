@@ -132,19 +132,36 @@ REQUIRED_SECTIONS = (
     "Performance Analysis",
 )
 
-#: Claiming a verdict. Deliberately narrow: `**SAST Scan Result**: PASS` is the
-#: shape the prompt demands, and a check that failed the format it asked for
-#: would be unusable. What is refused is the prose claiming to have *decided* —
-#: findings decide and prose warns (ADR 0004, contract C-4).
+#: Claiming a verdict. Rewritten after the self-review measured the first
+#: version at three of eight phrasings a model actually writes (S-01): it
+#: matched what came to mind while it was being written, and the corpus case
+#: built to demonstrate it happened to use one of the three that worked.
+#:
+#: Deliberately narrow in the other direction: `**SAST Scan Result**: PASS` is
+#: the shape the prompt demands, and "the gate blocks on critical findings" is
+#: a true statement about the policy. A check that failed those would make the
+#: correct sentence unwritable (contract C-4).
 _VERDICT_CLAIMS = (
+    # A decision about *this* change, in any tense or voice.
     re.compile(
-        r"\b(?:this|it|the (?:change|merge|review))\s+will\s+block\s+the\s+(?:pipeline|merge)\b", re.I
+        r"\b(?:this|it|the (?:change|merge|review|pipeline|merge request))\b[^.\n]{0,40}?"
+        r"\b(?:is|will\s+be|has\s+been|was)\s+(?:approved|rejected|blocked)\b",
+        re.I,
     ),
-    re.compile(r"\b(?:this|it)\s+will\s+fail\s+the\s+pipeline\b", re.I),
-    re.compile(r"\bI\s+(?:approve|reject)\b", re.I),
-    re.compile(r"\b(?:approving|rejecting)\s+this\s+(?:merge|change|request)\b", re.I),
-    re.compile(r"\bblock(?:ing)?\s+the\s+(?:pipeline|merge)\b", re.I),
-    re.compile(r"\b(?:merge|change)\s+is\s+(?:approved|rejected|blocked)\b", re.I),
+    re.compile(
+        r"\b(?:this|it|the (?:change|merge|review|merge request))\b[^.\n]{0,40}?"
+        r"\bblocks?\s+the\s+(?:pipeline|merge|merge request)\b",
+        re.I,
+    ),
+    re.compile(r"\b(?:this|it)\s+will\s+(?:block|fail)\s+the\s+pipeline\b", re.I),
+    # The reviewer speaking as the decider.
+    re.compile(r"\bI\s+(?:approve|reject|am\s+approving|am\s+rejecting)\b", re.I),
+    re.compile(r"\b(?:approving|rejecting|blocking)\s+(?:this|the)\s+(?:merge|change|request|merge request)\b", re.I),
+    re.compile(r"^\s*(?:blocking|approving)\s+the\s+(?:merge|pipeline)\b", re.I | re.M),
+    # The idioms. Short, unambiguous, and the ones a reviewer reaches for.
+    re.compile(r"\b(?:LGTM|ship\s+it)\b", re.I),
+    re.compile(r"\bdo\s+not\s+merge\b", re.I),
+    re.compile(r"\b(?:this\s+)?change\s+is\s+approved\b", re.I),
 )
 
 #: Severity words whose use is checked. Upward only, and the asymmetry is the
@@ -152,6 +169,26 @@ _VERDICT_CLAIMS = (
 #: while calling something low is an opinion the gate ignores anyway
 #: (contract C-5).
 _CHECKED_SEVERITIES = (Severity.CRITICAL, Severity.HIGH)
+
+#: Where a severity word is a *claim* rather than an adjective. The first
+#: version searched the whole review for the word, and failed reviews that said
+#: "high complexity" or "the critical path through this function" (S-04).
+#:
+#: A claim looks like one of three things: the word in capitals, the word after
+#: a label the prompt's format asks for, or the word in parentheses after a
+#: finding. Everything else is English.
+def _severity_claim(word: str) -> re.Pattern[str]:
+    # Case matters for the first alternative and not for the rest, so the
+    # insensitivity is scoped rather than applied to the whole pattern: a
+    # global `re.I` is what made "high complexity" look like a claim.
+    return re.compile(
+        r"(?:"
+        rf"\b{word.upper()}\b"  # shouted: the review means the severity
+        rf"|(?i:(?:severity|risk(?:\s+assessment)?|result|rating|level)\b[^.\n]{{0,24}}?\b{word}\b)"
+        rf"|(?i:(?:FAIL|PASS)\s*[-–:]\s*{word}\b)"
+        rf"|(?i:\(\s*{word}\s*\))"
+        r")"
+    )
 
 
 @dataclass(frozen=True)
@@ -212,7 +249,7 @@ def severity_claims_are_backed(case: NarrationCase) -> CheckResult:
     unbacked = [
         severity.value
         for severity in _CHECKED_SEVERITIES
-        if re.search(rf"\b{severity.value}\b", case.review, re.I) and severity not in reported
+        if _severity_claim(severity.value).search(case.review) and severity not in reported
     ]
     return CheckResult(
         check="severity_claims_are_backed",
