@@ -108,6 +108,11 @@ class DecisionRecorder:
         self._clock = clock or (lambda: datetime.now(UTC))
 
     @property
+    def sink(self) -> AuditSink:
+        """Where these records go. Named so a composition root can report it."""
+        return self._sink
+
+    @property
     def identity(self) -> RunIdentity:
         """Which version of everything is producing these records.
 

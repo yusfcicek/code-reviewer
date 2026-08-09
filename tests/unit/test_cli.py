@@ -59,3 +59,31 @@ class TestParseArgs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAuditPath(unittest.TestCase):
+    """Level 20 — where the decision record goes.
+
+    Settable through the environment because the HTTP service builds its
+    review from the review parser's *defaults*: a container is configured with
+    variables, not with a command line it never sees.
+    """
+
+    def _parse(self, argv, env=None):
+        with patch.dict("os.environ", env or {}, clear=True):
+            return parse_args(argv)
+
+    def test_the_environment_supplies_it(self):
+        args = self._parse([], env={"REVIEW_AUDIT_PATH": "/var/audit/decisions.jsonl"})
+
+        self.assertEqual(args.audit_path, "/var/audit/decisions.jsonl")
+
+    def test_the_command_line_wins(self):
+        args = self._parse(
+            ["--audit-path", "/tmp/here.jsonl"], env={"REVIEW_AUDIT_PATH": "/var/there.jsonl"}
+        )
+
+        self.assertEqual(args.audit_path, "/tmp/here.jsonl")
+
+    def test_it_defaults_to_nothing(self):
+        self.assertEqual(self._parse([]).audit_path, "")
