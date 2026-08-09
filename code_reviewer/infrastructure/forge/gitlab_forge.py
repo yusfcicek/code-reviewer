@@ -18,6 +18,16 @@ from .gitlab_client import build_gitlab_client
 logger = get_logger(__name__)
 
 
+def suggestion_marker(path: str, line: int) -> str:
+    """Identifies a suggestion this agent already posted, by where it applies.
+
+    Keyed on the location rather than on the rule: two runs proposing
+    different edits for one line still produce two buttons on one line, and a
+    reader cannot tell which they clicked (self-review S-03).
+    """
+    return f"<!-- code-reviewer:suggestion:{path}:{line} -->"
+
+
 class GitLabForge(CodeForge):
     """Reads merge requests from GitLab and posts reviews back."""
 
@@ -121,9 +131,17 @@ class GitLabForge(CodeForge):
         deliberate click by somebody with commit rights (Level 22, D-1).
         """
         merge_request = self._merge_request(reference)
+        marker = suggestion_marker(position.path, position.line)
+        if self._already_suggested(merge_request, marker):
+            logger.info(
+                "A suggestion is already posted on this line; not posting a second",
+                extra={"fields": {"path": position.path, "line": position.line}},
+            )
+            return
+
         merge_request.discussions.create(
             {
-                "body": self._redact(body),
+                "body": f"{self._redact(body)}\n\n{marker}",
                 "position": {
                     "position_type": "text",
                     "base_sha": position.base_sha,
@@ -135,6 +153,33 @@ class GitLabForge(CodeForge):
                 },
             }
         )
+
+    @staticmethod
+    def _already_suggested(merge_request, marker: str) -> bool:
+        """Whether this suggestion is already on the thread.
+
+        Level 5 solved this for the review comment by putting a marker in the
+        body, because the body is the one thing guaranteed to travel with the
+        note. The same answer here, for the same reason (finding G-12,
+        self-review S-03).
+
+        A forge that cannot list its discussions posts anyway: losing the
+        idempotency is cosmetic, and losing the suggestion is not.
+        """
+        try:
+            discussions = merge_request.discussions.list(all=True)
+        except Exception as exc:
+            logger.warning(
+                "Could not read existing suggestions; posting this one",
+                extra={"fields": {"error": str(exc)}},
+            )
+            return False
+
+        for discussion in discussions:
+            for note in (getattr(discussion, "attributes", {}) or {}).get("notes", []):
+                if marker in str(note.get("body", "")):
+                    return True
+        return False
 
     def _redact(self, body: str) -> str:
         """Masks anything secret-shaped on the way to the merge request.

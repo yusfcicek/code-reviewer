@@ -12,7 +12,7 @@ check.
 |---|---|---|---|---|
 | S-01 | 🔴 High | `domain/narration.py` | `the_prose_claims_no_verdict` catches 3 of 8 natural phrasings. "This blocks the pipeline", "this merge request is blocked", "LGTM, approved" and "do not merge" all pass. | ✅ closed |
 | S-02 | 🔴 High | `application/remediation_service.py` | Suggestions are proposed for any line of the file, including lines the merge request never touched. A note cannot be anchored outside the diff, so the platform rejects them and the failure is a warning nobody reads. | ✅ closed |
-| S-03 | 🔴 High | `infrastructure/forge/gitlab_forge.py` | Suggestions have no idempotency. Five pipeline runs leave five copies of every suggestion — the defect Level 5 fixed for the review comment (G-12), reintroduced beside it. | open |
+| S-03 | 🔴 High | `infrastructure/forge/gitlab_forge.py` | Suggestions have no idempotency. Five pipeline runs leave five copies of every suggestion — the defect Level 5 fixed for the review comment (G-12), reintroduced beside it. | ✅ closed |
 | S-04 | 🟠 Medium | `domain/narration.py` | `severity_claims_are_backed` fires on the word "high" anywhere in the prose. "The function has high complexity" fails a review that said nothing wrong. | ✅ closed |
 | S-05 | 🟡 Low | `evaluate.py` | `--json` is accepted with `--narration` and silently ignored. | open |
 | S-06 | 🟡 Low | `application/remediation_service.py` | With no `path` the subject is taken from `findings[0]`, so a finding about a sibling file decides which file the rest are checked against. | open |
