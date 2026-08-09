@@ -53,9 +53,7 @@ def prompt_fingerprint() -> str:
     )
 
 
-def build_run_identity(
-    policy: ReviewPolicy, environment: Mapping[str, str] | None = None
-) -> RunIdentity:
+def build_run_identity(policy: ReviewPolicy, environment: Mapping[str, str] | None = None) -> RunIdentity:
     """Everything that identifies this run."""
     source = environment if environment is not None else os.environ
     model = (source.get("VLLM_MODEL") or "").strip()

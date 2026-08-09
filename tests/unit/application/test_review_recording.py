@@ -171,3 +171,52 @@ class TestAnUnattributableFindingCannotBlockSilently(unittest.TestCase):
         self.assertEqual(result.exit_code, 1)
         self.assertFalse(sink.written[0].completed)
         self.assertIn("may not rest on a model's opinion", sink.written[0].failure_reason)
+
+
+class TestWhatTheReviewCost(unittest.TestCase):
+    """Contract C-7 — cost recorded alongside the decision it paid for.
+
+    The metrics file is overwritten by the next review; the record is not.
+    """
+
+    class _CountingReviewer(ScriptedReviewer):
+        def __init__(self):
+            super().__init__(CLEAN_REVIEW)
+            from code_reviewer.application.orchestration_service import AgentTotals
+            from code_reviewer.domain.orchestration import Specialism
+
+            self.agent_totals = {
+                Specialism.SECURITY: AgentTotals(
+                    runs=2, failures=1, tool_calls=5, tokens_allowed=4000, duration_ms=120
+                )
+            }
+
+    def _service_with(self, forge, recorder):
+        policy = ReviewPolicy()
+        return ReviewService(
+            forge=forge,
+            reviewer=self._CountingReviewer(),
+            triage=ReviewTriage(policy),
+            policy=policy,
+            analysis=RecordingAnalysis([]),
+            recorder=recorder,
+        )
+
+    def test_each_specialists_totals_reach_the_record(self):
+        sink = CollectingSink()
+
+        self._service_with(_forge(), DecisionRecorder(sink, IDENTITY)).review(1, 2)
+
+        cost = sink.written[0].agent_costs
+        self.assertEqual([item.agent for item in cost], ["security"])
+        self.assertEqual(cost[0].tool_calls, 5)
+        self.assertEqual(cost[0].failures, 1)
+        self.assertEqual(cost[0].tokens_allowed, 4000)
+
+    def test_a_reviewer_that_counts_nothing_records_no_cost(self):
+        """One agent, or none: an empty tuple is a fact, not a gap."""
+        sink = CollectingSink()
+
+        _service(_forge(), DecisionRecorder(sink, IDENTITY)).review(1, 2)
+
+        self.assertEqual(sink.written[0].agent_costs, ())

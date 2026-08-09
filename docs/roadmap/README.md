@@ -58,7 +58,7 @@ statement and what this repository does today.
 | [17](level-17/spec.md) | Asynchronous execution | ✅ Done |
 | [18](level-18/spec.md) | Service surface — HTTP API & webhooks | ✅ Done |
 | [19](level-19/spec.md) | Containerisation & cloud-native deployment | ✅ Done |
-| [20](level-20/spec.md) | Governance, explainability & compliance | 🚧 In progress |
+| [20](level-20/spec.md) | Governance, explainability & compliance | ✅ Done |
 
 ### Why *this* order for 12–20
 
@@ -69,7 +69,11 @@ scoreboard so levels 13–15 can be judged rather than asserted.
 
 Then capability, in dependency order: retrieval (13) gives the agent evidence
 beyond the diff; long-term memory (14) is retrieval over the *project's own
-history*, so it reuses 13's index rather than inventing a second one;
+history* — the plan said it would reuse 13's index, and Level 14 found that
+wrong and said so: a chunk index answers "what code looks like this" and a
+memory answers "what has this rule done in this file", and forcing one to serve
+both would have made both worse
+([ADR 0016](../adr/0016-memory-informs-and-never-decides.md));
 multi-agent orchestration (15) is only worth its cost once each specialist has
 something to retrieve.
 
@@ -83,6 +87,44 @@ survive concurrency instead of being retrofitted onto it. The service surface
 Governance (20) is last because it is a claim *about* the other eight: it
 records which model, which prompt version, which retrieved evidence and which
 agent produced each finding. There is nothing to record until they exist.
+
+### What the second roadmap closed, and what it did not
+
+Twenty capabilities were drawn from three role descriptions
+([`capability-sources.md`](capability-sources.md)). Nine levels closed them:
+
+| Capability | Where |
+|---|---|
+| C-01, C-02, C-03 — measured review quality, a quality signal, regression across a prompt change | [12](level-12/spec.md) |
+| C-04, C-05, C-06 — retrieval over the checkout, embeddings, hybrid ranking | [13](level-13/spec.md) |
+| C-08 — long-term memory, and forgetting | [14](level-14/spec.md) |
+| C-09, C-10 — an orchestrator of specialists, and a handoff protocol | [15](level-15/spec.md) |
+| C-12 — a trace of the whole review, joined to the logs | [16](level-16/spec.md) |
+| C-13 — concurrent agents behind a port | [17](level-17/spec.md) |
+| C-14, C-15 — an HTTP surface, webhooks, and a second integration point | [18](level-18/spec.md) |
+| C-16, C-17 — a tested image, manifests, readiness and a bounded drain | [19](level-19/spec.md) |
+| C-18, C-19, C-20 — a decision record, an enforced invariant, a versioned run | [20](level-20/spec.md) |
+
+C-07 (short-term memory) and C-11 (tool-calling loops) were already met when
+the inventory was taken, and are recorded that way rather than rebuilt.
+
+Three things were named as goals and deliberately not built, each with the
+reason written down rather than left to be inferred: a trained embedding model
+(the hashed one is deterministic and needs no endpoint — the port is there),
+signing and an append-only audit store (the key belongs to a deployment, not to
+this repository), and any mapping onto a compliance framework (an
+organisation's obligations are not this project's to guess at).
+
+Two predictions in this file were wrong and were reversed in the open: Level
+14's index reuse, above, and Level 16's "the trace goes in the comment" — a
+forty-span tree in a merge-request comment is noise, so the comment carries the
+trace *id* and the tree is an artefact.
+
+The project's own gate blocked its own build four times during these levels —
+complexity in the retrieval query builder, a quality score on the tool
+definitions, complexity in the comment renderer, and a false positive where a
+`threading.Lock` was reported as a leaked resource. Each was fixed rather than
+suppressed; the last one became an evaluation case, so it stays fixed.
 
 ### Deferred, then done
 

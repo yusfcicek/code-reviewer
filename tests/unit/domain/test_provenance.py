@@ -211,9 +211,7 @@ def test_suppressions_are_part_of_the_record():
 
 
 def test_per_agent_cost_is_part_of_the_record():
-    record = _record(
-        agent_costs=(AgentCost(agent="security", runs=1, tool_calls=3, tokens_allowed=4000),)
-    )
+    record = _record(agent_costs=(AgentCost(agent="security", runs=1, tool_calls=3, tokens_allowed=4000),))
 
     assert record.agent_costs[0].tool_calls == 3
 

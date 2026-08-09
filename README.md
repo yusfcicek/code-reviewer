@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.13.0.** Rebuilt from an imported prototype across twenty levels
+> **Status: 2.14.0.** Rebuilt from an imported prototype across twenty levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1585 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1655 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -284,10 +284,37 @@ each retrieval, each memory access.
   able to tell a bad score from a broken harness.
 - Findings a case does not grade are **counted and named**, never dropped, so
   narrowing what is graded cannot quietly improve the score.
-- The current baseline is precision 1.00, recall 1.00, F1 1.00 over ten cases
-  ([baseline](docs/roadmap/level-12/baseline.md)). Level 12 opened at recall
-  0.89 — the gap was a real defect the dataset recorded rather than annotated
-  away, and Level 13 closed it.
+- The current baseline is precision 1.00, recall 1.00, F1 1.00 over eleven
+  cases ([baseline](docs/roadmap/level-12/baseline.md)). Level 12 opened at
+  recall 0.89 — the gap was a real defect the dataset recorded rather than
+  annotated away, and Level 13 closed it.
+
+### 🧾 16. A verdict that can be audited
+- Every review writes one **decision record**: what was decided, the exit code,
+  which package, policy, rule set, model and prompt digest produced it, which
+  rules blocked, what was suppressed and why, what each specialism cost, and
+  the trace id holding the timing.
+- **A blocking record that cites a model is refused at construction.**
+  [ADR 0004](docs/adr/0004-findings-drive-the-gate.md) has said since Level 4
+  that findings decide and prose warns; this is where that stops being a design
+  rule and becomes something a record cannot violate.
+- **Attribution is fail-closed.** A finding's producer comes from its rule
+  namespace, and anything unregistered is treated as an opinion — unable to
+  block. A test asserts every namespace the suite emits is registered, so the
+  default never fires in practice.
+- **A prompt is a fingerprint**, not a text: a 12-character digest of the five
+  system prompts in use. Enough to prove two reviews ran under different
+  instructions; not enough to leak them.
+- **Identifiers only**, again: rule ids, locations, severities, counts,
+  versions, CWE citations. A test builds a record from a review whose finding
+  carries a credential-shaped string in three fields and asserts it is absent
+  from the serialised record.
+- The merge-request comment gains an **accountability block** saying the same
+  thing, so a reader who never opens the audit file is still told what decided.
+- `--audit-path` (or `REVIEW_AUDIT_PATH`) appends newline-delimited JSON.
+  Without it nothing is written, and a sink that cannot write is a warning:
+  recording a verdict may not cost one
+  ([ADR 0022](docs/adr/0022-a-verdict-that-can-be-audited.md)).
 
 ---
 

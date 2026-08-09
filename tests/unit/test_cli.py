@@ -79,9 +79,7 @@ class TestAuditPath(unittest.TestCase):
         self.assertEqual(args.audit_path, "/var/audit/decisions.jsonl")
 
     def test_the_command_line_wins(self):
-        args = self._parse(
-            ["--audit-path", "/tmp/here.jsonl"], env={"REVIEW_AUDIT_PATH": "/var/there.jsonl"}
-        )
+        args = self._parse(["--audit-path", "/tmp/here.jsonl"], env={"REVIEW_AUDIT_PATH": "/var/there.jsonl"})
 
         self.assertEqual(args.audit_path, "/tmp/here.jsonl")
 

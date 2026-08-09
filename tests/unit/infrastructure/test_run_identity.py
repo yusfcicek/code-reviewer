@@ -47,9 +47,7 @@ def test_the_fingerprint_covers_the_generalist_and_every_specialism():
     from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
     from code_reviewer.infrastructure.llm.specialist_agent import system_prompt_for
 
-    prompts = [ReviewAgent.SYSTEM_TEMPLATE] + [
-        system_prompt_for(specialism) for specialism in Specialism
-    ]
+    prompts = [ReviewAgent.SYSTEM_TEMPLATE] + [system_prompt_for(specialism) for specialism in Specialism]
 
     assert prompt_fingerprint() == fingerprint(*prompts)
     for index in range(len(prompts)):

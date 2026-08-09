@@ -142,9 +142,7 @@ class DecisionRecorder:
         version = self._identity.package_version
         claims = tuple(provenance_of(finding, version) for finding in findings)
         blocking = tuple(
-            provenance_of(finding, version)
-            for finding in findings
-            if blocking_severity_reached(finding)
+            provenance_of(finding, version) for finding in findings if blocking_severity_reached(finding)
         )
 
         try:

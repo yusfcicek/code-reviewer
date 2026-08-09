@@ -310,8 +310,6 @@ class TestAccountabilityBlock(unittest.TestCase):
     def test_the_block_is_above_the_per_file_prose(self):
         """It is part of the verdict, not an appendix. Truncation keeps the
         head, so anything below the sections can be cut away."""
-        body = render_review_comment(
-            "1.0", ReviewOutcome(), ["SECTION-ONE"], identity=self.IDENTITY
-        )
+        body = render_review_comment("1.0", ReviewOutcome(), ["SECTION-ONE"], identity=self.IDENTITY)
 
         self.assertLess(body.index("b6b17025f0c5"), body.index("SECTION-ONE"))

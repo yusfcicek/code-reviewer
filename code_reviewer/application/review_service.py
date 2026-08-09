@@ -14,6 +14,7 @@ from code_reviewer.domain.finding import Finding, FindingCategory
 from code_reviewer.domain.gate import ReviewGate
 from code_reviewer.domain.outcome import ReviewOutcome
 from code_reviewer.domain.policy import ReviewPolicy
+from code_reviewer.domain.provenance import AgentCost
 from code_reviewer.domain.severity import Severity
 from code_reviewer.domain.trace import SpanKind
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
@@ -222,7 +223,29 @@ class ReviewService:
             merge_request=reference.merge_request_id,
             trace_id=self._tracer.trace_id,
             exit_code=result.exit_code,
+            agent_costs=self._agent_costs(),
         )
+
+    def _agent_costs(self) -> list[AgentCost]:
+        """What each specialism spent, if the reviewer counted.
+
+        Read through ``getattr`` because a reviewer is a port with one method:
+        a committee counts, a single agent does not, and neither is obliged to.
+        The metrics file is overwritten by the next review; this is not
+        (contract C-7).
+        """
+        totals = getattr(self._reviewer, "agent_totals", None) or {}
+        return [
+            AgentCost(
+                agent=specialism.value,
+                runs=total.runs,
+                failures=total.failures,
+                tool_calls=total.tool_calls,
+                tokens_allowed=total.tokens_allowed,
+                duration_ms=total.duration_ms,
+            )
+            for specialism, total in totals.items()
+        ]
 
     def _review_one(
         self,
