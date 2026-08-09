@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from code_reviewer.domain.drift import DriftCandidate, DriftVerdict
 from code_reviewer.domain.evaluation import EvaluationCase
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.orchestration import AgentReport, Assignment
@@ -296,6 +297,23 @@ class CodeRetriever(ABC):
         to say: retrieval is an improvement to the prompt, never a
         precondition for reviewing (Level 13, decision D-5).
         """
+
+
+class DriftJudge(ABC):
+    """Asks whether one document section still describes the code.
+
+    A port because the question needs a language model and this layer may not
+    know which one. The interface is deliberately one method returning one of
+    three values: the model selects, it does not author. Nothing it returns
+    reaches a reader as prose, and nothing it returns can block — Level 20's
+    attribution table registers the `DRIFT` namespace as an `AGENT`, and a
+    blocking verdict citing one cannot be constructed (ADR 0022).
+    """
+
+    @abstractmethod
+    def still_describes(self, candidate: DriftCandidate) -> DriftVerdict:
+        """The verdict for one candidate. Raising is allowed; the caller
+        treats a failure as `UNSURE` and loses the candidate, not the review."""
 
 
 class MemoryStore(ABC):
