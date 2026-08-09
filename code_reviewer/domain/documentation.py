@@ -270,3 +270,266 @@ def parses(source: str) -> bool:
     except (SyntaxError, ValueError):
         return False
     return True
+
+
+#: Rule names, qualified by the suite into `DOCS.DEAD_REFERENCE` and friends.
+DEAD_REFERENCE = "DEAD_REFERENCE"
+SIGNATURE_MISMATCH = "SIGNATURE_MISMATCH"
+UNKNOWN_OPTION = "UNKNOWN_OPTION"
+BROKEN_EXAMPLE = "BROKEN_EXAMPLE"
+DOCSTRING_DRIFT = "DOCSTRING_DRIFT"
+
+#: Parameters a document is never expected to write.
+_IMPLICIT = frozenset({"self", "cls"})
+
+
+@dataclass(frozen=True)
+class DocDefect:
+    """One place a document and the code disagree.
+
+    ``detail`` is built from identifiers — names, counts, rule ids — and never
+    from the document's prose. The distinction is the same one Levels 14, 17,
+    20 and 22 made about source text, and it matters more here: the material
+    being quoted would be a sentence somebody wrote.
+    """
+
+    rule: str
+    subject: str
+    line: int
+    heading: str = ""
+    detail: str = ""
+
+
+def documentation_defects(claims: "list[DocumentClaim]", index: SymbolIndex) -> list[DocDefect]:
+    """Every claim in ``claims`` the index refuses, in document order.
+
+    An empty index silences every rule that needs one. Not a special case for
+    tests — a workspace that refused a read, a tree that would not parse and a
+    run with no checkout all arrive here as an empty index, and the honest
+    answer to "does `create_app` exist" when nothing was indexed is *unknown*,
+    which is not a defect. Syntax is exempt: a fenced block that will not parse
+    is broken whether or not anything else was readable.
+    """
+    defects: list[DocDefect] = []
+    for claim in claims:
+        defect = _defect_for(claim, index)
+        if defect is not None:
+            defects.append(defect)
+    return defects
+
+
+def _defect_for(claim: DocumentClaim, index: SymbolIndex) -> DocDefect | None:
+    if claim.kind is ClaimKind.EXAMPLE:
+        if parses(claim.source):
+            return None
+        return DocDefect(BROKEN_EXAMPLE, claim.subject, claim.line, claim.heading, "the block does not parse")
+
+    if index.is_empty:
+        return None
+
+    if claim.kind in (ClaimKind.SYMBOL, ClaimKind.SIGNATURE):
+        return _symbol_defect(claim, index)
+
+    if claim.kind is ClaimKind.OPTION and not index.knows_option(claim.subject):
+        return DocDefect(
+            UNKNOWN_OPTION, claim.subject, claim.line, claim.heading, "no such option in the code"
+        )
+
+    if claim.kind is ClaimKind.ENVIRONMENT and not index.knows_environment(claim.subject):
+        return DocDefect(UNKNOWN_OPTION, claim.subject, claim.line, claim.heading, "no such name in the code")
+
+    return None
+
+
+def _symbol_defect(claim: DocumentClaim, index: SymbolIndex) -> DocDefect | None:
+    """A named symbol, and — when the document wrote one — its signature.
+
+    A dead name produces one defect rather than two. The signature is
+    unknowable until the name is, and reporting both would charge a reader
+    twice for one mistake.
+    """
+    if not index.resolves(claim.subject):
+        return DocDefect(
+            DEAD_REFERENCE, claim.subject, claim.line, claim.heading, "not defined in the source tree"
+        )
+
+    if claim.kind is not ClaimKind.SIGNATURE:
+        return None
+
+    defined = index.parameters_of(claim.subject)
+    if defined is None:
+        # Resolvable but not a function: a class, a constant, a module. There
+        # is nothing to compare parameter names against.
+        return None
+
+    expected = tuple(name for name in defined if name not in _IMPLICIT)
+    if tuple(claim.arguments) == expected:
+        return None
+
+    return DocDefect(
+        SIGNATURE_MISMATCH,
+        claim.subject,
+        claim.line,
+        claim.heading,
+        f"documented ({', '.join(claim.arguments)}), defined ({', '.join(expected)})",
+    )
+
+
+#: `Args:` / `Returns:` / `Raises:`, and the Sphinx field spellings beside them.
+#: Both appear in this repository, which is the ordinary state of a codebase
+#: with more than one author.
+_SECTION = re.compile(r"^\s*(?P<name>Args|Arguments|Parameters|Returns|Yields|Raises)\s*:\s*$")
+_GOOGLE_ENTRY = re.compile(r"^\s*(?P<name>\*{0,2}[A-Za-z_][A-Za-z0-9_.]*)\s*(?:\([^)]*\))?\s*:")
+_SPHINX_PARAM = re.compile(r"^\s*:param\s+(?:[^:]+\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:")
+_SPHINX_RAISES = re.compile(r"^\s*:raises?\s+(?P<name>[A-Za-z_][A-Za-z0-9_.]*)\s*:")
+_SPHINX_RETURNS = re.compile(r"^\s*:returns?\s*:")
+
+
+@dataclass(frozen=True)
+class _Documented:
+    """What a docstring says about a function, reduced to names."""
+
+    parameters: tuple[str, ...] = ()
+    raises: tuple[str, ...] = ()
+    returns: bool = False
+
+
+def _documented(docstring: str) -> _Documented:
+    """Reads a docstring's sections. Never raises; an unrecognised shape is empty."""
+    parameters: list[str] = []
+    raises: list[str] = []
+    returns = False
+    section = ""
+
+    for line in docstring.splitlines():
+        heading = _SECTION.match(line)
+        if heading is not None:
+            section = heading.group("name").lower()
+            if section in ("returns", "yields"):
+                returns = True
+            continue
+
+        sphinx = _SPHINX_PARAM.match(line)
+        if sphinx is not None:
+            parameters.append(sphinx.group("name"))
+            continue
+        sphinx = _SPHINX_RAISES.match(line)
+        if sphinx is not None:
+            raises.append(sphinx.group("name"))
+            continue
+        if _SPHINX_RETURNS.match(line):
+            returns = True
+            continue
+
+        if not line.strip():
+            # A blank line ends a Google-style block. Without this, prose after
+            # the section is read as more entries.
+            section = ""
+            continue
+
+        entry = _GOOGLE_ENTRY.match(line)
+        if entry is None:
+            continue
+        name = entry.group("name").lstrip("*")
+        if section in ("args", "arguments", "parameters"):
+            parameters.append(name)
+        elif section == "raises":
+            raises.append(name)
+
+    return _Documented(tuple(parameters), tuple(raises), returns)
+
+
+def _parameter_names(function: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, ...]:
+    arguments = function.args
+    named = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]
+    names = [argument.arg for argument in named if argument.arg not in _IMPLICIT]
+    if arguments.vararg:
+        names.append(arguments.vararg.arg)
+    if arguments.kwarg:
+        names.append(arguments.kwarg.arg)
+    return tuple(names)
+
+
+def _raise_shape(function: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[bool, bool]:
+    """Whether the body raises anything, and whether any raise is bare.
+
+    A bare `raise` re-raises whatever was caught, and nothing in the source
+    names the type. The only honest response is to stop asking, which is why
+    the caller skips the check entirely when it sees one.
+    """
+    raises = False
+    bare = False
+    for node in ast.walk(function):
+        if isinstance(node, ast.Raise):
+            raises = True
+            if node.exc is None:
+                bare = True
+    return raises, bare
+
+
+def _returns_a_value(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for node in ast.walk(function):
+        if isinstance(node, ast.Return) and node.value is not None:
+            return True
+        if isinstance(node, (ast.Yield, ast.YieldFrom)):
+            return True
+    return False
+
+
+def docstring_defects(source: str) -> list[DocDefect]:
+    """Where a function's docstring and its code disagree.
+
+    Deliberately narrow in one direction. A documented exception is reported
+    only when the function raises **nothing at all** — a function that raises
+    `ValueError` and documents the `OSError` its callee raises is documenting
+    the truth, and this module cannot see the callee. Reporting it would be the
+    kind of confident wrongness the level exists to remove from documents.
+
+    A file that will not parse yields nothing: a half-written branch is a
+    reason to say less, the same answer the analysis suite has given since
+    finding G-09.
+    """
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return []
+
+    defects: list[DocDefect] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        docstring = ast.get_docstring(node)
+        if not docstring:
+            continue
+        defect = _docstring_defect(node, docstring)
+        if defect is not None:
+            defects.append(defect)
+    return defects
+
+
+def _docstring_defect(function: ast.FunctionDef | ast.AsyncFunctionDef, docstring: str) -> DocDefect | None:
+    documented = _documented(docstring)
+    declared = _parameter_names(function)
+    complaints: list[str] = []
+
+    if documented.parameters:
+        # Only when the docstring documents *some* parameters. A one-line
+        # docstring is a style choice, and charging for it would make the rule
+        # a nuisance rather than a check.
+        invented = [name for name in documented.parameters if name not in declared]
+        missing = [name for name in declared if name not in documented.parameters]
+        if invented:
+            complaints.append(f"documents ({', '.join(invented)}), not in the signature")
+        if missing:
+            complaints.append(f"signature has ({', '.join(missing)}), undocumented")
+
+    raises, bare = _raise_shape(function)
+    if documented.raises and not raises and not bare:
+        complaints.append(f"documents raising ({', '.join(documented.raises)}), the body raises nothing")
+
+    if documented.returns and not _returns_a_value(function):
+        complaints.append("documents a return value, every path returns None")
+
+    if not complaints:
+        return None
+    return DocDefect(DOCSTRING_DRIFT, function.name, function.lineno, "", "; ".join(complaints))

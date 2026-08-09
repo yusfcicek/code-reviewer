@@ -31,7 +31,9 @@ def test_a_class_name_becomes_a_claim():
 
 
 def test_a_dotted_path_becomes_a_claim():
-    assert _subjects("See `report.render_review_comment`.", ClaimKind.SYMBOL) == ["report.render_review_comment"]
+    assert _subjects("See `report.render_review_comment`.", ClaimKind.SYMBOL) == [
+        "report.render_review_comment"
+    ]
 
 
 def test_a_bare_call_becomes_a_symbol_claim():
