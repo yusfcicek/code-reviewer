@@ -336,6 +336,69 @@ class ChangeScope:
     #: the whole document rather than only over what the code changed.
     document_changed: bool = False
 
+    def merged_with(self, other: "ChangeScope") -> "ChangeScope":
+        """The union. A merge request is many files, and one scope."""
+        return ChangeScope(
+            removed=self.removed | other.removed,
+            touched=self.touched | other.touched,
+            document_changed=self.document_changed or other.document_changed,
+        )
+
+    def for_document(self, changed: bool) -> "ChangeScope":
+        """The same scope, told whether *this* document was edited."""
+        return ChangeScope(removed=self.removed, touched=self.touched, document_changed=changed)
+
+
+#: What a line defines: a function, a class, or a module-level name.
+_DEFINES = re.compile(
+    r"^\s*(?:async\s+def|def|class)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+    r"|^(?P<constant>[A-Z][A-Z0-9_]*)\s*(?::[^=]+)?="
+)
+
+#: A quoted option or environment name on a line. Options and environment
+#: variables only exist in the source as string literals, so this is the only
+#: shape available.
+_QUOTED = re.compile(r"[\"'](?P<value>--[A-Za-z][A-Za-z0-9-]*|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[\"']")
+
+
+def _names_on(line: str) -> set[str]:
+    """Every name a single line of source defines or literally spells."""
+    found: set[str] = set()
+    definition = _DEFINES.match(line)
+    if definition is not None:
+        found.add(definition.group("name") or definition.group("constant"))
+    found.update(match.group("value") for match in _QUOTED.finditer(line))
+    return found
+
+
+def scope_from_diff(diff: str, document_changed: bool = False) -> ChangeScope:
+    """What a unified diff removed and what it touched.
+
+    Removed means *gone*: a name on a deleted line and on no added line. That
+    subtraction is what makes a rename report the old name and stay quiet about
+    the new one, and what keeps a reordered block from looking like a deletion.
+
+    The `---`/`+++` file headers are skipped explicitly. They begin with the
+    same characters as content lines, and reading `--- a/app.py` as a deletion
+    would put a path into the scope on every diff.
+    """
+    deleted: set[str] = set()
+    added: set[str] = set()
+
+    for line in diff.splitlines():
+        if line.startswith(("---", "+++", "@@")):
+            continue
+        if line.startswith("-"):
+            deleted |= _names_on(line[1:])
+        elif line.startswith("+"):
+            added |= _names_on(line[1:])
+
+    return ChangeScope(
+        removed=frozenset(deleted - added),
+        touched=frozenset(deleted | added),
+        document_changed=document_changed,
+    )
+
 
 def documentation_defects(
     claims: "list[DocumentClaim]", index: SymbolIndex, scope: ChangeScope

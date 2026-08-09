@@ -25,6 +25,8 @@ class FindingCategory(Enum):
     PERFORMANCE = "performance"
     SEMANTIC = "semantic"
     DEPENDENCY = "dependency"
+    #: Level 23 — the repository's prose measured against its code.
+    DOCUMENTATION = "documentation"
 
 
 class DependencyType(Enum):
