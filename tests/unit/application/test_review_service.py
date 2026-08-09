@@ -80,7 +80,15 @@ class ScriptedReviewer(Reviewer):
         self.per_file = per_file or {}
         self.reviewed = []
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None, related=None):
+    def review_diff(
+        self,
+        filename,
+        diff_content,
+        full_file_content=None,
+        other_files=None,
+        related=None,
+        recollections=None,
+    ):
         self.reviewed.append(filename)
         return self.per_file.get(filename, self.report)
 
@@ -400,7 +408,15 @@ class ExplodingReviewer(Reviewer):
         self.report = report
         self.reviewed = []
 
-    def review_diff(self, filename, diff_content, full_file_content=None, other_files=None, related=None):
+    def review_diff(
+        self,
+        filename,
+        diff_content,
+        full_file_content=None,
+        other_files=None,
+        related=None,
+        recollections=None,
+    ):
         if filename in self.failing_paths:
             raise RuntimeError("model endpoint timed out")
         self.reviewed.append(filename)

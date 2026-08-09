@@ -13,6 +13,7 @@ import sys
 import warnings
 
 from code_reviewer.application.ports import Reviewer
+from code_reviewer.application.project_memory import ProjectMemory
 from code_reviewer.application.review_service import ReviewService
 from code_reviewer.cli import parse_args
 from code_reviewer.domain.triage import ReviewTriage
@@ -22,6 +23,7 @@ from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
+from code_reviewer.infrastructure.memory.json_store import DEFAULT_MEMORY_FILENAME, JsonMemoryStore
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 from code_reviewer.infrastructure.metrics.collector import MetricsCollector, ReviewMetrics
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
@@ -63,7 +65,13 @@ class _NoNarration(Reviewer):
     """
 
     def review_diff(
-        self, filename, diff_content, full_file_content=None, other_files=None, related=None
+        self,
+        filename,
+        diff_content,
+        full_file_content=None,
+        other_files=None,
+        related=None,
+        recollections=None,
     ) -> str:
         return (
             "_Narration was not requested (`--no-llm`). The verdict below comes "
@@ -86,6 +94,7 @@ def _export_metrics(result, project_id, merge_request_iid, metrics_path: str) ->
                 quality_score=metric.quality_score,
                 findings_by_severity=metric.findings_by_severity,
                 duration_ms=metric.duration_ms,
+                recurring_findings=metric.recurring_findings,
             )
         )
     collector.export_gitlab_metrics(metrics_path)
@@ -121,6 +130,10 @@ def run(args) -> int:
     retriever = _build_retriever(args.repo_root)
     set_retriever(retriever)
 
+    # What previous reviews of this repository recorded. Informational only:
+    # nothing it says reaches the gate (Level 14, decision D-4).
+    memory = _build_memory(args, workspace)
+
     service = ReviewService(
         forge=GitLabForge(),
         reviewer=_build_reviewer(args),
@@ -132,6 +145,7 @@ def run(args) -> int:
         # under review led it to — so it reaches the gate as a finding.
         access_auditor=workspace,
         retriever=retriever,
+        memory=memory,
     )
 
     result = service.review(args.project_id, args.mr_iid, publish=not args.dry_run)
@@ -174,6 +188,22 @@ def _build_reviewer(args) -> Reviewer:
 
     provider = LLMFactory.create_provider("vllm")
     return ReviewAgent(provider, SmartMemoryStrategy(provider))
+
+
+def _build_memory(args, workspace) -> ProjectMemory | None:
+    """The project's review history, or ``None`` when it was turned off.
+
+    The default location is inside the workspace, so the history travels with
+    the checkout and a team can see, commit or delete it. `--no-memory`
+    produces exactly the behaviour of every level before this one.
+    """
+    if args.no_memory:
+        logger.info("Project memory disabled by --no-memory")
+        return None
+
+    path = args.memory_path or str(workspace.root / DEFAULT_MEMORY_FILENAME)
+    logger.info("Project memory in use", extra={"fields": {"path": path}})
+    return ProjectMemory(JsonMemoryStore(path))
 
 
 def _build_retriever(repo_root: str):
