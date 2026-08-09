@@ -7,6 +7,61 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.0] — 2026-08-09
+
+Level 15: one reviewer becomes four.
+
+### ⚠️ Breaking
+
+| Change | What to do |
+|---|---|
+| `Reviewer.review_diff` takes a `ReviewBrief`, not seven parameters | Read the fields off the brief. It had grown one parameter per level, and seven is past the threshold this project's own quality analyzer enforces. The next thing a reviewer needs is now a field rather than a signature change. |
+
+### Added
+
+- **Four specialists.** Architecture (the generalist, which owns the summary),
+  security, performance and dependency — each with its own system prompt, its
+  own tool catalogue and its own share of the budget.
+- **`domain/orchestration.py`.** Routing from findings, a weighted budget split
+  that sums exactly and gives nobody zero, a fixed composition order, and the
+  handoff rule. All pure: the failure mode of a multi-agent system is that
+  nobody can say what it will do, and every one of those questions is answered
+  here by reading a page.
+- **`ReviewOrchestrator`**, which *is* a `Reviewer`. The workflow never learns
+  there is more than one agent.
+- **A handoff protocol.** One specialist may ask for one other, once, with a
+  written reason. The depth is structural — the second round runs at a depth
+  where the domain refuses everything — so the invocation count for one file
+  cannot exceed twice the number of specialisms whatever a model asks for.
+  Refusals are recorded and reported.
+- **Per-agent accounting.** `code_review_agent_runs`,
+  `code_review_agent_failures` and `code_review_agent_tool_calls`, labelled by
+  agent, plus a per-file footer naming who ran, on what budget, with what
+  outcome.
+- **`--single-agent`**, which reproduces the behaviour of every earlier level.
+- `NarrationLoop` counts its tool calls; `ReviewAgent` accepts a narrowed
+  catalogue, its own system template and an iteration cap.
+
+### Not changed, deliberately
+
+The verdict. The analyzers still run unconditionally before any agent and the
+gate still decides from their findings: four narrators change what the report
+says, not what the pipeline does.
+
+And no framework, and no concurrency. Level 7 removed a framework from the
+critical path for reasons that have not expired; concurrency belongs to Level
+17, after Level 16 makes the whole thing traceable — introducing it here would
+make every bug in this level a race.
+
+### Documented
+
+- [ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md) —
+  why the orchestrator is a `Reviewer`, why routing is not a model call, why
+  handoff depth is structural, and why tools are narrowed rather than
+  requested.
+
+---
+
 ## [2.8.0] — 2026-08-09
 
 Level 14: the agent stops starting from zero.

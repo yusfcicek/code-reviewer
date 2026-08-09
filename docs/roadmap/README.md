@@ -53,7 +53,7 @@ statement and what this repository does today.
 | [12](level-12/spec.md) | Evaluation harness — measuring review quality | ✅ Done |
 | [13](level-13/spec.md) | Retrieval over the repository | ✅ Done |
 | [14](level-14/spec.md) | Long-term memory across reviews | ✅ Done |
-| [15](level-15/spec.md) | Multi-agent orchestration | 🚧 In progress |
+| [15](level-15/spec.md) | Multi-agent orchestration | ✅ Done |
 | 16 | Tracing & agent observability | ⏳ Planned |
 | 17 | Asynchronous execution | ⏳ Planned |
 | 18 | Service surface — HTTP API & webhooks | ⏳ Planned |
