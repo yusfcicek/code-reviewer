@@ -57,12 +57,27 @@ class ReviewWorker:
         self._thread = threading.Thread(target=self.run, name="review-worker", daemon=True)
         self._thread.start()
 
-    def stop(self, timeout: float = 5.0) -> None:
-        """Asks the loop to finish and waits for it, briefly."""
+    def stop(self, timeout: float = 5.0) -> bool:
+        """Asks the loop to finish and waits for it.
+
+        Returns whether it actually finished. The caller needs to know which
+        of "drained" and "gave up" happened: a shutdown that waits forever is
+        a pod that gets SIGKILLed anyway, with the same review half-run and no
+        record of it (Level 19, decision D-5).
+        """
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
+        if self._thread is None:
+            return True
+
+        self._thread.join(timeout=timeout)
+        drained = not self._thread.is_alive()
+        if drained:
             self._thread = None
+        return drained
+
+    @property
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
 
     def run(self) -> None:
         """The loop. Runs until :meth:`stop`."""

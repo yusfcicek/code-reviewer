@@ -17,7 +17,9 @@ variable was unset is the failure that gets found by somebody else.
 import argparse
 import logging
 import os
+import signal
 import sys
+import threading
 from collections.abc import Sequence
 from wsgiref.simple_server import make_server
 
@@ -25,6 +27,7 @@ from code_reviewer.application.jobs import DEFAULT_QUEUE_DEPTH, InMemoryJobStore
 from code_reviewer.application.review_service import ReviewService
 from code_reviewer.cli import _env, _positive
 from code_reviewer.errors import ConfigurationError
+from code_reviewer.infrastructure.deployment.settings import build_readiness_probe
 from code_reviewer.infrastructure.http.app import ReviewApi
 from code_reviewer.infrastructure.http.worker import ReviewWorker
 from code_reviewer.infrastructure.observability.logging import configure_logging
@@ -47,6 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=_positive,
         default=_positive(_env("REVIEW_QUEUE_DEPTH", str(DEFAULT_QUEUE_DEPTH))),
         help="How many reviews may wait before the service answers 429",
+    )
+    parser.add_argument(
+        "--drain-seconds",
+        type=float,
+        default=float(_env("REVIEW_DRAIN_SECONDS", "25")),
+        help=(
+            "How long a SIGTERM waits for the review in flight. Below the "
+            "orchestrator's grace period, so the drain finishes first or says it did not."
+        ),
     )
     parser.add_argument(
         "--log-level", type=str, default=_env("LOG_LEVEL", "INFO"), help="DEBUG, INFO, WARNING, ERROR"
@@ -89,7 +101,10 @@ def build_application(
         jobs,
         api_token=token,
         webhook_secret=webhook_secret,
-        ready=lambda: (True, "ready"),
+        # Real checks since Level 19. A container wired to a probe that always
+        # passes is worse than one with no probe: Kubernetes routes to it while
+        # it is unconfigured.
+        ready=build_readiness_probe().as_probe(),
     )
     return application, ReviewWorker(jobs, reviews), jobs
 
@@ -107,6 +122,39 @@ def create_app():
     return application
 
 
+def install_signal_handlers(server) -> None:
+    """Turns SIGTERM and SIGINT into an orderly stop.
+
+    `serve_forever` blocks the main thread and `shutdown` waits for that loop
+    to notice, so calling it from a handler that *runs on* the main thread
+    deadlocks. The handler starts a thread whose only job is to ask.
+    """
+
+    def handle(signum, _frame):
+        logger.info("Signal received; draining", extra={"fields": {"signal": signum}})
+        threading.Thread(target=server.shutdown, name="shutdown", daemon=True).start()
+
+    for received in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(received, handle)
+
+
+def drain(worker: ReviewWorker, seconds: float) -> int:
+    """Lets the review in flight finish, within a bound.
+
+    Says which of "finished" and "gave up" happened. A shutdown that waits
+    forever is a pod that gets SIGKILLed anyway, with the same review half-run
+    and nothing in the log about it (decision D-5).
+    """
+    if worker.stop(timeout=seconds):
+        logger.info("Drained cleanly")
+    else:
+        logger.warning(
+            "The review in flight did not finish; exiting anyway",
+            extra={"fields": {"waited_seconds": seconds}},
+        )
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else sys.argv[1:])
     configure_logging(args.log_level)
@@ -118,18 +166,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_CONFIGURATION
 
     worker.start()
+    server = make_server(args.host, args.port, application)
+    install_signal_handlers(server)
     logger.info("Serving", extra={"fields": {"host": args.host, "port": args.port}})
 
-    server = make_server(args.host, args.port, application)
     try:
         server.serve_forever()
-    except KeyboardInterrupt:  # pragma: no cover - a signal, not a branch
-        logger.info("Shutting down")
     finally:
-        worker.stop()
         server.server_close()
 
-    return EXIT_OK
+    return drain(worker, args.drain_seconds)
 
 
 def _build_review_service() -> ReviewService:
