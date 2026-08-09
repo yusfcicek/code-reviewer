@@ -129,3 +129,50 @@ class TestSignalHandlers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheDrainIsWiredIntoBothEntryPoints(unittest.TestCase):
+    """R-01 — the claim was tested against the entry point nobody deploys.
+
+    `main()` installs signal handlers and drains. `create_app()` — what the
+    `Dockerfile` and the deployment manifest actually run, under gunicorn —
+    started the worker and registered nothing, and the worker thread is a
+    daemon: the interpreter exits without waiting, and the review in flight
+    dies with its job stuck in RUNNING.
+    """
+
+    def _create_app(self, worker):
+        from unittest.mock import patch
+
+        from code_reviewer import serve
+
+        with (
+            patch.object(serve, "build_application", return_value=(MagicMock(), worker, MagicMock())),
+            patch.object(serve.atexit, "register") as registered,
+        ):
+            serve.create_app()
+        return registered
+
+    def test_create_app_registers_a_drain_at_exit(self):
+        registered = self._create_app(MagicMock())
+
+        registered.assert_called_once()
+
+    def test_what_it_registered_actually_drains_the_worker(self):
+        """Asserting the registration alone would pass on a lambda that does
+        nothing, which is the shape of the bug being fixed."""
+        worker = ReviewWorker(JobService(InMemoryJobStore()), MagicMock(), poll_seconds=0.01)
+        worker.start()
+        registered = self._create_app(worker)
+
+        registered.call_args[0][0]()
+
+        self.assertFalse(worker.is_running)
+
+    def test_the_worker_is_started_before_the_drain_is_registered(self):
+        """A drain registered before the worker exists would wait on nothing."""
+        worker = MagicMock()
+
+        self._create_app(worker)
+
+        worker.start.assert_called_once()

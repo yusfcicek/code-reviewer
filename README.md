@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.14.0.** Rebuilt from an imported prototype across twenty levels
+> **Status: 2.14.1.** Rebuilt from an imported prototype across twenty levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1655 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1669 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -174,8 +174,11 @@ share of the file's budget:
 - **`/readyz` answers from real checks** now: the forge token, the model
   endpoint, a policy that loads, a workspace that exists. Every failure is
   reported at once, and a reason names the setting and never its value.
-- **`SIGTERM` drains.** The server stops, the review in flight gets a bounded
-  wait, and the log says which of "finished" and "gave up" happened.
+- **`SIGTERM` drains — under both entry points.** The server stops, the review
+  in flight gets a bounded wait, and the log says which of "finished" and "gave
+  up" happened. Under `gunicorn` the signals belong to gunicorn, so the drain
+  is an `atexit` handler registered by `create_app`; the self-review found that
+  claim tested only against the entry point nobody deploys.
 - **One replica, and no autoscaler.** The queue is in memory: two replicas do
   not share it. Shipping an HPA would be a bug delivered as configuration.
 

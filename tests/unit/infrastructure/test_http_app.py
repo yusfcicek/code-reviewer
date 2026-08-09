@@ -596,3 +596,75 @@ def test_the_webhook_route_uses_the_webhook_auth_and_not_the_bearer():
     route = next(route for route in ReviewApi.ROUTES if route.path == "/webhooks/gitlab")
 
     assert route.auth == WEBHOOK
+
+
+# -- R-06: a request that carries no Content-Length ---------------------------
+#
+# `_read_body` reads exactly CONTENT_LENGTH bytes, which is what keeps an
+# oversized body costing a header parse rather than a megabyte. A chunked
+# request carries no length, so it read nothing and the caller was told its
+# body was missing: a true statement about what was read and a misleading one
+# about what was sent.
+
+
+def _call_without_length(app, path="/reviews", headers=None, transfer_encoding=""):
+    environ = {
+        "REQUEST_METHOD": "POST",
+        "PATH_INFO": path,
+        "wsgi.input": io.BytesIO(b""),
+    }
+    if transfer_encoding:
+        environ["HTTP_TRANSFER_ENCODING"] = transfer_encoding
+    for name, value in (headers or {}).items():
+        environ[f"HTTP_{name.upper().replace('-', '_')}"] = value
+
+    response = Response()
+
+    def start_response(status, response_headers):
+        response.status = status
+        response.headers = list(response_headers)
+
+    response.body = b"".join(app(environ, start_response))
+    return response
+
+
+def test_a_chunked_body_is_refused_with_a_reason_that_names_the_cause():
+    app, _ = _api()
+
+    response = _call_without_length(app, headers=_auth(), transfer_encoding="chunked")
+
+    assert response.code == 411
+    assert "chunked" in response.json["error"]
+
+
+def test_a_request_with_no_body_at_all_still_says_a_body_is_required():
+    app, _ = _api()
+
+    response = _call_without_length(app, headers=_auth())
+
+    assert response.code == 400
+    assert "body is required" in response.json["error"]
+
+
+# -- R-07: the route table compares by value ----------------------------------
+#
+# `route.auth is OPEN` was true only because the table is built from this
+# module's own constants. The day one is computed -- read from a config, joined
+# from a string -- an authenticated route silently becomes an open one, which
+# is the wrong direction for that failure to go.
+
+
+def test_a_route_whose_auth_was_computed_behaves_like_the_constant():
+    from code_reviewer.infrastructure.http.app import Route
+
+    computed = "".join(list(OPEN))
+    assert computed is not OPEN
+
+    class OneRoute(ReviewApi):
+        ROUTES = (Route("GET", "/healthz", computed, "_healthz"),)
+
+    _, jobs = _api()
+
+    response = _call(OneRoute(jobs, api_token=TOKEN), path="/healthz")
+
+    assert response.code == 200

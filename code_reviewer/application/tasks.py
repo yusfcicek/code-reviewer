@@ -64,6 +64,26 @@ class TaskOutcome[T]:
             duration_ms=duration_ms,
         )
 
+    @classmethod
+    def not_collected(cls, seconds: float, duration_ms: int = 0) -> "TaskOutcome[T]":
+        """A task that was still running when the *group's* deadline passed.
+
+        Distinct from :meth:`timeout` on purpose. That one names the task that
+        hung; this one names a task that may have been one instruction from
+        returning and was never given the chance. Reporting both in the same
+        words told a reader that four agents hung when one did (self-review
+        R-05).
+        """
+        return cls(
+            succeeded=False,
+            error_type=(
+                f"not collected: the group's deadline had already passed "
+                f"after {seconds:g}s, and this task was still running"
+            ),
+            timed_out=True,
+            duration_ms=duration_ms,
+        )
+
 
 class TaskRunner(ABC):
     """Runs a group of callables and returns one outcome each, in order."""

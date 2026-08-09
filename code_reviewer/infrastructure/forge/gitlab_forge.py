@@ -9,6 +9,7 @@ second forge means adding a sibling of this module and nothing else
 from code_reviewer.application.ports import CodeForge, FileChange, MergeRequestRef
 from code_reviewer.application.report import REVIEW_COMMENT_MARKER
 from code_reviewer.infrastructure.observability.logging import get_logger
+from code_reviewer.infrastructure.security.redaction import SecretRedactor
 
 from .gitlab_client import build_gitlab_client
 
@@ -18,12 +19,16 @@ logger = get_logger(__name__)
 class GitLabForge(CodeForge):
     """Reads merge requests from GitLab and posts reviews back."""
 
-    def __init__(self, client=None):
+    def __init__(self, client=None, redactor: SecretRedactor | None = None):
         # The client is injectable so that a caller can supply a pre-configured
         # or recorded session; by default it is built from the environment.
         self._client = client or build_gitlab_client()
-        self._projects = {}
-        self._merge_requests = {}
+        # Read once: the values this process holds are set before it starts
+        # reviewing, and re-reading the environment per comment would only
+        # make the masking depend on when it happened.
+        self._redactor = redactor or SecretRedactor.from_environment()
+        self._projects: dict[str, object] = {}
+        self._merge_requests: dict[str, object] = {}
 
     def fetch_merge_request(self, project_id: int, merge_request_iid: int) -> MergeRequestRef:
         project = self._client.projects.get(project_id)
@@ -79,6 +84,7 @@ class GitLabForge(CodeForge):
         idempotency is cosmetic; losing the review is not.
         """
         merge_request = self._merge_request(reference)
+        body = self._redact(body)
 
         existing = self._existing_review_note(merge_request, body)
         if existing is not None:
@@ -93,6 +99,29 @@ class GitLabForge(CodeForge):
                 )
 
         merge_request.notes.create({"body": body})
+
+    def _redact(self, body: str) -> str:
+        """Masks anything secret-shaped on the way to the merge request.
+
+        The model's prose is already masked where it is produced. This is the
+        layer for everything else that ends up in the comment: an exception
+        message from a specialist, a stack-free `str(exc)` from a file that
+        could not be reviewed, a tool's error string. None of those is model
+        output and none of them went through a redactor before (self-review
+        R-03).
+
+        Here rather than in the renderer because this is the one choke point
+        every published body goes through, and because the layer that cannot
+        produce a false negative -- the values this process holds -- is an
+        adapter's knowledge rather than the application's.
+        """
+        result = self._redactor.redact_with_report(body)
+        if result.count:
+            logger.warning(
+                "Masked secret-shaped text in the review comment",
+                extra={"fields": {"count": result.count}},
+            )
+        return result.text
 
     @staticmethod
     def _existing_review_note(merge_request, body: str):

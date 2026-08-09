@@ -7,6 +7,42 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.14.1] — 2026-08-09
+
+The self-review of levels 12–20, and its eight findings closed. Recorded in
+[`docs/roadmap/self-review-12-20.md`](docs/roadmap/self-review-12-20.md).
+
+### Fixed
+
+- **The drain works under the entry point that is actually deployed.** README
+  and ADR 0021 both said `SIGTERM` drains; that was true of
+  `python -m code_reviewer.serve` and not of
+  `gunicorn code_reviewer.serve:create_app`, which is what the `Dockerfile` and
+  the manifest run. `create_app` registers the drain with `atexit` — under
+  gunicorn the signals belong to gunicorn (R-01).
+- **An analyzer that crashes is named.** The suite caught each analyzer's
+  exception and contributed nothing, silently: no log, no line in the comment,
+  no field in the record. A security analyzer that crashed on every file
+  produced a clean report. Now reported in all three places; the verdict is
+  deliberately unchanged (R-02).
+- **Every published comment is redacted at the boundary.** The model's prose
+  was masked where it is produced; a failure message built from an exception —
+  which can carry a URL, a header dump or a response body — was not (R-03).
+- **A task collected after the group's deadline is no longer called
+  "abandoned".** Four agents were reported as having hung when one did (R-05).
+- **A chunked request gets `411` and the reason** rather than "a body is
+  required" (R-06).
+- **The route table compares its auth kind by value**, not by identity (R-07).
+- **`ThreadPoolRunner` refuses a concurrent caller** rather than racing on its
+  own pool (R-08).
+
+### Added
+
+- Tests pinning that `--trace-path` reaches the exporter. The wiring was
+  correct and nothing asserted it (R-04).
+
+---
+
 ## [2.14.0] — 2026-08-09
 
 Level 20: the verdict becomes something that can be audited — and the claim this

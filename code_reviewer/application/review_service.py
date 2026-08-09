@@ -287,18 +287,7 @@ class ReviewService:
             # Analysis runs first and unconditionally: whether a file gets a
             # security scan must not depend on the model deciding to ask for
             # one (finding F-32).
-            analysis, analysis_error = self._analyse(change, full_content)
-            findings = list(analysis.findings) if analysis is not None else None
-            if analysis is not None and analysis.suppressed:
-                # Counted on the outcome so the report can state it. A
-                # suppression nobody can see is indistinguishable from a rule
-                # that never fired (finding G-07).
-                outcome.record_suppressions(change.path, analysis.suppressed)
-            if analysis_error is not None:
-                # Not "the review found nothing". Nothing was examined, and a
-                # gate that reads those as the same thing answers "pass" to a
-                # question it never asked (finding G-09).
-                outcome.record_unanalysed(change.path, analysis_error)
+            findings = self._analysis_findings(change, full_content, outcome)
 
             # Counted before the reviewer runs, so what it triggers is
             # attributable to *this* file rather than to the whole run.
@@ -459,6 +448,34 @@ class ReviewService:
             owasp_category="LLM01:2025 Prompt Injection",
             evidence=violation.path,
         )
+
+    def _analysis_findings(
+        self, change: FileChange, full_content, outcome: ReviewOutcome
+    ) -> list[Finding] | None:
+        """What the analyzers found, and everything they could not do.
+
+        Returns ``None`` when no analysis ran at all — distinct from ``[]``,
+        which is "it ran and found nothing" (finding F-32). Three things are
+        recorded on the outcome on the way past, because each is a fact a
+        reader of a clean report needs and none of them is a finding:
+        suppressions (G-07), an analyzer that crashed (self-review R-02), and
+        an analysis that could not run at all (G-09).
+        """
+        analysis, analysis_error = self._analyse(change, full_content)
+
+        if analysis is not None:
+            if analysis.suppressed:
+                outcome.record_suppressions(change.path, analysis.suppressed)
+            for degraded in analysis.degraded:
+                outcome.record_degraded(change.path, degraded.analyzer, degraded.reason)
+
+        if analysis_error is not None:
+            # Not "the review found nothing". Nothing was examined, and a gate
+            # that reads those as the same thing answers "pass" to a question
+            # it never asked.
+            outcome.record_unanalysed(change.path, analysis_error)
+
+        return list(analysis.findings) if analysis is not None else None
 
     def _analyse(self, change: FileChange, full_content):
         """Runs the analysis suite.

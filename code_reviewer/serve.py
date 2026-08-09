@@ -15,6 +15,7 @@ variable was unset is the failure that gets found by somebody else.
 """
 
 import argparse
+import atexit
 import logging
 import os
 import signal
@@ -115,10 +116,19 @@ def create_app():
     Starts the worker as a side effect, because a server that imports this
     module and serves the application is a server that also needs something
     draining the queue.
+
+    The drain is registered with `atexit` rather than on a signal. Under
+    gunicorn the signals belong to gunicorn — installing a handler here would
+    take SIGTERM away from the thing that knows how to stop serving requests —
+    and a worker exiting on SIGTERM raises `SystemExit`, which runs the exit
+    handlers. Without this the review in flight died with the interpreter: the
+    worker thread is a daemon, and `main()`'s drain is on the entry point
+    nobody deploys (self-review R-01).
     """
     args = build_parser().parse_args([])
     application, worker, _ = build_application(args)
     worker.start()
+    atexit.register(lambda: drain(worker, args.drain_seconds))
     return application
 
 

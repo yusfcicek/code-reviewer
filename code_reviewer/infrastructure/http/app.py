@@ -144,10 +144,13 @@ class ReviewApi:
 
     def _authorise(self, route: Route, environ: dict[str, Any]):
         """``None`` when the request may proceed, else the refusal."""
-        if route.auth is OPEN:
+        # Compared by value: identity is true only while every route is built
+        # from the constants in this module, and the day one is computed an
+        # authenticated route would quietly change kind (self-review R-07).
+        if route.auth == OPEN:
             return None
 
-        if route.auth is BEARER:
+        if route.auth == BEARER:
             header = environ.get("HTTP_AUTHORIZATION", "")
             scheme, _, presented = header.partition(" ")
             if scheme.lower() != "bearer" or not _matches(presented, self._api_token):
@@ -289,9 +292,24 @@ def _read_body(environ: dict[str, Any]) -> tuple[bytes, Any]:
     The length is checked before anything is read, so an oversized body costs
     a header parse rather than a megabyte of memory.
     """
-    raw_length = environ.get("CONTENT_LENGTH", "") or "0"
+    raw_length = (environ.get("CONTENT_LENGTH", "") or "").strip()
+    if not raw_length and environ.get("HTTP_TRANSFER_ENCODING", "").strip().lower():
+        # Reading a chunked body means reading until it ends, which is the one
+        # thing the length check exists to prevent. Refused with the reason
+        # rather than answered "a body is required" — a true statement about
+        # what was read and a misleading one about what was sent (R-06).
+        return b"", _json(
+            411,
+            {
+                "error": (
+                    "a chunked request body is not accepted here; "
+                    "send Content-Length, or put a proxy in front that does"
+                )
+            },
+        )
+
     try:
-        length = int(raw_length)
+        length = int(raw_length or "0")
     except ValueError:
         return b"", _json(400, {"error": "Content-Length is not a number"})
 
@@ -369,6 +387,7 @@ _STATUS_TEXT = {
     400: "400 Bad Request",
     401: "401 Unauthorized",
     404: "404 Not Found",
+    411: "411 Length Required",
     405: "405 Method Not Allowed",
     413: "413 Payload Too Large",
     500: "500 Internal Server Error",

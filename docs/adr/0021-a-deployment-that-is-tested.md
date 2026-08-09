@@ -120,3 +120,18 @@ two claims and only one of them is usually checked.
 persistent mount.** The `ConfigMap` says so where the path is set. That is
 correct behaviour — Level 14 said a fresh clone has no history — and it is
 worth knowing before concluding the feature does nothing.
+
+## Addendum — the drain under gunicorn (self-review R-01)
+
+The `SIGTERM` handling described above is `main()`'s: `install_signal_handlers`
+followed by `drain`. The `Dockerfile` and the deployment both run
+`gunicorn code_reviewer.serve:create_app`, which took neither.
+
+`create_app` now registers the drain with `atexit`. Not a signal handler:
+under gunicorn the signals belong to gunicorn, and installing one here would
+take `SIGTERM` away from the thing that knows how to stop accepting requests. A
+gunicorn worker exiting on `SIGTERM` raises `SystemExit`, which runs the exit
+handlers, which is where the bounded wait belongs.
+
+The lesson is the one this repository keeps relearning: a claim tested against
+the path nobody runs is a claim nobody tested.
