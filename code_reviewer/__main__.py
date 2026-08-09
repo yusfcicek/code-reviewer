@@ -12,6 +12,7 @@ Usage:
 import sys
 import warnings
 
+from code_reviewer.application.governance import DecisionRecorder
 from code_reviewer.application.orchestration_service import ReviewOrchestrator
 from code_reviewer.application.ports import Reviewer
 from code_reviewer.application.project_memory import ProjectMemory
@@ -25,6 +26,8 @@ from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.concurrency.thread_pool import ThreadPoolRunner
 from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
+from code_reviewer.infrastructure.governance.identity import build_run_identity
+from code_reviewer.infrastructure.governance.json_sink import JsonAuditSink
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.specialist_agent import SpecialistAgent
 from code_reviewer.infrastructure.llm.vllm import LLMFactory
@@ -177,6 +180,11 @@ def build_review_service(args, tracer=None) -> tuple[ReviewService, Reviewer]:
 
     reviewer = _build_reviewer(args, tracer)
 
+    # What this run decided, and under which versions. Written only where an
+    # operator asked for it: a file appearing beside a checkout because a tool
+    # was run is a surprise, and this one names merge requests (Level 20, D-7).
+    recorder = _build_recorder(args, policy)
+
     service = ReviewService(
         forge=GitLabForge(),
         reviewer=reviewer,
@@ -190,6 +198,7 @@ def build_review_service(args, tracer=None) -> tuple[ReviewService, Reviewer]:
         retriever=retriever,
         memory=memory,
         tracer=tracer,
+        recorder=recorder,
     )
     return service, reviewer
 
@@ -275,6 +284,21 @@ def _build_runner(args) -> TaskRunner:
 
     logger.info("Specialists run concurrently", extra={"fields": {"workers": args.concurrency}})
     return ThreadPoolRunner(max_workers=args.concurrency)
+
+
+def _build_recorder(args, policy) -> DecisionRecorder | None:
+    """The decision recorder, or ``None`` when nobody asked for one.
+
+    The identity is assembled here rather than inside the recorder because
+    only the composition root knows which policy, which model and which
+    prompts are actually in use.
+    """
+    path = getattr(args, "audit_path", "")
+    if not path:
+        return None
+
+    logger.info("Recording the decision", extra={"fields": {"path": path}})
+    return DecisionRecorder(JsonAuditSink(path), build_run_identity(policy))
 
 
 def _build_memory(args, workspace) -> ProjectMemory | None:

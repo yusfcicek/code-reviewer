@@ -104,6 +104,32 @@ What it does **not** prevent:
   your network.** Self-hosting through vLLM is the deployment this is designed
   for.
 
+### The decision record
+
+`--audit-path` (or `REVIEW_AUDIT_PATH`) appends one JSON object per review:
+what was decided, under which package, policy, rule set, model and prompt
+digest, which rules blocked, what was suppressed and why, and what each
+specialism cost.
+
+- **It carries identifiers, never content.** Rule ids, locations, severities,
+  counts, versions, CWE citations. Never a diff, a file's contents, a finding's
+  evidence line or a model's prose — an audit file is read by more people than
+  a merge request, and a diff may contain a secret. A test builds a record from
+  a review whose finding carries a credential-shaped string in three fields and
+  asserts the string is absent from the serialised record.
+- **The prompts are a digest, not a text.** Recording them would put the
+  system's instructions into a file read more widely than the repository.
+- **It is not signed, and the file is not append-only against an operator with
+  write access.** Integrity against a hostile operator needs a key nobody in
+  this repository holds and a store nobody has chosen; saying so is more honest
+  than a hash chain anyone can rebuild. `AuditSink` is a port, so a deployment
+  that needs an append-only store has somewhere to put it
+  ([ADR 0022](docs/adr/0022-a-verdict-that-can-be-audited.md)).
+- **Nothing is written unless you ask.** A file appearing beside a checkout
+  because a tool was run is a surprise, and this one names merge requests.
+- Give it a directory whose permissions match who is allowed to read which
+  merge requests exist.
+
 ### Denial of service
 
 - Model calls carry a timeout (`LLM_TIMEOUT_SECONDS`, default 120 s) and a
@@ -169,6 +195,9 @@ this project ever imported.
    rather than leaving the defaults.
 5. **Read the first few reviews.** The gate blocks on findings, but the prose is
    generated text, and generated text can be wrong in ways that read well.
+6. **Point `--audit-path` at a directory somebody owns.** The record is what
+   answers "why did this merge get blocked in March", and its permissions
+   should match who may know which merge requests exist.
 
 ## What the analyzers are not
 

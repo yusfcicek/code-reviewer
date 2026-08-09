@@ -29,6 +29,7 @@ nobody has taken turns this directory into a wish list.
 | [0019](0019-threads-behind-a-port.md) | Threads behind a port, not `asyncio` | Accepted |
 | [0020](0020-a-wsgi-application-not-a-framework.md) | A WSGI application, not a framework | Accepted |
 | [0021](0021-a-deployment-that-is-tested.md) | A deployment that is tested | Accepted |
+| [0022](0022-a-verdict-that-can-be-audited.md) | A verdict that can be audited | Accepted |
 
 ## Adding one
 

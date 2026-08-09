@@ -7,6 +7,63 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.14.0] — 2026-08-09
+
+Level 20: the verdict becomes something that can be audited — and the claim this
+architecture has made since Level 4 becomes a control.
+
+### Added
+
+- **`domain/provenance.py`.** `Producer`, `Provenance`, `RunIdentity`,
+  `SuppressionRecord`, `AgentCost` and `DecisionRecord`. A record whose verdict
+  is blocking and whose blocking findings name a non-deterministic producer is
+  **refused at construction**, naming the finding, the producer and
+  [ADR 0004](docs/adr/0004-findings-drive-the-gate.md).
+- **`application/governance.py`.** The `AuditSink` port, the rule-namespace
+  attribution table and `DecisionRecorder`. Attribution is fail-closed: an
+  unregistered namespace is an agent, and therefore unable to block. A test
+  asserts every namespace the analysis suite emits is registered and that none
+  of its findings carries an empty rule id.
+- **`infrastructure/governance/`.** `build_run_identity` — package, policy,
+  model, rule set, evaluation baseline and a 12-character `blake2b` digest of
+  the five system prompts in use — and `JsonAuditSink`, which appends
+  newline-delimited JSON.
+- **`--audit-path` / `REVIEW_AUDIT_PATH`.** Without it nothing is written. The
+  environment variable is what lets the HTTP service record what the command
+  line records, since a container is configured with variables.
+- **An accountability block in the merge-request comment**: the versions, the
+  model, the prompt digest, the measured accuracy of the analyzers, and the
+  sentence naming what decided. Absent rather than half-filled when there is no
+  identity.
+- **Per-agent cost in the record** — runs, failures, tool calls, tokens allowed
+  and duration per specialism, alongside the decision they paid for. The
+  metrics file is overwritten by the next review; the record is not.
+- [ADR 0022](docs/adr/0022-a-verdict-that-can-be-audited.md).
+
+### Changed
+
+- The exit code is computed before the comment is rendered, because the record
+  names it and the comment quotes the record. The value is unchanged: it is a
+  function of the outcome and the policy.
+- `tests/unit/test_evaluation_baseline.py` now pins the baseline string the
+  record carries against the floors it claims, so the two cannot drift.
+- `reports/` is git-ignored. The per-level reports are written for the reader
+  of a level, not for the history.
+
+### Not done, deliberately
+
+- **No signing, and no append-only store.** Integrity against a hostile
+  operator needs a key nobody in this repository holds. `AuditSink` is a port
+  so a deployment that needs one has somewhere to put it.
+- **No compliance mapping.** No control catalogue, no attestation format —
+  those are an organisation's, and inventing one here would be guessing at
+  somebody else's obligations.
+- **No explanation of the model's reasoning.** "Why did the model conclude
+  that" is not answerable, and a plausible-sounding answer to it is
+  manufactured evidence.
+
+---
+
 ## [2.13.0] — 2026-08-09
 
 Level 19: the review becomes something that can be deployed.

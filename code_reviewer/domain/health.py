@@ -82,4 +82,3 @@ class Readiness:
 
 def combine(results: Iterable[CheckResult]) -> Readiness:
     return Readiness(results=tuple(results))
-

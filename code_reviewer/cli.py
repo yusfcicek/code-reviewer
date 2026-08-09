@@ -137,6 +137,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--audit-path",
+        type=str,
+        default=_env("REVIEW_AUDIT_PATH", ""),
+        help=(
+            "Where to append this run's decision record as JSON: what was "
+            "decided, under which versions, and on the strength of which rules. "
+            "Omitted, none is written."
+        ),
+    )
+    parser.add_argument(
         "--single-agent",
         action="store_true",
         help=(

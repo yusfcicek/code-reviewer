@@ -372,3 +372,40 @@ class TestConcurrencyWiring(unittest.TestCase):
     def test_a_non_numeric_concurrency_is_refused(self):
         with self.assertRaises(SystemExit):
             _args("--concurrency", "many")
+
+
+class TestAuditWiring(unittest.TestCase):
+    """Level 20 — a decision record is written where somebody asked for one."""
+
+    def test_a_path_builds_a_recorder(self):
+        with _Harness() as harness:
+            run(_args("--audit-path", "/tmp/decisions.jsonl"))
+
+        recorder = harness.service_kwargs["recorder"]
+        self.assertIsNotNone(recorder)
+        self.assertEqual(str(recorder.sink.path), "/tmp/decisions.jsonl")
+
+    def test_without_a_path_nothing_is_recorded(self):
+        """The record is an operator's choice: a file appearing beside a
+        checkout because a tool was run is a surprise, and this one names
+        merge requests."""
+        with _Harness() as harness:
+            run(_args())
+
+        self.assertIsNone(harness.service_kwargs["recorder"])
+
+    def test_the_identity_comes_from_the_policy_and_the_prompts_in_use(self):
+        with _Harness() as harness:
+            harness.load_policy.return_value = MagicMock(version="3.7")
+            run(_args("--audit-path", "/tmp/decisions.jsonl"))
+
+        identity = harness.service_kwargs["recorder"].identity
+        self.assertEqual(identity.policy_version, "3.7")
+        self.assertTrue(identity.prompt_fingerprint)
+        self.assertTrue(identity.package_version)
+
+    def test_a_run_without_a_model_records_that_it_had_none(self):
+        with _Harness() as harness, patch.dict(os.environ, {"VLLM_MODEL": ""}, clear=False):
+            run(_args("--audit-path", "/tmp/decisions.jsonl", "--no-llm"))
+
+        self.assertEqual(harness.service_kwargs["recorder"].identity.model, "none")

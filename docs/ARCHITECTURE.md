@@ -34,6 +34,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `trace.py` | What a review did, as a tree: spans, tree building that survives orphans and cycles, self time, the critical path. |
 | `job.py` | One request for a review: its target, its lifecycle, and every transition that is refused. |
 | `health.py` | `CheckResult` and `Readiness`: every failing check reported, in a stable order, naming settings and never their values. |
+| `provenance.py` | Who made a claim, under which versions, and the one invariant: a `DecisionRecord` whose verdict blocks may not cite a non-deterministic producer. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
 
@@ -53,6 +54,7 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `tasks.py` | The `TaskRunner` port, `TaskOutcome`, and the `SequentialRunner` that is the default. |
 | `jobs.py` | The `JobStore` port, an in-memory one, and `JobService`: accept once, hand out, record. |
 | `health.py` | `ReadinessProbe`: named checks, each isolated from the others. |
+| `governance.py` | The `AuditSink` port, the rule-namespace attribution table, and `DecisionRecorder`: one review's record, assembled and written. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -120,10 +122,15 @@ workflow runs against in-memory fakes with no network and no GitLab.
           │      findings block; prose warns
           └─► ReviewOutcome.record()
     │
+    ├─► ReviewOutcome.exit_code(policy)
+    ├─► DecisionRecorder.record() → AuditSink.write()   what decided, and under which versions
     ├─► render_review_comment()  → CodeForge.publish_comment()
-    ├─► MetricsCollector         → metrics.txt
-    └─► ReviewOutcome.exit_code(policy)
+    └─► MetricsCollector         → metrics.txt
 ```
+
+The exit code is computed before the comment is rendered because the record
+names it and the comment quotes the record's one-line summary. The value is the
+same either way: it is a function of the outcome and the policy.
 
 Two properties of that path are deliberate:
 
