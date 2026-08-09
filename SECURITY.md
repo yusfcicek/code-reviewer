@@ -94,6 +94,11 @@ What it does **not** prevent:
 
 - The GitLab token and the model API key are read from the environment and never
   logged. Log records carry structured fields; no field contains a credential.
+- **Every published comment is redacted at the boundary.** The model's prose was
+  masked where it is produced; the self-review found that a failure message
+  built from an exception -- which can carry a URL, a header dump or a response
+  body -- was not. `GitLabForge.publish_comment` now masks the whole body, on
+  both the create and the edit path, and logs how much it masked.
 - **TLS verification is on by default.** It can only be disabled with an
   explicit `GITLAB_SSL_VERIFY=false`, which emits a warning naming the risk.
   Prefer `GITLAB_CA_BUNDLE` with your internal CA
