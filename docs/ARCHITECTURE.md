@@ -34,6 +34,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `trace.py` | What a review did, as a tree: spans, tree building that survives orphans and cycles, self time, the critical path. |
 | `job.py` | One request for a review: its target, its lifecycle, and every transition that is refused. |
 | `health.py` | `CheckResult` and `Readiness`: every failing check reported, in a stable order, naming settings and never their values. |
+| `narration.py` | What a review said, checked against what it was looking at: citations, verdict claims, severity discipline, the required sections. |
 | `provenance.py` | Who made a claim, under which versions, and the one invariant: a `DecisionRecord` whose verdict blocks may not cite a non-deterministic producer. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
@@ -54,6 +55,8 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `tasks.py` | The `TaskRunner` port, `TaskOutcome`, and the `SequentialRunner` that is the default. |
 | `jobs.py` | The `JobStore` port, an in-memory one, and `JobService`: accept once, hand out, record. |
 | `health.py` | `ReadinessProbe`: named checks, each isolated from the others. |
+| `narration_evaluation.py` | The second harness: every check over every recorded review, scored as agreement with what each case declared. |
+| `narration_report.py` | That run, as markdown. |
 | `governance.py` | The `AuditSink` port, the rule-namespace attribution table, and `DecisionRecorder`: one review's record, assembled and written. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole

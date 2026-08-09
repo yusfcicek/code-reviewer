@@ -64,6 +64,12 @@ jobs:
           --min-precision 0.95 --min-recall 0.95 --min-f1 0.95
           --json evaluation-summary.json
 
+      # The second measurement: what the model *said*, graded offline against
+      # the facts it was written about. No endpoint is involved (Level 21).
+      - name: Evaluate narration quality
+        if: '!cancelled()'
+        run: uv run ai-code-review-eval --narration --min-narration 1.0
+
       - name: Upload evaluation summary
         if: '!cancelled()'
         uses: actions/upload-artifact@v4

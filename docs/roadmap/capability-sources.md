@@ -21,8 +21,8 @@ repository does about it today. A capability with no gap produces no level.
 | ID | Capability | Sources | State before Level 12 | Level |
 |---|---|---|---|---|
 | C-01 | Agent evaluation and reliability frameworks | S3 | None. Nothing measures whether a review is *good* | 12 |
-| C-02 | LLM application evaluation, monitoring, continuous optimisation | S2 | Runtime metrics only: counts, durations, token use — no quality signal | 12 |
-| C-03 | Regression detection across model or prompt change | S2 | None. A prompt edit ships unmeasured | 12 |
+| C-02 | LLM application evaluation, monitoring, continuous optimisation | S2 | Runtime metrics only: counts, durations, token use — no quality signal | 12 (analyzers), 21 (the model's prose) |
+| C-03 | Regression detection across model or prompt change | S2 | None. A prompt edit ships unmeasured | 12 (analyzers), 21 (the model's prose) |
 | C-04 | RAG pipelines and vector-based retrieval | S1, S2, S3 | None. The agent sees one diff and one file | 13 |
 | C-05 | Vector databases, embeddings, semantic search | S1, S3 | None | 13 |
 | C-06 | Hybrid retrieval and re-ranking | S2 (IR) | None | 13 |
@@ -40,6 +40,7 @@ repository does about it today. A capability with no gap produces no level.
 | C-18 | Explainability and regulatory compliance | S2 | None recorded. A finding cites a rule, not its provenance | 20 |
 | C-19 | Agent governance frameworks | S3 | Suppression is audited (Level 11); model decisions are not | 20 |
 | C-20 | Model/prompt versioning and cost accounting | S2 | Token counting exists; nothing pins a version to an output | 20 |
+| C-21 | Grounded generation: an assistant's output checked against its input | S2, S3 | Level 12 graded the analyzers and said in its own non-goals that it did not grade the prose | 21 |
 
 ## What is deliberately out of scope
 

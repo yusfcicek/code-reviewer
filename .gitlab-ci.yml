@@ -77,6 +77,13 @@ evaluate:
       - evaluation-summary.json
     expire_in: 1 month
 
+# The second measurement: what the model said, graded offline against the facts
+# it was written about. No model endpoint is involved (Level 21).
+evaluate-narration:
+  stage: check
+  script:
+    - uv run ai-code-review-eval --narration --min-narration 1.0
+
 # The agent reviewing this project's own merge requests.
 #
 # allow_failure is true while the agent is in alpha: a review that cannot run
