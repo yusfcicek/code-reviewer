@@ -7,6 +7,7 @@ silent failure louder, and nothing a log aggregator could parse (finding F-47).
 
 import json
 import logging
+import os
 import unittest
 from io import StringIO
 from unittest.mock import patch
@@ -242,3 +243,58 @@ class TestNoPrints(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTraceContextOnEveryRecord(unittest.TestCase):
+    """Level 16 — the join between a log line and a trace."""
+
+    def setUp(self):
+        from code_reviewer.infrastructure.observability.tracer import SpanRecorder, set_tracer
+
+        self.tracer = SpanRecorder(trace_id="run-7")
+        set_tracer(self.tracer)
+        self.addCleanup(set_tracer, None)
+
+    def _emit(self, use_json: bool = False) -> str:
+        from code_reviewer.domain.trace import SpanKind
+
+        stream = StringIO()
+        with patch.dict(os.environ, {"LOG_FORMAT": "json" if use_json else ""}, clear=False):
+            logger = configure_logging("INFO", stream=stream)
+            with self.tracer.span(SpanKind.REVIEW, "run"):
+                with self.tracer.span(SpanKind.FILE, "a.py"):
+                    logger.info("inside")
+            logger.info("outside")
+        return stream.getvalue()
+
+    def test_the_structured_format_carries_the_trace_and_the_span(self):
+        output = self._emit()
+
+        inside = next(line for line in output.splitlines() if "inside" in line)
+        self.assertIn("trace_id=run-7", inside)
+        self.assertIn("span_id=1.1", inside)
+
+    def test_the_json_format_carries_the_trace_and_the_span(self):
+        output = self._emit(use_json=True)
+
+        inside = json.loads(next(line for line in output.splitlines() if "inside" in line))
+        self.assertEqual(inside["trace_id"], "run-7")
+        self.assertEqual(inside["span_id"], "1.1")
+
+    def test_a_record_outside_a_span_carries_neither(self):
+        """Not fields that say 'none'."""
+        output = self._emit(use_json=True)
+
+        outside = json.loads(next(line for line in output.splitlines() if "outside" in line))
+        self.assertNotIn("trace_id", outside)
+        self.assertNotIn("span_id", outside)
+
+    def test_a_callers_own_trace_id_is_not_overwritten(self):
+        from code_reviewer.domain.trace import SpanKind
+
+        stream = StringIO()
+        logger = configure_logging("INFO", stream=stream)
+        with self.tracer.span(SpanKind.REVIEW, "run"):
+            logger.info("mine", extra={"fields": {"trace_id": "chosen"}})
+
+        self.assertIn("trace_id=chosen", stream.getvalue())
