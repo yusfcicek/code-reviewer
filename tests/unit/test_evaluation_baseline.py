@@ -90,6 +90,19 @@ def test_the_suite_holds_the_committed_floors(report):
     assert threshold.shortfalls(report) == []
 
 
+def test_the_recorded_baseline_says_what_the_floors_actually_are(dataset):
+    """Level 20 records the baseline in every decision record, and two numbers
+    in two files drift. This is the pair somebody would forget."""
+    from code_reviewer.infrastructure.governance.identity import EVALUATION_BASELINE
+
+    expected = (
+        f"precision >= {MIN_PRECISION:.2f}, recall >= {MIN_RECALL:.2f}, "
+        f"f1 >= {MIN_F1:.2f} over {len(dataset.cases())} cases"
+    )
+
+    assert EVALUATION_BASELINE == expected
+
+
 def test_the_ungraded_count_is_small_enough_to_read(report):
     """Ungraded findings are allowed and counted. They are not allowed to be
     the bulk of the output — at that point the dataset is grading a corner of
