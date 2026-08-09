@@ -112,12 +112,18 @@ def test_an_unregistered_namespace_is_treated_as_an_opinion():
 def test_every_namespace_the_suite_emits_is_registered():
     """So the fail-closed default never fires in practice, and a new analyzer
     is a red test rather than a silent misattribution."""
+    from pathlib import Path
+
     from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 
-    source = open("evaluation/fixtures/sql_injection.py", encoding="utf-8").read()
+    source = Path("evaluation/fixtures/sql_injection.py").read_text(encoding="utf-8")
     result = StaticAnalysisSuite().analyze("sql_injection.py", source, "")
 
+    assert result.findings
     for finding in result.findings:
+        # An empty rule id is the fail-closed default's one live trigger: it
+        # would turn a legitimately blocking review into an incomplete record.
+        assert finding.rule_id, f"{finding.title} carries no rule id"
         namespace = finding.rule_id.split(".", 1)[0]
         assert namespace in PRODUCERS, f"{namespace} is unattributed"
 

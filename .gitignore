@@ -47,3 +47,7 @@ evaluation-summary.json
 .claude/
 *.swp
 .DS_Store
+
+# Level reports are written for the reader of a level, not for the history.
+# They are deliberately never committed.
+reports/

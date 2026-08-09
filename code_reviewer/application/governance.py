@@ -107,6 +107,15 @@ class DecisionRecorder:
         self._identity = identity
         self._clock = clock or (lambda: datetime.now(UTC))
 
+    @property
+    def identity(self) -> RunIdentity:
+        """Which version of everything is producing these records.
+
+        Read by the comment renderer, so the artefact a reviewer sees and the
+        artefact an auditor is given name the same run.
+        """
+        return self._identity
+
     def record(
         self,
         outcome: ReviewOutcome,

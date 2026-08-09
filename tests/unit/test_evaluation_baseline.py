@@ -100,7 +100,7 @@ def test_the_recorded_baseline_says_what_the_floors_actually_are(dataset):
         f"f1 >= {MIN_F1:.2f} over {len(dataset.cases())} cases"
     )
 
-    assert EVALUATION_BASELINE == expected
+    assert expected == EVALUATION_BASELINE
 
 
 def test_the_ungraded_count_is_small_enough_to_read(report):

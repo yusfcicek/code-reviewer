@@ -10,6 +10,7 @@ import unittest
 from code_reviewer.application.report import REVIEW_COMMENT_MARKER, render_review_comment
 from code_reviewer.domain.gate import GateEvaluation, ReviewGateResult
 from code_reviewer.domain.outcome import ReviewOutcome
+from code_reviewer.domain.provenance import RunIdentity
 
 
 def _evaluation(result, blocking=(), reasons=()):
@@ -251,3 +252,66 @@ class TestSuppressionsAreVisible(unittest.TestCase):
         body = render_review_comment("1.0", outcome, ["## a\n"])
 
         self.assertIn("no reason given", body.lower())
+
+
+class TestAccountabilityBlock(unittest.TestCase):
+    """Level 20 — the reader of a verdict should be able to say what produced
+    it without asking anybody. Six months later the person asking is an
+    auditor, and the answer has to be in the artefact rather than in a memory.
+    """
+
+    IDENTITY = RunIdentity(
+        package_version="2.14.0",
+        policy_version="1.0",
+        model="qwen3-8b",
+        prompt_fingerprint="b6b17025f0c5",
+        ruleset_version="2.14.0",
+        evaluation_baseline="precision >= 0.95, recall >= 0.95, f1 >= 0.95 over 11 cases",
+    )
+
+    def _body(self, **kwargs):
+        return render_review_comment("1.0", ReviewOutcome(), ["## a\n"], **kwargs)
+
+    def test_the_block_names_every_version_that_produced_the_review(self):
+        body = self._body(identity=self.IDENTITY)
+
+        self.assertIn("2.14.0", body)
+        self.assertIn("qwen3-8b", body)
+        self.assertIn("b6b17025f0c5", body)
+        self.assertIn("0.95", body)
+
+    def test_the_block_says_what_decided(self):
+        outcome = ReviewOutcome()
+        outcome.record("db.py", _evaluation(ReviewGateResult.FAIL, blocking=["critical finding"]))
+
+        body = render_review_comment(
+            "1.0",
+            outcome,
+            ["## a\n"],
+            identity=self.IDENTITY,
+            decision_summary="blocked by analyzer:SASTAnalyzer@2.14.0",
+        )
+
+        self.assertIn("blocked by analyzer:SASTAnalyzer@2.14.0", body)
+
+    def test_without_an_identity_the_block_is_absent_rather_than_half_filled(self):
+        """A footer reading "Model: unknown" is worse than no footer: it looks
+        like a fact about the run."""
+        body = self._body()
+
+        self.assertNotIn("Accountability", body)
+        self.assertNotIn("Prompt", body)
+
+    def test_a_static_only_review_says_so_rather_than_leaving_a_gap(self):
+        body = self._body(identity=RunIdentity(package_version="2.14.0", policy_version="1.0"))
+
+        self.assertIn("none", body)
+
+    def test_the_block_is_above_the_per_file_prose(self):
+        """It is part of the verdict, not an appendix. Truncation keeps the
+        head, so anything below the sections can be cut away."""
+        body = render_review_comment(
+            "1.0", ReviewOutcome(), ["SECTION-ONE"], identity=self.IDENTITY
+        )
+
+        self.assertLess(body.index("b6b17025f0c5"), body.index("SECTION-ONE"))

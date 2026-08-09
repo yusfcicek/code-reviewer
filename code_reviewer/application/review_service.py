@@ -18,6 +18,7 @@ from code_reviewer.domain.severity import Severity
 from code_reviewer.domain.trace import SpanKind
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
 
+from .governance import DecisionRecorder
 from .ports import (
     AccessAuditor,
     AccessViolation,
@@ -90,6 +91,7 @@ class ReviewService:
         related_limit: int = 4,
         memory: ProjectMemory | None = None,
         tracer: Tracer | None = None,
+        recorder: DecisionRecorder | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -113,6 +115,9 @@ class ReviewService:
         # Defaults to recording nothing, so an uninstrumented caller pays a
         # function frame per span and nothing else (Level 16, decision D-4).
         self._tracer = tracer or NullTracer()
+        # Optional, and never able to change a verdict: it records the one
+        # already reached (Level 20, decision D-6).
+        self._recorder = recorder
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
@@ -171,6 +176,12 @@ class ReviewService:
                 result.metrics.append(metric)
             result.findings.extend(findings or [])
 
+        # Computed before the comment is rendered, because the record names it
+        # and the comment quotes the record. The value is the same either way:
+        # it is a function of the outcome and the policy.
+        result.exit_code = outcome.exit_code(self._policy)
+        record = self._record(reference, outcome, result)
+
         if sections:
             result.comment = render_review_comment(
                 self._policy.version,
@@ -179,6 +190,8 @@ class ReviewService:
                 result.findings,
                 recurring=self._recurring(result.findings),
                 trace_id=self._tracer.trace_id,
+                identity=self._recorder.identity if self._recorder else None,
+                decision_summary=record.summary() if record else "",
             )
             if publish:
                 self._forge.publish_comment(reference, result.comment)
@@ -187,8 +200,29 @@ class ReviewService:
         # itself into its own history.
         self._remember(outcome, result.findings)
 
-        result.exit_code = outcome.exit_code(self._policy)
         return result
+
+    def _record(self, reference: MergeRequestRef, outcome: ReviewOutcome, result: ReviewResult):
+        """Writes what was decided, if anybody is recording.
+
+        Built from what the review already produced, and unable to change it:
+        the recorder never raises, and a sink that cannot write is a warning.
+        Fifth level with the rule that observability may not fail the review it
+        observes (Level 20, contract C-9).
+        """
+        if self._recorder is None:
+            return None
+
+        threshold = self._gate.blocking_severity
+        return self._recorder.record(
+            outcome,
+            result.findings,
+            lambda finding: finding.severity.is_at_least(threshold),
+            project=reference.project_id,
+            merge_request=reference.merge_request_id,
+            trace_id=self._tracer.trace_id,
+            exit_code=result.exit_code,
+        )
 
     def _review_one(
         self,
