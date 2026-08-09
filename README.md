@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.16.0.** Rebuilt from an imported prototype across twenty levels
+> **Status: 2.16.1.** Rebuilt from an imported prototype across twenty levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1810 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1846 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a

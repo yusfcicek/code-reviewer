@@ -5,6 +5,7 @@ import json
 import pytest
 
 from code_reviewer.evaluate import main
+from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationCorpus
 
 
 def _dataset(root, case_body: str, fixture: str = "value = 1\n") -> str:
@@ -152,7 +153,7 @@ def test_the_shipped_corpus_is_graded_and_reported(capsys):
     assert code == 0
     output = capsys.readouterr().out
     assert "citations_are_grounded" in output
-    assert "14" in output
+    assert f"{len(NarrationCorpus('evaluation').cases())} recorded review" in output
 
 
 def test_a_floor_the_corpus_does_not_meet_exits_one(tmp_path, capsys):
@@ -192,3 +193,38 @@ def test_the_analyzer_grading_is_untouched_by_the_flag(capsys):
 
     assert code == 0
     assert "citations_are_grounded" not in capsys.readouterr().out
+
+
+# -- S-05: a flag accepted and ignored ---------------------------------------
+
+
+def test_the_narration_summary_is_written_where_json_asks_for_it(tmp_path, capsys):
+    """`--json` was parsed, accepted and silently ignored on this path — the
+    same shape as R-04 from the previous review, one level later."""
+    destination = tmp_path / "narration.json"
+
+    main(["--narration", "--dataset", "evaluation", "--json", str(destination)])
+
+    written = json.loads(destination.read_text(encoding="utf-8"))
+    assert written["cases"] >= 15
+    assert 0.0 <= written["score"] <= 1.0
+    assert "citations_are_grounded" in written["checks"]
+
+
+def test_the_summary_names_the_stale_cases_rather_than_only_counting_them(tmp_path):
+    destination = tmp_path / "narration.json"
+
+    main(["--narration", "--dataset", "evaluation", "--json", str(destination)])
+
+    written = json.loads(destination.read_text(encoding="utf-8"))
+    assert isinstance(written["stale"], list)
+    assert written["stale"], "every shipped case is authored, so every one is stale"
+
+
+def test_a_summary_that_cannot_be_written_exits_two(tmp_path):
+    blocked = tmp_path / "file"
+    blocked.write_text("not a directory", encoding="utf-8")
+
+    code = main(["--narration", "--dataset", "evaluation", "--json", str(blocked / "x.json")])
+
+    assert code == 2

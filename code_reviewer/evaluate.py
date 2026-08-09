@@ -26,7 +26,7 @@ from pathlib import Path
 from code_reviewer.application.evaluation_report import evaluation_summary, render_evaluation_report
 from code_reviewer.application.evaluation_service import EvaluationService
 from code_reviewer.application.narration_evaluation import NarrationEvaluator
-from code_reviewer.application.narration_report import render_narration_report
+from code_reviewer.application.narration_report import narration_summary, render_narration_report
 from code_reviewer.domain.evaluation import EvaluationThreshold
 from code_reviewer.errors import ConfigurationError
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
@@ -173,6 +173,8 @@ def _grade_narration(args) -> int:
 
     try:
         _emit(render_narration_report(report, args.min_narration), args.markdown)
+        if args.json_path:
+            _write(json.dumps(narration_summary(report, args.min_narration), indent=2) + "\n", args.json_path)
     except OSError as error:
         print(  # stdout: the program's output, not a diagnostic
             f"Narration evaluation ran but could not be written: {error}", file=sys.stderr

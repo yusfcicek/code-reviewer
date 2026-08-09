@@ -22,6 +22,7 @@ import logging
 from collections.abc import Sequence
 
 from code_reviewer.application.governance import producer_for
+from code_reviewer.domain.diffs import changed_lines
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.fix_recipes import suggest
 from code_reviewer.domain.remediation import Suggestion
@@ -46,7 +47,9 @@ class SuggestionService:
     def __init__(self, version: str = ""):
         self._version = version
 
-    def suggest_for(self, findings: Sequence[Finding], source: str, path: str = "") -> tuple[Suggestion, ...]:
+    def suggest_for(
+        self, findings: Sequence[Finding], source: str, path: str = "", diff: str = ""
+    ) -> tuple[Suggestion, ...]:
         """Every suggestion that survives validation, at most one per line.
 
         Args:
@@ -56,17 +59,33 @@ class SuggestionService:
                 a guess.
             path: The file the source belongs to. Findings about anything else
                 are ignored: their line numbers mean nothing here.
+            diff: What the merge request changed in it. Only lines this diff
+                touched are eligible: a note cannot be anchored outside the
+                diff, and an edit to untouched code is a change of subject
+                rather than a fix (self-review S-02). Empty means "no diff was
+                given", which leaves every line eligible — a diff that *was*
+                given and cannot be read leaves none.
         """
         if not source:
             return ()
 
-        subject = path or (findings[0].file_path if findings else "")
-        if not subject.endswith(SUGGESTABLE_SUFFIXES):
+        subject = path or _one_subject(findings)
+        if not subject or not subject.endswith(SUGGESTABLE_SUFFIXES):
+            return ()
+
+        eligible = changed_lines(diff) if diff else None
+        if eligible is not None and not eligible:
+            logger.warning(
+                "Not proposing suggestions: no line of this file's diff could be read",
+                extra={"fields": {"path": subject}},
+            )
             return ()
 
         accepted: dict[int, Suggestion] = {}
         for finding in findings:
             if finding.file_path != subject:
+                continue
+            if eligible is not None and finding.line_number not in eligible:
                 continue
             if not producer_for(finding.rule_id, self._version).is_deterministic:
                 # An agent may not author an edit somebody will apply without
@@ -131,3 +150,15 @@ def render_suggestion(suggestion: Suggestion) -> str:
         "_Proposed by static analysis and validated against this file; it is applied only if you apply it._",
     ]
     return "\n".join(lines)
+
+
+def _one_subject(findings: Sequence[Finding]) -> str:
+    """The file these findings are about, when a caller did not name one.
+
+    Empty when they are about more than one. The old code took the first
+    finding's path, so which file got edited depended on list order — and the
+    source it was checked against belonged to whichever file the caller meant
+    (self-review S-06).
+    """
+    paths = {finding.file_path for finding in findings}
+    return paths.pop() if len(paths) == 1 else ""

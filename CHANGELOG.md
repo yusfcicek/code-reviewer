@@ -7,6 +7,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.16.1] — 2026-08-09
+
+The self-review of levels 21 and 22, and its six findings closed. Recorded in
+[`docs/roadmap/self-review-21-22.md`](docs/roadmap/self-review-21-22.md).
+
+### Fixed
+
+- **The verdict check caught three phrasings of eight.** "This blocks the
+  pipeline", "this merge request is blocked", "LGTM, approved", "the pipeline
+  will be blocked by this" and "do not merge" all passed the check that makes
+  ADR 0004 measurable in the text. Twelve phrasings are caught now, and seven
+  statements of fact are deliberately left alone (S-01).
+- **The severity check fired on ordinary English.** "The function has high
+  complexity" failed a review that said nothing wrong; a claim is now the word
+  shouted, labelled, or parenthesised after a finding (S-04).
+- **Suggestions were proposed on lines the merge request never touched.** A
+  note cannot be anchored outside the diff, so the platform rejected them and
+  the rejection was a warning nobody reads. `domain/diffs.py` reads the hunk
+  headers, and an unreadable diff proposes nothing (S-02).
+- **Suggestions had no idempotency.** Four pushes left four identical buttons
+  on one line — the defect Level 5 fixed for the review comment, reintroduced
+  beside it. The note now carries a marker keyed on its location (S-03).
+- **`--json` was accepted with `--narration` and ignored.** It writes the
+  summary now, naming the stale cases rather than counting them (S-05).
+- **A batch of findings from two files no longer picks a subject by list
+  order** (S-06).
+
+---
+
 ## [2.16.0] — 2026-08-09
 
 Level 22: the reviewer proposes a fix, and provably cannot apply one.

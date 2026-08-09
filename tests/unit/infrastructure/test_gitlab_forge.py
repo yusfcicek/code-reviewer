@@ -217,3 +217,62 @@ class TestPublishingASuggestion(unittest.TestCase):
 
         body = merge_request.discussions.create.call_args[0][0]["body"]
         self.assertNotIn("glpat-averyrealisticlookingtoken", body)
+
+
+class TestASuggestionIsPostedOnce(unittest.TestCase):
+    """S-03 — five pipeline runs left five copies of every suggestion.
+
+    Level 5 fixed exactly this for the review comment: the body carries a
+    marker, and the next run finds it and edits rather than adding a second
+    one (finding G-12). Suggestions carried nothing, so a merge request pushed
+    to four times ended with four identical buttons on one line.
+    """
+
+    def _forge(self, existing_bodies=()):
+        client = MagicMock()
+        merge_request = client.projects.get.return_value.mergerequests.get.return_value
+        merge_request.diff_refs = {"base_sha": "aaa", "start_sha": "bbb", "head_sha": "ccc"}
+        merge_request.discussions.list.return_value = [
+            MagicMock(attributes={"notes": [{"body": body}]}) for body in existing_bodies
+        ]
+        forge = GitLabForge(client=client)
+        return forge, merge_request, forge.fetch_merge_request(1, 2)
+
+    def _position(self):
+        from code_reviewer.application.ports import DiffPosition
+
+        return DiffPosition(path="src/app.py", line=11, base_sha="aaa", start_sha="bbb", head_sha="ccc")
+
+    def test_the_note_carries_a_marker_naming_what_it_suggests(self):
+        forge, merge_request, reference = self._forge()
+
+        forge.publish_suggestion(reference, self._position(), "SAST.WEAK_CRYPTO body")
+
+        body = merge_request.discussions.create.call_args[0][0]["body"]
+        self.assertIn("code-reviewer:suggestion:src/app.py:11", body)
+
+    def test_a_suggestion_already_posted_on_that_line_is_not_posted_again(self):
+        marker = "<!-- code-reviewer:suggestion:src/app.py:11 -->"
+        forge, merge_request, reference = self._forge(existing_bodies=[f"old body\n{marker}"])
+
+        forge.publish_suggestion(reference, self._position(), "new body")
+
+        merge_request.discussions.create.assert_not_called()
+
+    def test_a_suggestion_on_another_line_is_still_posted(self):
+        marker = "<!-- code-reviewer:suggestion:src/app.py:4 -->"
+        forge, merge_request, reference = self._forge(existing_bodies=[f"old body\n{marker}"])
+
+        forge.publish_suggestion(reference, self._position(), "new body")
+
+        merge_request.discussions.create.assert_called_once()
+
+    def test_a_forge_that_cannot_list_discussions_still_posts(self):
+        """Losing the idempotency is cosmetic; losing the suggestion is not.
+        The same trade the comment path makes."""
+        forge, merge_request, reference = self._forge()
+        merge_request.discussions.list.side_effect = RuntimeError("no permission")
+
+        forge.publish_suggestion(reference, self._position(), "body")
+
+        merge_request.discussions.create.assert_called_once()

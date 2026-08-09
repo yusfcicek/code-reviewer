@@ -114,3 +114,58 @@ def test_nothing_raises_when_a_recipe_explodes(monkeypatch):
     monkeypatch.setitem(recipes.RECIPES, "SAST.WEAK_CRYPTO", explode)
 
     assert _service().suggest_for([_finding()], CRYPTO) == ()
+
+
+# -- S-02: only lines the merge request touched ------------------------------
+#
+# A note carries a position, and a position has to name a line in the diff. An
+# edit proposed on an untouched line is rejected by the platform — and it is a
+# change of subject rather than a fix.
+
+DIFF_TOUCHING_LINE_5 = (
+    "@@ -1,5 +1,5 @@\n import hashlib\n \n \n def digest(value):\n"
+    "+    return hashlib.md5(value).hexdigest()\n"
+)
+DIFF_TOUCHING_LINE_1 = "@@ -1,1 +1,1 @@\n+import hashlib\n"
+
+
+def test_a_finding_on_a_changed_line_is_suggested():
+    suggestions = _service().suggest_for(
+        [_finding()], CRYPTO, path="src/hashing.py", diff=DIFF_TOUCHING_LINE_5
+    )
+
+    assert len(suggestions) == 1
+
+
+def test_a_finding_on_a_line_the_merge_request_did_not_touch_is_not():
+    """The platform would reject the note, and the rejection is a warning
+    nobody reads. Proposing nothing is the honest answer."""
+    suggestions = _service().suggest_for(
+        [_finding()], CRYPTO, path="src/hashing.py", diff=DIFF_TOUCHING_LINE_1
+    )
+
+    assert suggestions == ()
+
+
+def test_without_a_diff_every_line_is_eligible():
+    """A caller with no diff — a test, or a forge that returned none — gets
+    the old behaviour rather than silence."""
+    assert len(_service().suggest_for([_finding()], CRYPTO, path="src/hashing.py")) == 1
+
+
+def test_a_diff_that_cannot_be_parsed_suggests_nothing():
+    """Fail closed: an unparseable diff means the eligible lines are unknown,
+    and proposing against unknown is how the platform gets a note it refuses."""
+    assert _service().suggest_for([_finding()], CRYPTO, path="src/hashing.py", diff="+ garbage\n") == ()
+
+
+# -- S-06: which file a suggestion is about ----------------------------------
+
+
+def test_the_subject_is_refused_rather_than_guessed_from_the_first_finding():
+    """With findings from two files and no path, the old code took the first
+    finding's file as the subject for all of them — so which file was edited
+    depended on list order."""
+    other = _finding(path="src/other.py")
+
+    assert _service().suggest_for([other, _finding()], CRYPTO) == ()

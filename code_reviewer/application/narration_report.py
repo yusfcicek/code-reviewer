@@ -52,3 +52,28 @@ def render_narration_report(report: NarrationReport, floor: float) -> str:
         lines += ["Every check agreed with what its case declared.", ""]
 
     return "\n".join(lines)
+
+
+def narration_summary(report: NarrationReport, floor: float) -> dict:
+    """The narration run as plain data, for a pipeline rather than a person.
+
+    The same shape of artefact the analyzer harness writes: what was measured,
+    against what floor, and everything that qualifies the number. `--json` was
+    accepted on this path and silently ignored until the self-review found it
+    (S-05).
+    """
+    checks = [result.check for result in report.graded[0].results] if report.graded else []
+    return {
+        "cases": report.case_count,
+        "checks": {check: report.rate_for(check) for check in checks},
+        "score": report.score,
+        "floor": floor,
+        "met": report.score >= floor,
+        # Named rather than counted: "eleven are stale" does not say which to
+        # re-record.
+        "stale": list(report.stale),
+        "failures": [
+            {"case": failure.case, "check": failure.check, "detail": failure.detail}
+            for failure in report.failures
+        ],
+    }
