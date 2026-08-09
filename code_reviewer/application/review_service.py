@@ -15,6 +15,7 @@ from code_reviewer.domain.gate import ReviewGate
 from code_reviewer.domain.outcome import ReviewOutcome
 from code_reviewer.domain.policy import ReviewPolicy
 from code_reviewer.domain.severity import Severity
+from code_reviewer.domain.trace import SpanKind
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
 
 from .ports import (
@@ -31,6 +32,7 @@ from .ports import (
 from .project_memory import ProjectMemory
 from .report import render_review_comment
 from .retrieval_service import query_from_change
+from .tracing import NullTracer, Tracer
 
 # Standard logging, not the infrastructure helper: the application layer may
 # not import downwards. Every module in this package lives under the
@@ -87,6 +89,7 @@ class ReviewService:
         retriever: CodeRetriever | None = None,
         related_limit: int = 4,
         memory: ProjectMemory | None = None,
+        tracer: Tracer | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -107,6 +110,9 @@ class ReviewService:
         # Optional, and informational when present: nothing a memory says
         # reaches the gate (Level 14, decision D-4).
         self._memory = memory
+        # Defaults to recording nothing, so an uninstrumented caller pays a
+        # function frame per span and nothing else (Level 16, decision D-4).
+        self._tracer = tracer or NullTracer()
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
@@ -120,6 +126,12 @@ class ReviewService:
                 else unchanged, including the gate — a dry run answers "what
                 would this do", and that includes "would it block".
         """
+        with self._tracer.span(
+            SpanKind.REVIEW, "review", project=str(project_id), merge_request=str(merge_request_iid)
+        ):
+            return self._review(project_id, merge_request_iid, publish)
+
+    def _review(self, project_id: int, merge_request_iid: int, publish: bool) -> ReviewResult:
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
         changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
 
@@ -138,7 +150,8 @@ class ReviewService:
             # exception discarded every review completed so far and posted
             # nothing (finding F-58).
             try:
-                section, metric, findings = self._review_one(reference, change, sibling_paths, outcome)
+                with self._tracer.span(SpanKind.FILE, change.path, path=change.path):
+                    section, metric, findings = self._review_one(reference, change, sibling_paths, outcome)
             except Exception as exc:
                 logger.error(
                     "Could not review file",
@@ -165,6 +178,7 @@ class ReviewService:
                 sections,
                 result.findings,
                 recurring=self._recurring(result.findings),
+                trace_id=self._tracer.trace_id,
             )
             if publish:
                 self._forge.publish_comment(reference, result.comment)
@@ -287,11 +301,16 @@ class ReviewService:
             return []
 
         try:
-            return self._retriever.related(
-                query_from_change(change.path, change.diff),
-                limit=self._related_limit,
-                exclude_path=change.path,
-            )
+            with self._tracer.span(SpanKind.RETRIEVAL, "related code", path=change.path) as span:
+                found = self._retriever.related(
+                    query_from_change(change.path, change.diff),
+                    limit=self._related_limit,
+                    exclude_path=change.path,
+                )
+                # Inside the span: `annotate` only reaches an *open* one, and
+                # a count recorded after the close would be silently dropped.
+                self._tracer.annotate(span, chunks=len(found))
+                return found
         except Exception as exc:
             logger.warning(
                 "Retrieval failed; reviewing without repository context",
@@ -304,7 +323,8 @@ class ReviewService:
         if self._memory is None:
             return []
         try:
-            return list(self._memory.recall(file_path))
+            with self._tracer.span(SpanKind.MEMORY, "recall", path=file_path):
+                return list(self._memory.recall(file_path))
         except Exception as exc:  # pragma: no cover - ProjectMemory swallows its own
             logger.warning(
                 "Recall failed; reviewing without project memory",
@@ -401,7 +421,8 @@ class ReviewService:
         if self._analysis is None:
             return None, None
         try:
-            return self._analysis.analyze(change.path, full_content or "", change.diff), None
+            with self._tracer.span(SpanKind.ANALYSIS, "static analysis", path=change.path):
+                return self._analysis.analyze(change.path, full_content or "", change.diff), None
         except Exception as exc:
             logger.error(
                 "Static analysis failed; the file is reported as unanalysed",

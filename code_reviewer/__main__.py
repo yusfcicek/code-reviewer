@@ -30,6 +30,8 @@ from code_reviewer.infrastructure.memory.json_store import DEFAULT_MEMORY_FILENA
 from code_reviewer.infrastructure.memory.smart_memory import SmartMemoryStrategy
 from code_reviewer.infrastructure.metrics.collector import MetricsCollector, ReviewMetrics
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
+from code_reviewer.infrastructure.observability.trace_rendering import JsonTraceExporter, render_trace_tree
+from code_reviewer.infrastructure.observability.tracer import SpanRecorder, set_tracer
 from code_reviewer.infrastructure.retrieval.corpus import build_retriever
 from code_reviewer.infrastructure.tools import Workspace, set_retriever, set_workspace
 
@@ -101,6 +103,22 @@ def _export_metrics(result, project_id, merge_request_iid, metrics_path: str, re
     collector.export_gitlab_metrics(metrics_path, agents=_agent_totals(reviewer))
 
 
+def _export_trace(tracer, trace_path: str) -> None:
+    """Summarises the run's trace in the log, and writes it if asked.
+
+    Recording is always on, because a trace nobody asked for is the one they
+    want after a failure; writing a file is what the flag controls
+    (decision D-4).
+    """
+    trace = tracer.trace()
+    if not len(trace):
+        return
+
+    logger.info("Trace\n%s", render_trace_tree(trace))
+    if trace_path:
+        JsonTraceExporter(trace_path).export(trace)
+
+
 def _agent_totals(reviewer) -> dict[str, tuple[int, int, int]]:
     """Runs, failures and tool calls per specialist, or nothing."""
     totals = getattr(reviewer, "agent_totals", None)
@@ -146,7 +164,13 @@ def run(args) -> int:
     # nothing it says reaches the gate (Level 14, decision D-4).
     memory = _build_memory(args, workspace)
 
-    reviewer = _build_reviewer(args)
+    # One recorder for the run: handed to the workflow and the agents, and
+    # set as the ambient one so the tool layer and the log filter can reach it
+    # (Level 16, decision D-3).
+    tracer = SpanRecorder(trace_id=f"{args.project_id}-{args.mr_iid}")
+    set_tracer(tracer)
+
+    reviewer = _build_reviewer(args, tracer)
 
     service = ReviewService(
         forge=GitLabForge(),
@@ -160,6 +184,7 @@ def run(args) -> int:
         access_auditor=workspace,
         retriever=retriever,
         memory=memory,
+        tracer=tracer,
     )
 
     result = service.review(args.project_id, args.mr_iid, publish=not args.dry_run)
@@ -179,6 +204,7 @@ def run(args) -> int:
         logger.info("Nothing to review; no comment posted")
 
     _export_metrics(result, args.project_id, args.mr_iid, args.metrics_path, reviewer)
+    _export_trace(tracer, args.trace_path)
     logger.info("Metrics exported", extra={"fields": {"path": args.metrics_path}})
 
     if result.outcome.is_blocking:
@@ -190,7 +216,7 @@ def run(args) -> int:
     return result.exit_code
 
 
-def _build_reviewer(args) -> Reviewer:
+def _build_reviewer(args, tracer=None) -> Reviewer:
     """The narrator, or a stand-in that produces none.
 
     Constructing the provider is deferred to here so that `--no-llm` needs no
@@ -203,7 +229,7 @@ def _build_reviewer(args) -> Reviewer:
     provider = LLMFactory.create_provider("vllm")
     if args.single_agent:
         logger.info("Reviewing with one agent (--single-agent)")
-        return ReviewAgent(provider, SmartMemoryStrategy(provider))
+        return ReviewAgent(provider, SmartMemoryStrategy(provider), tracer=tracer)
 
     # One memory strategy shared by the committee: a specialist that could not
     # see what the others noticed would repeat their work, and the strategy is

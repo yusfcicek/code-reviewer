@@ -38,8 +38,10 @@ from code_reviewer.domain.orchestration import (
     plan_assignments,
     split_budget,
 )
+from code_reviewer.domain.trace import SpanKind
 
 from .ports import ReviewBrief, Reviewer, Specialist
+from .tracing import NullTracer, Tracer
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +83,11 @@ class ReviewOrchestrator(Reviewer):
         self,
         specialists: Mapping[Specialism, Specialist],
         total_budget: int = DEFAULT_FILE_BUDGET,
+        tracer: Tracer | None = None,
     ):
         self._specialists = dict(specialists)
         self._total_budget = total_budget
+        self._tracer = tracer or NullTracer()
         self._last_outcome = OrchestrationOutcome()
         #: Across every file of the run, for the metrics export. Per-file
         #: accounting is `last_outcome`; a pipeline wants the totals.
@@ -168,7 +172,15 @@ class ReviewOrchestrator(Reviewer):
             return None
 
         try:
-            return specialist.review(brief, assignment)
+            with self._tracer.span(
+                SpanKind.AGENT,
+                assignment.specialism.value,
+                budget=assignment.token_budget,
+                handed_from=assignment.handed_from.value if assignment.handed_from else "",
+            ) as span:
+                report = specialist.review(brief, assignment)
+                self._tracer.annotate(span, tool_calls=report.tool_calls, ok=report.succeeded)
+                return report
         except Exception as error:
             logger.error(
                 "Specialist failed",

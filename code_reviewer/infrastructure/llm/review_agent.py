@@ -16,6 +16,7 @@ from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 from code_reviewer.application.ports import LLMProvider, MemoryStrategy, ReviewBrief, Reviewer
+from code_reviewer.application.tracing import Tracer
 from code_reviewer.domain.retrieval import render_chunks
 from code_reviewer.infrastructure.llm.narration_loop import (
     NarrationLoop,
@@ -265,6 +266,7 @@ class ReviewAgent(Reviewer):
         tools: Sequence[Any] | None = None,
         system_template: str | None = None,
         max_iterations: int | None = None,
+        tracer: Tracer | None = None,
     ):
         self.llm = llm_provider.get_chat_model()
         self.memory_strategy = memory_strategy
@@ -309,6 +311,7 @@ class ReviewAgent(Reviewer):
             model=self.model,
             tools=self.tools,
             max_iterations=max_iterations if max_iterations is not None else max_iterations_from_env(),
+            tracer=tracer,
             max_seconds=max_seconds_from_env(),
             log=logger.debug,
         )
