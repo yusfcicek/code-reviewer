@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.12.0.** Rebuilt from an imported prototype across nineteen levels
+> **Status: 2.13.0.** Rebuilt from an imported prototype across twenty levels
 > of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1511 tests at 94 % coverage; lint,
+> last deferred one closed in Level 7. 1585 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -158,7 +158,28 @@ share of the file's budget:
   `--single-agent` gives you the one-call-per-file behaviour of earlier levels
   ([ADR 0017](docs/adr/0017-an-orchestrator-of-specialists-not-a-framework.md)).
 
-### 🌐 10. A service, not only a job
+### 📦 10. A deployable artefact
+- A **multi-stage image**: the runtime carries the virtual environment, the
+  package and `git` — no compiler, no `uv`, no source tree, no `.git`. It runs
+  as uid `10001` under `gunicorn`, not `wsgiref`.
+- **Kubernetes manifests** in `deploy/kubernetes/`: namespace, config, an
+  example secret with placeholder values, a deployment and a service. Requests
+  and limits, `runAsNonRoot`, `allowPrivilegeEscalation: false`,
+  `readOnlyRootFilesystem`, every capability dropped.
+- **The manifests are tested.** `tests/unit/test_deployment_manifests.py`
+  parses both files and asserts every claim — including that the probe paths
+  are paths `ReviewApi.ROUTES` actually serves, so a renamed endpoint breaks a
+  test rather than a cluster
+  ([ADR 0021](docs/adr/0021-a-deployment-that-is-tested.md)).
+- **`/readyz` answers from real checks** now: the forge token, the model
+  endpoint, a policy that loads, a workspace that exists. Every failure is
+  reported at once, and a reason names the setting and never its value.
+- **`SIGTERM` drains.** The server stops, the review in flight gets a bounded
+  wait, and the log says which of "finished" and "gave up" happened.
+- **One replica, and no autoscaler.** The queue is in memory: two replicas do
+  not share it. Shipping an HPA would be a bug delivered as configuration.
+
+### 🌐 11. A service, not only a job
 ```
 POST /reviews          → 202 + id + Location   (200 if already in flight)
 GET  /reviews/{id}     → state, verdict, exit code, trace id
@@ -186,7 +207,7 @@ GET  /metrics          → OpenMetrics
 - It **refuses to start without `REVIEW_API_TOKEN`**, and binds loopback by
   default.
 
-### ⚡ 11. The committee runs concurrently
+### ⚡ 12. The committee runs concurrently
 - The four specialists reviewing one file run **at once**, bounded by
   `--concurrency N`. `1` selects the sequential runner outright, which is the
   behaviour of every level before 17.
@@ -203,7 +224,7 @@ GET  /metrics          → OpenMetrics
 - The tracer's stack is per thread and a worker binds to the span that
   submitted it, so the trace comes out the same shape it would sequentially.
 
-### 🔬 12. A trace of the whole review
+### 🔬 13. A trace of the whole review
 One review produces one tree: the run, each file, each agent, each tool call,
 each retrieval, each memory access.
 
@@ -232,7 +253,7 @@ each retrieval, each memory access.
   ([ADR 0018](docs/adr/0018-a-trace-of-our-own.md)) — the port is there so that
   can change without the review path changing.
 
-### 🧾 13. A memory of this project
+### 🧾 14. A memory of this project
 - What a review found survives it. `.review-memory.json` in the checkout holds
   what each rule has done in each file: how many times, since when, and — for a
   `review-ignore` — the reason somebody wrote.
@@ -253,7 +274,7 @@ each retrieval, each memory access.
   degrades quietly to the behaviour of every earlier level, which is correct —
   and worth knowing before concluding the feature does nothing.
 
-### 🎯 14. Measured review quality
+### 🎯 15. Measured review quality
 - `ai-code-review-eval` grades the analysis suite against an annotated dataset
   (`evaluation/cases/*.yaml`) and reports precision, recall and F1 — overall
   and per rule.
@@ -302,6 +323,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
+| Container & manifests | ✅ Works | Multi-stage image running as uid 10001, Kubernetes manifests with limits and a locked-down security context, and a test that parses both and asserts every claim |
 | HTTP service | ✅ Works | Six endpoints behind a bearer token, a verified GitLab webhook, a bounded queue with a worker, and probes Kubernetes can read |
 | Concurrency | ✅ Works | Specialists run at once behind a `TaskRunner` port; identical results, bounded, with timeouts that are honest about abandonment |
 | Tracing | ✅ Works | One tree per review over runs, files, agents, tools, retrieval and memory; self time per kind; trace ids on every log record; JSON artefact |
@@ -604,7 +626,7 @@ CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-1511 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+1585 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
@@ -631,7 +653,8 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── recollection.py      what past reviews remember, and forget
 │   │   ├── orchestration.py     who reviews what, for how much, in what order
 │   │   ├── trace.py             spans, the tree, self time
-│   │   └── job.py               a review request and its lifecycle
+│   │   ├── job.py               a review request and its lifecycle
+│   │   └── health.py            readiness: every failing check, named
 │   ├── application/             the workflow and the ports it needs
 │   │   ├── ports.py             CodeForge, LLMProvider, MemoryStrategy, Reviewer, EvaluationDataset
 │   │   ├── review_service.py    the use case
@@ -643,11 +666,13 @@ test that pins a fix is observed failing before the fix lands.
 │   │   ├── orchestration_service.py  the committee, as one Reviewer
 │   │   ├── tracing.py             the Tracer and TraceExporter ports
 │   │   ├── tasks.py               the TaskRunner port and its sequential default
-│   │   └── jobs.py                accepting a review, once
+│   │   ├── jobs.py                accepting a review, once
+│   │   └── health.py              running the checks a probe is made of
 │   ├── infrastructure/          adapters onto the outside world
 │   │   ├── analyzers/           semantic, dependency, SAST, quality, performance, suite
 │   │   ├── config/              YAML loader + review_policy.yaml
 │   │   ├── concurrency/         the bounded thread pool
+│   │   ├── deployment/          what a running container needs
 │   │   ├── evaluation/          the dataset loader
 │   │   ├── http/                the WSGI application, the webhook, the worker
 │   │   ├── retrieval/           chunking, BM25, embedding, vector index, corpus
@@ -665,6 +690,8 @@ test that pins a fix is observed failing before the fix lands.
 ├── tests/
 │   ├── unit/{domain,application,infrastructure}/
 │   └── integration/
+├── Dockerfile                   two stages; the runtime carries no toolchain
+├── deploy/kubernetes/           namespace, config, secret example, deployment, service
 ├── evaluation/                  annotated cases and their fixtures
 ├── docs/roadmap/                findings inventory, per-level specs and plans
 └── assets/
@@ -682,7 +709,7 @@ fails if that direction is ever reversed.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | The layers, the ports, the path of one review, and how to extend it |
-| [docs/adr/](docs/adr/README.md) | Twenty decision records: what was decided, why, and what it costs |
+| [docs/adr/](docs/adr/README.md) | Twenty-one decision records: what was decided, why, and what it costs |
 | [docs/roadmap/](docs/roadmap/README.md) | The 59-item findings inventory, the twelve levels of work it produced, and the capability roadmap that follows |
 | [SECURITY.md](SECURITY.md) | The threat model, prompt injection through a diff, and hardening advice |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, including every breaking change |

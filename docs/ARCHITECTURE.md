@@ -33,6 +33,7 @@ one `Finding` and one `AffectedCode` exist in the tree.
 | `orchestration.py` | Who reviews a file, for how much, in what order, and what may be handed on. Routing, the budget split, composition and the handoff rule — all pure. |
 | `trace.py` | What a review did, as a tree: spans, tree building that survives orphans and cycles, self time, the critical path. |
 | `job.py` | One request for a review: its target, its lifecycle, and every transition that is refused. |
+| `health.py` | `CheckResult` and `Readiness`: every failing check reported, in a stable order, naming settings and never their values. |
 
 No I/O, no frameworks, no mocks needed to test any of it.
 
@@ -51,6 +52,7 @@ No I/O, no frameworks, no mocks needed to test any of it.
 | `tracing.py` | The `Tracer` and `TraceExporter` ports, and the `NullTracer` that makes instrumentation free when nobody is looking. |
 | `tasks.py` | The `TaskRunner` port, `TaskOutcome`, and the `SequentialRunner` that is the default. |
 | `jobs.py` | The `JobStore` port, an in-memory one, and `JobService`: accept once, hand out, record. |
+| `health.py` | `ReadinessProbe`: named checks, each isolated from the others. |
 
 `ReviewService` takes every collaborator through its constructor, so the whole
 workflow runs against in-memory fakes with no network and no GitLab.
@@ -69,6 +71,7 @@ workflow runs against in-memory fakes with no network and no GitLab.
 | `memory/` | `SmartMemoryStrategy`. |
 | `metrics/` | OpenMetrics aggregation and export. |
 | `concurrency/` | `ThreadPoolRunner`: bounded, ordered, and honest about what a timeout can and cannot do. |
+| `deployment/` | The checks a running container answers `/readyz` from. |
 | `http/` | The WSGI application, the GitLab webhook reader, and the worker that drains the queue. |
 | `observability/` | Logging configuration and formatters, the span recorder, and the trace renderer and JSON exporter. |
 | `tools/` | The tools the agent can call, and the `Workspace` that confines them. |
@@ -167,6 +170,30 @@ still a prompt ([ADR 0015](adr/0015-retrieval-is-hybrid-local-and-untrusted.md))
 **Retrieved code is untrusted.** It sits in the checkout, and the checkout is
 what the merge request changed. Same trust boundary, same escaping, same
 declaration in the system prompt.
+
+## The deployable artefact
+
+```
+  Dockerfile          two stages; the runtime carries the venv and nothing else
+    USER 10001        numeric, so runAsNonRoot can check it
+    gunicorn …        code_reviewer.serve:create_app()
+
+  deploy/kubernetes/  namespace, config, example secret, deployment, service
+    livenessProbe     /healthz   ─┐ compared against ReviewApi.ROUTES in a test:
+    readinessProbe    /readyz    ─┘ a renamed endpoint breaks a test, not a cluster
+    replicas: 1       the queue is in memory; two replicas do not share it
+```
+
+Both are parsed by `tests/unit/test_deployment_manifests.py`. A Dockerfile that
+claims a non-root user and a manifest that claims a readiness path are claims,
+and this repository's oldest rule is that documentation may never claim
+behaviour the code does not have
+([ADR 0021](adr/0021-a-deployment-that-is-tested.md)).
+
+`SIGTERM` stops the server and drains the worker within a bound, then says
+which of "finished" and "gave up" happened — and
+`terminationGracePeriodSeconds` is asserted to exceed that bound, because the
+two numbers live in different files.
 
 ## The service surface
 

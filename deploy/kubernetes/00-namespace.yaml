@@ -1,0 +1,7 @@
+# One namespace, so quotas and network policy have something to apply to.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: code-review
+  labels:
+    app.kubernetes.io/name: ai-code-review

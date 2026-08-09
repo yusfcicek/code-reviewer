@@ -1,6 +1,6 @@
 [project]
 name = "enterprise-ai-code-reviewer"
-version = "2.12.0"
+version = "2.13.0"
 description = "Enterprise-grade AI Code Review Agent with CI/CD integration"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -44,6 +44,12 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 
+[project.optional-dependencies]
+# Only the container installs this. The CLI needs no server, and putting a
+# WSGI server in the base dependency tree would make every pipeline that runs
+# `ai-code-review` carry one (Level 19).
+serve = ["gunicorn>=23.0"]
+
 [project.urls]
 Homepage = "https://github.com/yusfcicek/code-reviewer"
 Repository = "https://github.com/yusfcicek/code-reviewer"
@@ -76,6 +82,10 @@ dev = [
     "pygments>=2.20.0",  # PYSEC-2026-2987 (AdlLexer ReDoS), reached through pip-audit
     "ruff>=0.16.2",
     "hypothesis>=6.165.2",
+    # Not used by a test. Declared here so the lock file pins it and the
+    # dependency audit sees it: the thing the image ships has to be audited by
+    # the same job that audits everything else.
+    "gunicorn>=23.0",
 ]
 
 [tool.pytest.ini_options]

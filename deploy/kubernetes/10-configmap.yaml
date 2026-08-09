@@ -1,0 +1,44 @@
+# Every key carries what breaks without it. A ConfigMap with twelve
+# unexplained keys is twelve keys nobody dares change.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-code-review-config
+  namespace: code-review
+  labels:
+    app.kubernetes.io/name: ai-code-review
+data:
+  # Where merge requests are read from. Without it the forge client has no
+  # address and every review fails at its first call.
+  GITLAB_URL: "https://gitlab.example.com"
+
+  # The model endpoint. Without it the agents have nothing to call; the
+  # analyzers still run, and the verdict still comes from them.
+  VLLM_BASE_URL: "http://vllm.model-serving.svc.cluster.local:8000/v1"
+
+  # The tree the agent may read. Anything outside it is refused, and a review
+  # of a repository that is not mounted here reads nothing at all.
+  CI_PROJECT_DIR: "/workspace"
+
+  # How many specialists review one file at once. 1 is the pre-Level-17
+  # sequential behaviour.
+  REVIEW_CONCURRENCY: "4"
+
+  # How many reviews may wait before the service answers 429. A queue that
+  # grows without bound is a memory leak with a REST interface.
+  REVIEW_QUEUE_DEPTH: "32"
+
+  # How long a SIGTERM waits for the review in flight. Below
+  # terminationGracePeriodSeconds, so the drain finishes first — or says it
+  # did not, which is the point of bounding it.
+  REVIEW_DRAIN_SECONDS: "25"
+
+  # `json` gives one object per record for an aggregator; anything else gives
+  # human-readable lines.
+  LOG_FORMAT: "json"
+  LOG_LEVEL: "INFO"
+
+  # Where the project's review history lives. On the read-only root filesystem
+  # this has to be a writable mount, or memory degrades to empty every restart
+  # — which is correct behaviour, and worth knowing about.
+  REVIEW_MEMORY_PATH: "/workspace/.review-memory.json"

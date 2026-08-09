@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-code-review
+  namespace: code-review
+  labels:
+    app.kubernetes.io/name: ai-code-review
+spec:
+  # One. The queue is in memory, so two replicas do not share it: a review
+  # submitted to one is invisible to the other, and a status endpoint on the
+  # second would answer 404 for a job the first is running. Scaling needs a
+  # shared store, which is Level 18's stated open decision — and an
+  # HorizontalPodAutoscaler here would be a bug delivered as configuration
+  # (Level 19, decision D-4).
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-code-review
+  strategy:
+    # Recreate rather than RollingUpdate, for the same reason: two pods would
+    # both accept reviews and neither would know about the other's.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-code-review
+    spec:
+      # Longer than REVIEW_DRAIN_SECONDS, so the bounded drain finishes before
+      # the kill rather than racing it.
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ai-code-review
+          # Pinned. `latest` in a manifest is a deployment that changes when
+          # nobody deployed anything.
+          image: ghcr.io/yusfcicek/ai-code-review:2.12.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ai-code-review-config
+            - secretRef:
+                name: ai-code-review-secrets
+          # This process is running. Nothing more is claimed, and nothing that
+          # calls a third party belongs here: a liveness probe that fails when
+          # GitLab is slow restarts a healthy pod.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # It can accept work: configured, and the queue is not saturated.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          # Indexing the checkout and running four agents is the peak; the
+          # limits are what stops one review taking the node down with it.
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            # The checkout under review, and the only tree the agent may read.
+            - name: workspace
+              mountPath: /workspace
+            # `grep`, the analyzers and Python itself all want somewhere to
+            # write. With a read-only root, that has to be said out loud.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: workspace
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

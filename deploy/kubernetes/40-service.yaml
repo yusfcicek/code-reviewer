@@ -1,0 +1,19 @@
+# ClusterIP: the service speaks plain HTTP and expects something in front of
+# it. Terminating TLS in the application would be a second place to get it
+# wrong (Level 19, non-goals).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-code-review
+  namespace: code-review
+  labels:
+    app.kubernetes.io/name: ai-code-review
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ai-code-review
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

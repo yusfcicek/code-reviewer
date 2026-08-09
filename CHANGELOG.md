@@ -7,6 +7,57 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.13.0] — 2026-08-09
+
+Level 19: the review becomes something that can be deployed.
+
+### Added
+
+- **A multi-stage `Dockerfile`.** The runtime carries the virtual environment,
+  the package and `git`; no compiler, no `uv`, no source tree, no `.git`. Runs
+  as uid `10001` under `gunicorn`.
+- **Kubernetes manifests** — namespace, `ConfigMap` with a comment per key, an
+  example `Secret` whose values are placeholders, a deployment and a service.
+  Requests and limits, `runAsNonRoot`, `allowPrivilegeEscalation: false`,
+  `readOnlyRootFilesystem`, all capabilities dropped, and writable mounts
+  declared because a read-only root needs them.
+- **`tests/unit/test_deployment_manifests.py`.** Both files parsed and every
+  claim asserted, including the probe paths against `ReviewApi.ROUTES` and
+  `terminationGracePeriodSeconds` against the configured drain bound.
+- **`domain/health.py` and `application/health.py`.** Readiness as named
+  checks: every failure reported at once, in a stable order, each isolated so a
+  check that raises fails only itself.
+- **`infrastructure/deployment/settings.py`.** The checks a container answers
+  `/readyz` from — the forge token, the model endpoint, a policy that loads, a
+  workspace that exists. A reason names the setting, never its value.
+- **`SIGTERM` and `SIGINT` drain.** The server stops, the review in flight gets
+  `--drain-seconds`, and the log says which of "finished" and "gave up"
+  happened.
+- `gunicorn` as an optional `serve` extra, and in the dev group so the lock
+  file pins it and the audit sees it.
+- A `docker build` step in CI.
+
+### Changed
+
+- `/readyz` no longer returns `(True, "ready")` from a lambda. A container
+  wired to a probe that always passes is worse than one with no probe at all.
+
+### Not shipped, deliberately
+
+No Helm chart — six plain manifests a reader can read; a chart earns itself
+when environments genuinely differ. No `HorizontalPodAutoscaler` — the queue is
+in memory, two replicas do not share it, and shipping one would be a bug
+delivered as configuration. No ingress and no TLS termination in the
+application.
+
+### Documented
+
+- [ADR 0021](docs/adr/0021-a-deployment-that-is-tested.md) — why the manifests
+  are tested, why readiness is an object, why one replica, and why a drain is
+  bounded.
+
+---
+
 ## [2.12.0] — 2026-08-09
 
 Level 18: the review becomes something callable.

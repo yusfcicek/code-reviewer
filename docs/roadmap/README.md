@@ -57,7 +57,7 @@ statement and what this repository does today.
 | [16](level-16/spec.md) | Tracing & agent observability | ✅ Done |
 | [17](level-17/spec.md) | Asynchronous execution | ✅ Done |
 | [18](level-18/spec.md) | Service surface — HTTP API & webhooks | ✅ Done |
-| 19 | Containerisation & cloud-native deployment | ⏳ Planned |
+| [19](level-19/spec.md) | Containerisation & cloud-native deployment | ✅ Done |
 | 20 | Governance, explainability & compliance | ⏳ Planned |
 
 ### Why *this* order for 12–20

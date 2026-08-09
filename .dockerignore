@@ -1,0 +1,28 @@
+# Everything the image does not need. The build stage copies the lock file and
+# the package; anything else here is either secret, large, or a way for a local
+# artefact to end up in a published image.
+.git
+.github
+.gitlab-ci.yml
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.hypothesis
+__pycache__
+*.pyc
+.coverage
+coverage.xml
+htmlcov
+tests
+docs
+reports
+evaluation
+assets
+scripts
+metrics.txt
+review_metrics.json
+evaluation-summary.json
+.review-memory.json
+*.md
+!README.md
