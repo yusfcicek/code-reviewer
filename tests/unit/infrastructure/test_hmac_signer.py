@@ -162,3 +162,167 @@ class TestTheNullSigner:
     def test_it_accepts_nothing(self):
         """A verifier handed one must report unverifiable, not intact."""
         assert not NullSigner().accepts("a" * 64, "anything", "ops-2026")
+
+
+class TestAKeyring:
+    """Level 30 — one key signs, several verify.
+
+    Rotation is the routine operation this repository could not survive: with
+    one signer holding one key, every record written under the previous key
+    read as `tampered`. A keyring signs with the current key and can still
+    confirm what a retired one signed; a key it does not hold at all is
+    *unknown*, which is not the same as *wrong*.
+    """
+
+    CURRENT = "current-key-material-long-enough"
+    RETIRED = "retired-key-material-long-enough"
+
+    def _ring(self):
+        from code_reviewer.infrastructure.governance.signing import HmacSigner, Keyring
+
+        return Keyring(
+            signing=HmacSigner(self.CURRENT, key_id="2026-key"),
+            retired=(HmacSigner(self.RETIRED, key_id="2025-key"),),
+        )
+
+    def test_it_signs_with_the_current_key_only(self):
+        """AC-4, C-1. Otherwise 'retired' is a label rather than a property."""
+        ring = self._ring()
+
+        _, key_id = ring.sign("a-digest")
+
+        assert key_id == "2026-key"
+        assert ring.key_id == "2026-key"
+
+    def test_it_accepts_what_the_retired_key_signed(self):
+        """AC-1. The whole point: history stays readable across a rotation."""
+        from code_reviewer.infrastructure.governance.signing import HmacSigner
+
+        old = HmacSigner(self.RETIRED, key_id="2025-key")
+        signature, key_id = old.sign("a-digest")
+
+        assert self._ring().accepts("a-digest", signature, key_id) is True
+
+    def test_it_accepts_what_the_current_key_signed(self):
+        ring = self._ring()
+        signature, key_id = ring.sign("a-digest")
+
+        assert ring.accepts("a-digest", signature, key_id) is True
+
+    def test_a_key_it_does_not_hold_is_unknown_rather_than_wrong(self):
+        """AC-2, C-2. `None` is the answer that stops a rotation from reading
+        as a forgery, and a boolean cannot carry it."""
+        assert self._ring().accepts("a-digest", "any-signature", "1999-key") is None
+
+    def test_a_wrong_signature_under_a_held_key_is_wrong(self):
+        """AC-3, C-3. Nothing is softened where the answer is known."""
+        assert self._ring().accepts("a-digest", "not-a-signature", "2026-key") is False
+
+    def test_it_is_signing(self):
+        assert self._ring().is_signing is True
+
+    def test_a_retired_key_that_is_too_short_is_refused(self):
+        """AC-6, C-6. A weak key does not become acceptable by being old."""
+        import pytest
+
+        from code_reviewer.infrastructure.governance.signing import HmacSigner
+
+        with pytest.raises(ValueError, match="too short"):
+            HmacSigner("short", key_id="2025-key")
+
+    def test_two_retired_keys_may_not_share_a_name(self):
+        """A key id is what a record names; two keys answering to one name make
+        the record's attribution a coin flip."""
+        import pytest
+
+        from code_reviewer.infrastructure.governance.signing import HmacSigner, Keyring
+
+        with pytest.raises(ValueError, match="twice"):
+            Keyring(
+                signing=HmacSigner(self.CURRENT, key_id="same"),
+                retired=(HmacSigner(self.RETIRED, key_id="same"),),
+            )
+
+    def test_no_key_material_reaches_its_repr(self):
+        """AC-8, over the retired keys too. The five tests Level 24 wrote were
+        about one key; a keyring holds several."""
+        text = repr(self._ring())
+
+        assert self.CURRENT not in text
+        assert self.RETIRED not in text
+        assert "2025-key" in text and "2026-key" in text
+
+
+class TestRetiredKeysFromTheEnvironment:
+    """AC-7, D-4. One variable per key, named by its id, so nothing has to be
+    parsed out of secret material."""
+
+    def test_a_retired_key_is_read_and_verifies(self):
+        from code_reviewer.infrastructure.governance.signing import HmacSigner, signer_from_environment
+
+        signer = signer_from_environment(
+            {
+                "REVIEW_AUDIT_KEY": "current-key-material-long-enough",
+                "REVIEW_AUDIT_KEY_ID": "2026-key",
+                "REVIEW_AUDIT_KEY_RETIRED_2025-key": "retired-key-material-long-enough",
+            }
+        )
+
+        old = HmacSigner("retired-key-material-long-enough", key_id="2025-key")
+        signature, key_id = old.sign("a-digest")
+
+        assert signer.accepts("a-digest", signature, key_id) is True
+        assert signer.key_id == "2026-key"
+
+    def test_the_id_comes_from_the_variable_name_in_the_case_it_was_written(self):
+        """A key id is compared to what a record wrote, so the case matters."""
+        from code_reviewer.infrastructure.governance.signing import signer_from_environment
+
+        signer = signer_from_environment(
+            {
+                "REVIEW_AUDIT_KEY": "current-key-material-long-enough",
+                "REVIEW_AUDIT_KEY_RETIRED_old-2025": "retired-key-material-long-enough",
+            }
+        )
+
+        assert signer.accepts("d", "s", "old-2025") is False
+        assert signer.accepts("d", "s", "OLD-2025") is None
+
+    def test_an_unusable_retired_key_costs_the_review_nothing(self):
+        """The rule since Level 20's C-9: an accountability feature may not fail
+        the thing it accounts for. The current key still signs."""
+        from code_reviewer.infrastructure.governance.signing import signer_from_environment
+
+        signer = signer_from_environment(
+            {
+                "REVIEW_AUDIT_KEY": "current-key-material-long-enough",
+                "REVIEW_AUDIT_KEY_ID": "2026-key",
+                "REVIEW_AUDIT_KEY_RETIRED_2025-KEY": "short",
+            }
+        )
+
+        assert signer.is_signing
+        assert signer.accepts("d", "s", "2025-key") is None
+
+    def test_retired_keys_with_no_current_key_still_verify(self):
+        """A deployment that has stopped signing can still read its history."""
+        from code_reviewer.infrastructure.governance.signing import HmacSigner, signer_from_environment
+
+        signer = signer_from_environment(
+            {"REVIEW_AUDIT_KEY_RETIRED_2025-key": "retired-key-material-long-enough"}
+        )
+
+        old = HmacSigner("retired-key-material-long-enough", key_id="2025-key")
+        signature, key_id = old.sign("a-digest")
+
+        assert signer.is_signing is False
+        assert signer.accepts("a-digest", signature, key_id) is True
+
+    def test_no_retired_key_leaves_the_signer_as_it_was(self):
+        from code_reviewer.infrastructure.governance.signing import HmacSigner, signer_from_environment
+
+        signer = signer_from_environment(
+            {"REVIEW_AUDIT_KEY": "current-key-material-long-enough", "REVIEW_AUDIT_KEY_ID": "2026-key"}
+        )
+
+        assert isinstance(signer, HmacSigner)

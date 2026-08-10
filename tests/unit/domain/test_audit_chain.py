@@ -10,6 +10,8 @@ a verifier that cries wolf there is a verifier somebody turns off before it ever
 sees a real tamper.
 """
 
+from dataclasses import replace
+
 from code_reviewer.domain.audit import GENESIS, ChainStatus, Seal, digest_of, sealed, verify
 
 FIRST = {"verdict": "pass", "project": "1", "merge_request": "10"}
@@ -244,3 +246,100 @@ class TestTruncation:
         entries[1] = (Seal(seal.previous, seal.digest, seal.signature, seal.key_id, sequence=9), payload)
 
         assert verify(entries).status is ChainStatus.TAMPERED
+
+
+class TestAKeyNobodyHoldsAnyMore:
+    """Level 30 — rotating a key must not accuse anybody of forgery.
+
+    Level 24's own rule is that `unverifiable` is not `tampered`, and its key
+    handling could not tell them apart: `accepts` answered `False` both for a
+    signature it had checked and found wrong and for a key id it had never
+    heard of. So replacing a signing key — the most routine operation there is —
+    turned every record written before it into an accusation.
+    """
+
+    def _chain(self, sign, count=2):
+        entries, previous = [], GENESIS
+        for sequence in range(1, count + 1):
+            payload = {"verdict": "pass", "n": sequence}
+            seal = sealed(payload, previous, sign, sequence)
+            entries.append((seal, payload))
+            previous = seal.digest
+        return entries
+
+    def _signer(self, key_id):
+        def sign(digest):
+            return f"sig-of-{digest}-by-{key_id}", key_id
+
+        return sign
+
+    def test_a_key_the_verifier_does_not_hold_is_unverifiable(self):
+        """AC-2. The links hold; nothing about them is in question."""
+        entries = self._chain(self._signer("2025-key"))
+
+        verdict = verify(entries, lambda digest, signature, key_id: None)
+
+        assert verdict.status is ChainStatus.UNVERIFIABLE
+        assert verdict.position == 0
+
+    def test_the_unheld_key_is_named(self):
+        """AC-5. The operator's next move is to find that key or accept it is
+        gone, and both need its name."""
+        entries = self._chain(self._signer("2025-key"))
+
+        verdict = verify(entries, lambda digest, signature, key_id: None)
+
+        assert "2025-key" in verdict.reason
+
+    def test_a_wrong_signature_under_a_held_key_is_still_a_tamper(self):
+        """AC-3. Where the answer is known it is given, and softening this
+        would give away the whole point of signing."""
+        entries = self._chain(self._signer("2025-key"))
+
+        verdict = verify(entries, lambda digest, signature, key_id: False)
+
+        assert verdict.status is ChainStatus.TAMPERED
+        assert verdict.position == 1
+
+    def test_a_retired_key_that_is_still_held_verifies(self):
+        """AC-1. Rotation costs nothing while the old key is kept for reading."""
+        entries = self._chain(self._signer("2025-key"))
+
+        verdict = verify(entries, lambda digest, signature, key_id: key_id == "2025-key")
+
+        assert verdict.status is ChainStatus.INTACT
+
+    def test_a_chain_spanning_two_keys_verifies_when_both_are_held(self):
+        held = {"2025-key", "2026-key"}
+        entries = self._chain(self._signer("2025-key"), count=1)
+        payload = {"verdict": "pass", "n": 2}
+        seal = sealed(payload, entries[-1][0].digest, self._signer("2026-key"), 2)
+        entries.append((seal, payload))
+
+        verdict = verify(entries, lambda digest, signature, key_id: key_id in held)
+
+        assert verdict.status is ChainStatus.INTACT
+
+    def test_a_chain_half_of_which_is_unverifiable_says_so_without_accusing(self):
+        entries = self._chain(self._signer("2025-key"), count=1)
+        payload = {"verdict": "pass", "n": 2}
+        seal = sealed(payload, entries[-1][0].digest, self._signer("2026-key"), 2)
+        entries.append((seal, payload))
+
+        verdict = verify(entries, lambda d, s, key_id: True if key_id == "2026-key" else None)
+
+        assert verdict.status is ChainStatus.UNVERIFIABLE
+        assert "2025-key" in verdict.reason
+        assert verdict.checked == 2
+
+    def test_a_broken_link_beats_an_unheld_key(self):
+        """A tamper is the more serious finding and is reported first: an
+        operator told "one key is missing" would go looking for a key while a
+        record had been removed from the middle."""
+        entries = self._chain(self._signer("2025-key"))
+        seal, payload = entries[1]
+        entries[1] = (replace(seal, previous=GENESIS), payload)
+
+        verdict = verify(entries, lambda digest, signature, key_id: None)
+
+        assert verdict.status is ChainStatus.TAMPERED
