@@ -112,6 +112,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum acceptable narration score. Below it, the command exits 1.",
     )
     parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "With --narration: grade what the configured model produces now "
+            "instead of the recorded reviews. Needs an endpoint; without one "
+            "the command exits 2, because a measurement that could not be "
+            "taken is not a bad score."
+        ),
+    )
+    parser.add_argument(
         "--documentation",
         action="store_true",
         help=(
@@ -184,10 +194,23 @@ def _grade_narration(args) -> int:
 
     try:
         cases = NarrationCorpus(args.dataset).cases()
-        report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
     except ConfigurationError as error:
         print(f"Narration evaluation could not run: {error}", file=sys.stderr)  # stdout: the output
         return EXIT_CANNOT_MEASURE
+
+    if args.live:
+        outcome = _live_narration(cases, args)
+        if outcome is None:
+            return EXIT_CANNOT_MEASURE
+        report = outcome.report
+        if outcome.unreachable:
+            print(  # stdout: the program's output, not a diagnostic
+                f"{len(outcome.unreachable)} case(s) could not be reviewed and are not in the score: "
+                f"{', '.join(outcome.unreachable)}",
+                file=sys.stderr,
+            )
+    else:
+        report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
 
     try:
         _emit(render_narration_report(report, args.min_narration), args.markdown)
@@ -237,6 +260,33 @@ def _grade_documentation(args) -> int:
     if report.has_errors:
         return EXIT_CANNOT_MEASURE
     return EXIT_OK if threshold.is_met(report) else EXIT_BELOW_THRESHOLD
+
+
+def _live_narration(cases, args):
+    """A live run, or ``None`` when there is no model to run it against.
+
+    Imported here rather than at module scope so that the recorded path — the
+    one CI takes — never so much as loads the code that can call a model.
+    """
+    from code_reviewer.application.live_narration import grade_live
+    from code_reviewer.infrastructure.governance.identity import prompt_fingerprint
+
+    try:
+        from code_reviewer.__main__ import _build_reviewer
+        from code_reviewer.cli import build_parser as review_parser
+
+        reviewer = _build_reviewer(review_parser().parse_args([]))
+    except Exception as error:  # pragma: no cover - depends on the deployment
+        print(  # stdout: the program's output, not a diagnostic
+            f"Live narration could not run: no reviewer could be built ({type(error).__name__}).",
+            file=sys.stderr,
+        )
+        return None
+
+    def _source(case):
+        return (Path(args.dataset) / case.file_path).read_text(encoding="utf-8")
+
+    return grade_live(cases, reviewer, _source, fingerprint=prompt_fingerprint())
 
 
 def _emit(text: str, destination: str) -> None:
