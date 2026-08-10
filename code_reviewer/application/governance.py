@@ -45,6 +45,13 @@ PRODUCERS: Mapping[str, tuple[ProducerKind, str]] = {
     "SEMANTIC": (ProducerKind.ANALYZER, "SemanticChangeAnalyzer"),
     "DEPENDENCY": (ProducerKind.ANALYZER, "DependencyTracker"),
     "SANDBOX": (ProducerKind.TOOL, "Workspace"),
+    # Level 23. Two namespaces for one subject, and the split is the point:
+    # `DOCS` resolves a claim against the parsed tree, `DRIFT` is a model's
+    # answer about a paragraph. Registering them separately is what makes
+    # "a retrieved candidate can never block" a row in this table rather than
+    # a rule somebody has to keep remembering.
+    "DOCS": (ProducerKind.ANALYZER, "DocumentationAnalyzer"),
+    "DRIFT": (ProducerKind.AGENT, "DriftJudge"),
 }
 
 #: What an unregistered namespace is treated as. Non-deterministic, and

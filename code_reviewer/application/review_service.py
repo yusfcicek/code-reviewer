@@ -21,6 +21,8 @@ from code_reviewer.domain.severity import Severity
 from code_reviewer.domain.trace import SpanKind
 from code_reviewer.domain.triage import ReviewDecision, ReviewTriage
 
+from .documentation_service import DocumentationService, DocumentationSummary
+from .drift_service import DriftService
 from .governance import DecisionRecorder
 from .ports import (
     AccessAuditor,
@@ -98,6 +100,8 @@ class ReviewService:
         tracer: Tracer | None = None,
         recorder: DecisionRecorder | None = None,
         suggest_fixes: bool = True,
+        documentation: DocumentationService | None = None,
+        drift: DriftService | None = None,
         clock=None,
     ):
         self._forge = forge
@@ -127,6 +131,11 @@ class ReviewService:
         # On by default: a suggestion is additive text that nothing applies,
         # and a feature nobody sees is a feature nobody has (Level 22).
         self._suggestions = SuggestionService(version=_recorder_version(recorder)) if suggest_fixes else None
+        # Optional, and warning-only when present: the documentation tiers
+        # emit nothing above Severity.LOW, so a review without them differs by
+        # a report section rather than by a verdict (Level 23).
+        self._documentation_service = documentation
+        self._drift_service = drift
         # Injected so tests are not at the mercy of wall-clock timing.
         self._clock = clock or _monotonic_milliseconds
 
@@ -147,12 +156,17 @@ class ReviewService:
 
     def _review(self, project_id: int, merge_request_iid: int, publish: bool) -> ReviewResult:
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
-        changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
+        # Deletions are kept for the documentation tier and only for it. There
+        # is nothing left to review in a deleted file, but deleting the module a
+        # document describes is the plainest way to make the document stale, and
+        # dropping the change here was the whole of self-review S-03.
+        every_change = self._forge.fetch_changes(reference)
+        changes = [change for change in every_change if not change.is_deleted]
 
         outcome = ReviewOutcome()
         result = ReviewResult(outcome=outcome)
 
-        if not changes:
+        if not every_change:
             return result
 
         # Cross-file context: what else moved in this merge request.
@@ -163,6 +177,8 @@ class ReviewService:
         # suggestion is an improvement to a review that has already been paid
         # for, never a precondition for publishing it (Level 22).
         pending: list[Suggestion] = []
+        # Filled as files are fetched, read once at the end by Level 23.
+        sources: dict[str, str] = {}
         for change in changes:
             # One file's failure costs that file, not the run: propagating the
             # exception discarded every review completed so far and posted
@@ -170,7 +186,7 @@ class ReviewService:
             try:
                 with self._tracer.span(SpanKind.FILE, change.path, path=change.path):
                     section, metric, findings = self._review_one(
-                        reference, change, sibling_paths, outcome, pending
+                        reference, change, sibling_paths, outcome, pending, sources
                     )
             except Exception as exc:
                 logger.error(
@@ -194,10 +210,16 @@ class ReviewService:
         # Computed before the comment is rendered, because the record names it
         # and the comment quotes the record. The value is the same either way:
         # it is a function of the outcome and the policy.
+        documentation = self._documentation(every_change, sources)
+        result.findings.extend(documentation.findings)
+
         result.exit_code = outcome.exit_code(self._policy)
         record = self._record(reference, outcome, result, pending)
 
-        if sections:
+        # Sections *or* documentation: a merge request that only deletes a
+        # module has no per-file section, and the stale references its deletion
+        # created are the only thing there is to say about it.
+        if sections or not documentation.is_empty:
             result.comment = render_review_comment(
                 self._policy.version,
                 outcome,
@@ -208,6 +230,7 @@ class ReviewService:
                 identity=self._recorder.identity if self._recorder else None,
                 decision_summary=record.summary() if record else "",
                 suggestion_count=len(pending),
+                documentation=documentation,
             )
             if publish:
                 self._forge.publish_comment(reference, result.comment)
@@ -218,6 +241,44 @@ class ReviewService:
         self._remember(outcome, result.findings)
 
         return result
+
+    def _documentation(self, changes: list[FileChange], sources: dict[str, str]) -> DocumentationSummary:
+        """Level 23, run once for the whole merge request rather than per file.
+
+        Its subject is the repository's prose, and prose is not partitioned by
+        the file under review: one changed function can invalidate a paragraph
+        in a document no file in this merge request mentions. So it runs after
+        every file has been fetched, on the change as a whole.
+
+        Never raises, and never blocks. Both tiers emit at or below
+        ``Severity.LOW``, and the namespaces they use are registered in the
+        attribution table — `DOCS` deterministic, `DRIFT` not — so the second
+        cannot appear in a blocking verdict however confident it sounds.
+        """
+        if self._documentation_service is None and self._drift_service is None:
+            return DocumentationSummary()
+
+        resolved: list[Finding] = []
+        candidates: list[Finding] = []
+        degraded: list[str] = []
+        dropped = 0
+
+        if self._documentation_service is not None:
+            outcome = self._documentation_service.review(changes, sources)
+            resolved = outcome.findings
+            if outcome.degraded:
+                degraded.append(outcome.degraded)
+
+        if self._drift_service is not None:
+            drift = self._drift_service.review(changes, {change.path: "" for change in changes})
+            candidates = drift.findings
+            dropped = drift.dropped
+            if drift.degraded:
+                degraded.append(drift.degraded)
+
+        return DocumentationSummary(
+            resolved=resolved, candidates=candidates, degraded=tuple(degraded), dropped=dropped
+        )
 
     def _publish_suggestions(self, reference: MergeRequestRef, suggestions: list[Suggestion]) -> None:
         """Posts each suggestion as a note on the line it edits.
@@ -318,11 +379,17 @@ class ReviewService:
         sibling_paths: list[str],
         outcome: ReviewOutcome,
         pending: list[Suggestion] | None = None,
+        sources: dict[str, str] | None = None,
     ):
         """Triages one file and, if it warrants it, reviews and gates it."""
         started_at = self._clock()
 
         full_content = self._forge.fetch_file(reference, change.path)
+        if sources is not None and full_content:
+            # Kept so the documentation check can read docstrings without a
+            # second fetch. Collected here rather than re-read afterwards: two
+            # reads of one file are two chances to disagree about its content.
+            sources[change.path] = full_content
         decision = self._triage.decide(change.diff, change.path, full_content)
         logger.info(
             "Triaged",

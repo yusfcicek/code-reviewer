@@ -664,6 +664,7 @@ def analyze_performance(content: str, file_path: str = "", policy: PerformancePo
     Args:
         content: The file's text.
         file_path: Used to decide whether an AST pass is possible.
+        policy: Thresholds to apply. ``None`` uses the analyzer's defaults.
 
     Returns:
         The report as markdown.
