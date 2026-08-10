@@ -66,7 +66,8 @@ class SealedAuditSink(AuditSink):
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with self._path.open("a+", encoding="utf-8") as handle, _locked(handle):
-                seal = sealed(payload, self._previous(), sign=self._sign)
+                previous, sequence = self._tail()
+                seal = sealed(payload, previous, sign=self._sign, sequence=sequence + 1)
                 handle.write(json.dumps({"record": payload, "seal": _seal_json(seal)}, sort_keys=True))
                 handle.write("\n")
                 handle.flush()
@@ -89,8 +90,8 @@ class SealedAuditSink(AuditSink):
             )
             return "", ""
 
-    def _previous(self) -> str:
-        """The digest of the last record in the store, or GENESIS.
+    def _tail(self) -> tuple[str, int]:
+        """The digest and sequence of the last record, or GENESIS and nought.
 
         A store whose last line will not parse is not chained onto: continuing
         from a guessed predecessor would produce a link that fails verification
@@ -99,17 +100,17 @@ class SealedAuditSink(AuditSink):
         """
         line = _last_line(self._path)
         if line is None:
-            return GENESIS
+            return GENESIS, 0
         try:
-            digest = json.loads(line)["seal"]["digest"]
+            seal = json.loads(line)["seal"]
+            return str(seal["digest"]) or GENESIS, int(seal.get("sequence", 0))
         except (ValueError, KeyError, TypeError):
             logger.warning(
                 "The audit store's last line could not be read; starting a new chain at %s. "
                 "Verification will report the discontinuity.",
                 self._path,
             )
-            return GENESIS
-        return str(digest) or GENESIS
+            return GENESIS, 0
 
 
 def read_store(path: str | Path) -> "list[tuple[Seal, Mapping[str, Any]]]":
@@ -130,7 +131,7 @@ def read_store(path: str | Path) -> "list[tuple[Seal, Mapping[str, Any]]]":
     return entries
 
 
-def verify_store(path: str | Path, signer: Signer | None = None) -> ChainVerdict:
+def verify_store(path: str | Path, signer: Signer | None = None, expect_at_least: int = 0) -> ChainVerdict:
     """Reads a store and checks it.
 
     ``signer`` is what can attest to the signatures. Without one, a signed store
@@ -139,7 +140,7 @@ def verify_store(path: str | Path, signer: Signer | None = None) -> ChainVerdict
     """
     entries = read_store(path)
     accepts = signer.accepts if signer is not None and signer.is_signing else None
-    return verify(entries, accepts=accepts)
+    return verify(entries, accepts=accepts, expect_at_least=expect_at_least)
 
 
 # -- internals --------------------------------------------------------------
@@ -158,18 +159,20 @@ def _entry(line: str) -> "tuple[Seal, Mapping[str, Any]]":
             digest=str(raw["digest"]),
             signature=str(raw.get("signature", "")),
             key_id=str(raw.get("key_id", "")),
+            sequence=int(raw.get("sequence", 0)),
         )
         return seal, document["record"]
     except (ValueError, KeyError, TypeError):
         return Seal(previous=_UNREADABLE, digest=_UNREADABLE), {"unreadable": True}
 
 
-def _seal_json(seal: Seal) -> dict[str, str]:
+def _seal_json(seal: Seal) -> dict[str, object]:
     return {
         "previous": seal.previous,
         "digest": seal.digest,
         "signature": seal.signature,
         "key_id": seal.key_id,
+        "sequence": seal.sequence,
     }
 
 
@@ -235,7 +238,19 @@ class _locked:
 def status_line(verdict: ChainVerdict) -> str:
     """One line an operator can read, naming positions and never content."""
     if verdict.status is ChainStatus.INTACT:
-        return f"intact: {verdict.checked} record(s), {verdict.signed} signed"
+        # The sequence is stated on every answer, because it is the only thing
+        # an operator can compare against an anchor kept outside the file —
+        # truncation is not detectable from the file alone (self-review S-01).
+        unsigned = (
+            "  Nothing is signed, so this detects corruption and careless edits, "
+            "not somebody who can run this tool."
+            if verdict.signed == 0
+            else ""
+        )
+        return (
+            f"intact: {verdict.checked} record(s), {verdict.signed} signed, "
+            f"ending at sequence {verdict.last_sequence}.{unsigned}"
+        )
     if verdict.status is ChainStatus.UNVERIFIABLE:
         return f"unverifiable: {verdict.reason} ({verdict.checked} record(s))"
     return f"TAMPERED at record {verdict.position}: {verdict.reason}"
@@ -282,8 +297,13 @@ class FileAuditStore(AuditStore):
         """
         previous = GENESIS
         lines = []
-        for payload in payloads:
-            seal = sealed(payload, previous, sign=(signer.sign if signer.is_signing else None))
+        for sequence, payload in enumerate(payloads, start=1):
+            seal = sealed(
+                payload,
+                previous,
+                sign=(signer.sign if signer.is_signing else None),
+                sequence=sequence,
+            )
             lines.append(json.dumps({"record": payload, "seal": _seal_json(seal)}, sort_keys=True))
             previous = seal.digest
 

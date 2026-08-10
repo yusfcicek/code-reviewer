@@ -21,8 +21,8 @@ def _chain(*payloads, sign=None):
     """Builds a well-formed chain, the way the sink will."""
     entries = []
     previous = GENESIS
-    for payload in payloads:
-        seal = sealed(payload, previous, sign=sign)
+    for position, payload in enumerate(payloads, start=1):
+        seal = sealed(payload, previous, sign=sign, sequence=position)
         entries.append((seal, payload))
         previous = seal.digest
     return entries
@@ -95,7 +95,7 @@ class TestTampering:
 
     def test_a_line_appended_by_hand_is_detected(self):
         entries = _chain(FIRST, SECOND)
-        forged = Seal(previous=GENESIS, digest=digest_of(THIRD, GENESIS))
+        forged = Seal(previous=GENESIS, digest=digest_of(THIRD, GENESIS, 3), sequence=3)
         entries.append((forged, THIRD))
 
         verdict = verify(entries)
@@ -126,7 +126,10 @@ class TestSignatures:
     def test_a_forged_signature_is_tampering(self):
         entries = _chain(FIRST, SECOND, sign=_signer())
         seal, payload = entries[1]
-        entries[1] = (Seal(seal.previous, seal.digest, "sig-nonsense", seal.key_id), payload)
+        entries[1] = (
+            Seal(seal.previous, seal.digest, "sig-nonsense", seal.key_id, seal.sequence),
+            payload,
+        )
 
         verdict = verify(entries, accepts=_accepts)
 
@@ -165,7 +168,7 @@ class TestSignatures:
         """Signing started midway, or stopped. Either way the store cannot say
         it is whole."""
         entries = _chain(FIRST)
-        second = sealed(SECOND, entries[0][0].digest, sign=_signer())
+        second = sealed(SECOND, entries[0][0].digest, sign=_signer(), sequence=2)
         entries.append((second, SECOND))
 
         assert verify(entries, accepts=_accepts).status is ChainStatus.UNVERIFIABLE
@@ -182,3 +185,62 @@ class TestTheVerdict:
         entries[1] = (entries[1][0], dict(SECOND, project="secret-project-name"))
 
         assert "secret-project-name" not in verify(entries).reason
+
+
+class TestTruncation:
+    """Self-review S-01 — a prefix of a valid chain is a valid chain.
+
+    Five signed records, the last three deleted: every remaining link is
+    correct and every remaining signature is valid, because nothing in the
+    store says how long it should be. And the record somebody wants gone is
+    usually the most recent one.
+
+    This cannot be *detected* from the file alone — any anchor inside it can be
+    truncated along with it. What the store can do is say where it ends, so an
+    operator with any external anchor can compare. The sequence is that, and it
+    is described as that rather than as detection.
+    """
+
+    def test_each_seal_carries_its_position(self):
+        entries = _chain(FIRST, SECOND, THIRD)
+
+        assert [seal.sequence for seal, _ in entries] == [1, 2, 3]
+
+    def test_the_verdict_says_where_the_store_ends(self):
+        verdict = verify(_chain(FIRST, SECOND, THIRD))
+
+        assert verdict.last_sequence == 3
+
+    def test_an_empty_store_ends_at_zero(self):
+        assert verify([]).last_sequence == 0
+
+    def test_a_store_shorter_than_expected_is_reported(self):
+        """The only honest detection available, and it needs the anchor from
+        outside."""
+        entries = _chain(FIRST, SECOND, THIRD)[:1]
+
+        verdict = verify(entries, expect_at_least=3)
+
+        assert verdict.status is ChainStatus.TAMPERED
+        assert "truncat" in verdict.reason.lower()
+
+    def test_a_store_at_least_as_long_as_expected_is_intact(self):
+        assert verify(_chain(FIRST, SECOND, THIRD), expect_at_least=3).status is ChainStatus.INTACT
+
+    def test_a_store_longer_than_expected_is_intact(self):
+        assert verify(_chain(FIRST, SECOND, THIRD), expect_at_least=2).status is ChainStatus.INTACT
+
+    def test_a_sequence_that_skips_is_tampering(self):
+        """Renumbering to hide a removal breaks the digests; leaving the numbers
+        alone breaks this. Both are covered."""
+        entries = _chain(FIRST, SECOND, THIRD)
+        del entries[1]
+
+        assert verify(entries).status is ChainStatus.TAMPERED
+
+    def test_a_sequence_that_disagrees_with_its_position_is_tampering(self):
+        entries = _chain(FIRST, SECOND)
+        seal, payload = entries[1]
+        entries[1] = (Seal(seal.previous, seal.digest, seal.signature, seal.key_id, sequence=9), payload)
+
+        assert verify(entries).status is ChainStatus.TAMPERED

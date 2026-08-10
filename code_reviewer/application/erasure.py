@@ -30,6 +30,7 @@ import this module.
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from code_reviewer.application.ports import AuditStore, NullSigner, Signer
@@ -87,6 +88,11 @@ def erase(
     selector = _Selector(before=before, project=project, merge_request=merge_request)
     if not selector.names_something:
         return ErasureOutcome(refused="an erasure must name what to remove; nothing was given")
+    if before and _instant(before) is None:
+        # Refused rather than treated as "no cutoff": a malformed date that
+        # silently selected everything, or nothing, is the shape of mistake an
+        # erasure command must not make.
+        return ErasureOutcome(refused=f"'{before}' is not a timestamp this can read")
 
     return _rewrite(
         store,
@@ -168,11 +174,31 @@ class _Selector:
     def matches(self, payload: Mapping[str, Any]) -> bool:
         if TOMBSTONE in payload or not self.names_something:
             return False
-        if self.before and str(payload.get("recorded_at", "")) >= self.before:
+        if self.before and not self._is_older(payload):
             return False
         if self.project and str(payload.get("project", "")) != self.project:
             return False
         return not (self.merge_request and str(payload.get("merge_request", "")) != self.merge_request)
+
+    def _is_older(self, payload: Mapping[str, Any]) -> bool:
+        """Whether this record predates the cutoff, as an instant.
+
+        Two defects lived here (self-review S-03, S-04). Compared as strings,
+        `2026-06-01T05:00:00+03:00` sorted after a 03:00Z cutoff and survived
+        an erasure it was two hours older than — any runner outside UTC was
+        exposed, and an erasure request that leaves data in place is the
+        failure with a legal consequence attached.
+
+        And a record that could not be dated **matched**, so the one record
+        whose age was unknown was the only one an age policy removed. Now the
+        answer to "is this older" for an undated record is *no*: what cannot be
+        dated cannot be aged out, and it stays until somebody names it.
+        """
+        recorded = _instant(str(payload.get("recorded_at", "")))
+        cutoff = _instant(self.before)
+        if recorded is None or cutoff is None:
+            return False
+        return recorded < cutoff
 
 
 def _rewrite(store: AuditStore, signer: Signer | None, transform, counts) -> ErasureOutcome:
@@ -210,3 +236,20 @@ def _rewrite(store: AuditStore, signer: Signer | None, transform, counts) -> Era
         redacted=changed if label == "redacted" else 0,
         kept=len(original) - (changed if label == "removed" else 0),
     )
+
+
+def _instant(value: str) -> datetime | None:
+    """An ISO timestamp as a comparable instant, or ``None``.
+
+    A naive stamp is read as UTC: the stores this project writes are UTC, and
+    assuming a local zone would make the same record age differently on two
+    machines. Anything unreadable is ``None``, which every caller treats as
+    "do not touch this".
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)

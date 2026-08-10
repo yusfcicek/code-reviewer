@@ -50,8 +50,11 @@ than from a role description, and the inventory says so.
 
 1. A record is **signed**, by a key the deployment supplies and this repository
    never generates, stores or defaults.
-2. Records form a **chain**: each carries the digest of the one before it, so a
-   deleted or reordered line is detectable without trusting the file's length.
+2. Records form a **chain**: each carries the digest of the one before it and
+   its own position, so an edited, removed or reordered line is detectable.
+   **Truncation is not** detectable from the file alone — a prefix of a valid
+   chain is a valid chain — so verification reports where the store ends and
+   accepts a count from outside it (self-review S-01).
 3. A **verifier** that reads a store and says what it found — intact, broken at
    line N, or unverifiable because no key was given.
 4. A **control mapping** from rule namespace to a named catalogue, shipped as

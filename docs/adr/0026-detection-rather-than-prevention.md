@@ -43,12 +43,26 @@ reason**, in one of three states.
 The claim that comes with it is deliberately small:
 
 > An operator holding the key **and** the store can forge anything, and no
-> arrangement of software changes that. What this buys is that the cheap
-> tampers — edit one line, delete one line, swap two — stop being invisible.
+> arrangement of software changes that. What this buys is that three tampers
+> stop being invisible: an edited line, a line removed from the middle, two
+> lines swapped.
 
-Those are the tampers an ordinary mistake and an ordinary insider actually
-produce. Claiming more would put a false assurance in front of the person who
-most needs a true one.
+Those are what an ordinary mistake and an ordinary insider produce. Two things
+it does **not** buy, and the self-review of this level found both because the
+first draft of this paragraph did not say them:
+
+**Truncation is undetectable from the file alone.** A prefix of a valid chain is
+a valid chain, and an anchor kept inside a file can be truncated with it. Each
+record therefore carries its position, verification reports where the store
+ends, and `--expect-at-least` compares against a count the operator kept
+elsewhere. That is a comparison, not a detection, and it is described as one.
+
+**An unsigned chain catches corruption, not attackers.** The digest takes no
+key, so anybody who can edit the file can recompute the chain. The verifier says
+so on every unsigned answer rather than leaving a deployment to infer it.
+
+Claiming more would put a false assurance in front of the person who most needs
+a true one.
 
 Three consequences follow directly.
 

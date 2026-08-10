@@ -355,8 +355,13 @@ class NullSigner(Signer):
 
     What a deployment with no key gets, and a null object rather than a `None`
     check at every call site — the same choice `NullTracer` made for the same
-    reason. Records are still written and still chained: the links are the
-    cheaper guarantee and they cost no key at all.
+    reason.
+
+    Records are still written and still chained, and that is worth exactly what
+    it is worth: the digest takes no key, so an unsigned chain catches
+    corruption and a careless edit, and catches nothing at all from somebody
+    who can run this tool. The verifier says so on every unsigned answer rather
+    than leaving a deployment to infer it (self-review 24, S-02).
     """
 
     @property

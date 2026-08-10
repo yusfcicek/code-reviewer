@@ -7,13 +7,24 @@ and a store nobody has chosen."* Both halves of that are still true. Neither is
 a reason for the record to be **unsignable**, and the gap between "we did not
 sign it" and "nothing here can verify a signature" is what this module closes.
 
-**What a seal buys, stated plainly.** An operator holding the key *and* the
-store can forge anything, and no arrangement of software changes that. What a
-chain plus a signature buys is that the cheap tampers — edit one line, delete
-one line, swap two — stop being invisible. Those are the tampers an ordinary
-mistake and an ordinary insider actually produce. Claiming more would put a
-false assurance in front of the person who most needs a true one, which is
-worse than not signing at all (decision D-1).
+**What a seal buys, stated plainly** — and the first version of this paragraph
+claimed more than it should have, which the self-review caught.
+
+An operator holding the key *and* the store can forge anything, and no
+arrangement of software changes that. What a chain plus a signature buys is
+that three tampers stop being invisible: an edited line, a line removed from the
+middle, two lines swapped. Those are what an ordinary mistake and an ordinary
+insider produce.
+
+Two things it does **not** buy. **Truncation** is undetectable from the file
+alone, because a prefix of a valid chain is a valid chain and any anchor kept
+inside a file can be truncated with it; verification therefore reports where the
+store ends and accepts a count from outside (S-01). And an **unsigned** chain
+catches corruption and carelessness only — the digest takes no key, so anybody
+who can edit the file can recompute the chain (S-02).
+
+Claiming more would put a false assurance in front of the person who most needs
+a true one, which is worse than not signing at all (decision D-1).
 
 Everything here is arithmetic over already-serialised data: no filesystem, no
 key material, no clock. The key lives behind a port in the application layer,
@@ -60,6 +71,15 @@ class Seal:
     signature: str = ""
     #: Which key produced :attr:`signature`. Never the key itself.
     key_id: str = ""
+    #: This record's position, from one.
+    #:
+    #: Carried and hashed so that renumbering to hide a removal breaks the
+    #: digests. It does not make truncation *detectable* — a prefix of a valid
+    #: chain is a valid chain, and any anchor inside a file can be truncated
+    #: along with it (self-review S-01). What it buys is that verification can
+    #: say where the store ends, so an operator holding any anchor from outside
+    #: can compare.
+    sequence: int = 0
 
     def __post_init__(self) -> None:
         if not self.previous:
@@ -78,7 +98,7 @@ class Seal:
         return bool(self.signature)
 
 
-def digest_of(payload: Mapping[str, Any], previous: str = GENESIS) -> str:
+def digest_of(payload: Mapping[str, Any], previous: str = GENESIS, sequence: int = 0) -> str:
     """The digest of one record, bound to the record before it.
 
     The predecessor is part of what is hashed rather than merely stored beside
@@ -101,7 +121,9 @@ def digest_of(payload: Mapping[str, Any], previous: str = GENESIS) -> str:
             f"A record that will not serialise cannot be sealed: {type(error).__name__}"
         ) from error
 
-    return hashlib.blake2b(f"{previous}\n{body}".encode(), digest_size=DIGEST_WIDTH // 2).hexdigest()
+    return hashlib.blake2b(
+        f"{previous}\n{sequence}\n{body}".encode(), digest_size=DIGEST_WIDTH // 2
+    ).hexdigest()
 
 
 def is_digest(value: str) -> bool:
@@ -146,6 +168,13 @@ class ChainVerdict:
     checked: int = 0
     #: How many carried a signature.
     signed: int = 0
+    #: The sequence of the last record. Nought for an empty store.
+    #:
+    #: Reported because truncation cannot be detected from the file alone: a
+    #: prefix of a valid chain is a valid chain. An operator holding an anchor
+    #: from outside — a monitoring counter, a previous run's output — compares
+    #: against this (self-review S-01).
+    last_sequence: int = 0
 
 
 #: Signs a digest, returning the signature and the key that made it.
@@ -156,6 +185,7 @@ def sealed(
     payload: Mapping[str, Any],
     previous: str = GENESIS,
     sign: "Callable[[str], Signature] | None" = None,
+    sequence: int = 1,
 ) -> Seal:
     """The seal for one record, signed if a signer was given.
 
@@ -163,16 +193,17 @@ def sealed(
     decision about whether an unsignable record is still written belongs where
     the key does (contract C-2, and the sink makes it).
     """
-    digest = digest_of(payload, previous)
+    digest = digest_of(payload, previous, sequence)
     if sign is None:
-        return Seal(previous=previous, digest=digest)
+        return Seal(previous=previous, digest=digest, sequence=sequence)
     signature, key_id = sign(digest)
-    return Seal(previous=previous, digest=digest, signature=signature, key_id=key_id)
+    return Seal(previous=previous, digest=digest, signature=signature, key_id=key_id, sequence=sequence)
 
 
 def verify(
     entries: "Sequence[tuple[Seal, Mapping[str, Any]]]",
     accepts: "Callable[[str, str, str], bool] | None" = None,
+    expect_at_least: int = 0,
 ) -> ChainVerdict:
     """Checks a store, and reports the first thing that does not hold.
 
@@ -181,6 +212,11 @@ def verify(
         accepts: Whether a signature is valid for a digest and key id. ``None``
             means no key is available, which makes signatures *unverifiable*
             rather than wrong.
+        expect_at_least: How many records an anchor **outside this file** says
+            the store should hold. Zero means no anchor was given, and then
+            truncation is not detectable at all: a prefix of a valid chain is a
+            valid chain, and an anchor kept inside a file can be truncated with
+            it (self-review S-01).
 
     Two failures are distinguished on purpose. A **digest** that disagrees with
     its payload means that record was edited. A **link** that does not point at
@@ -198,15 +234,27 @@ def verify(
                 "the chain does not link here: a record was removed, inserted or moved",
                 position - 1,
                 signed,
+                position - 1,
             )
 
-        if seal.digest != digest_of(payload, seal.previous):
+        if seal.sequence != position:
+            return ChainVerdict(
+                ChainStatus.TAMPERED,
+                position,
+                "the record's own position disagrees with where it is stored",
+                position - 1,
+                signed,
+                position - 1,
+            )
+
+        if seal.digest != digest_of(payload, seal.previous, seal.sequence):
             return ChainVerdict(
                 ChainStatus.TAMPERED,
                 position,
                 "the digest disagrees with the record: this line was edited",
                 position - 1,
                 signed,
+                position - 1,
             )
 
         if seal.is_signed:
@@ -218,9 +266,21 @@ def verify(
                     "the signature is not one this key could have produced",
                     position - 1,
                     signed - 1,
+                    position - 1,
                 )
 
         previous = seal.digest
+
+    if expect_at_least and len(entries) < expect_at_least:
+        return ChainVerdict(
+            ChainStatus.TAMPERED,
+            len(entries),
+            f"the store holds {len(entries)} record(s); it was expected to hold at least "
+            f"{expect_at_least}, so it has been truncated",
+            len(entries),
+            signed,
+            len(entries),
+        )
 
     return _signature_verdict(len(entries), signed, accepts)
 
@@ -228,21 +288,28 @@ def verify(
 def _signature_verdict(checked: int, signed: int, accepts: object) -> ChainVerdict:
     """Every link held. Whether that is the whole story depends on the keys."""
     if checked == 0:
-        return ChainVerdict(ChainStatus.INTACT, checked=0)
+        return ChainVerdict(ChainStatus.INTACT, checked=0, last_sequence=0)
     if accepts is None:
         if signed == 0:
-            return ChainVerdict(ChainStatus.INTACT, checked=checked, reason="no signatures were expected")
+            return ChainVerdict(
+                ChainStatus.INTACT,
+                checked=checked,
+                reason="no signatures were expected",
+                last_sequence=checked,
+            )
         return ChainVerdict(
             ChainStatus.UNVERIFIABLE,
             reason="the records are signed and no key was given to check them",
             checked=checked,
             signed=signed,
+            last_sequence=checked,
         )
     if signed == 0:
         return ChainVerdict(
             ChainStatus.UNVERIFIABLE,
             reason="the links hold; the records are unsigned, so nothing attests to them",
             checked=checked,
+            last_sequence=checked,
         )
     if signed < checked:
         return ChainVerdict(
@@ -250,5 +317,6 @@ def _signature_verdict(checked: int, signed: int, accepts: object) -> ChainVerdi
             reason=f"the links hold; {checked - signed} of {checked} record(s) are unsigned",
             checked=checked,
             signed=signed,
+            last_sequence=checked,
         )
-    return ChainVerdict(ChainStatus.INTACT, checked=checked, signed=signed)
+    return ChainVerdict(ChainStatus.INTACT, checked=checked, signed=signed, last_sequence=checked)

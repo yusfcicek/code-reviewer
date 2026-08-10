@@ -207,3 +207,62 @@ class TestErasingFromTheCommandLine:
         assert code == EXIT_INTACT
         assert "1 redacted" in capsys.readouterr().out
         assert "a-private-project-name" not in path.read_text(encoding="utf-8")
+
+
+class TestTruncationNeedsAnAnchorFromOutside:
+    """Self-review S-01. Deleting the tail leaves every remaining link correct
+    and every remaining signature valid, because nothing inside the file says
+    how long it should be. The only honest catch is a number kept elsewhere."""
+
+    def _truncated(self, tmp_path):
+        path = _store(tmp_path, count=5)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        path.write_text("\n".join(lines[:2]) + "\n", encoding="utf-8")
+        return path
+
+    def test_without_an_anchor_a_truncated_store_still_verifies(self, tmp_path):
+        """Stated as a test rather than hoped away: this is what the level
+        does not buy, and pretending otherwise was the finding."""
+        assert main(["verify", "--path", str(self._truncated(tmp_path))]) == EXIT_INTACT
+
+    def test_the_output_says_where_the_store_ends(self, tmp_path, capsys):
+        main(["verify", "--path", str(self._truncated(tmp_path))])
+
+        assert "sequence 2" in capsys.readouterr().out
+
+    def test_with_an_anchor_the_truncation_is_caught(self, tmp_path):
+        path = self._truncated(tmp_path)
+
+        assert main(["verify", "--path", str(path), "--expect-at-least", "5"]) == EXIT_TAMPERED
+
+    def test_the_message_says_it_was_truncated(self, tmp_path, capsys):
+        path = self._truncated(tmp_path)
+
+        main(["verify", "--path", str(path), "--expect-at-least", "5"])
+
+        assert "truncated" in capsys.readouterr().out.lower()
+
+    def test_an_intact_store_meets_its_anchor(self, tmp_path):
+        assert (
+            main(["verify", "--path", str(_store(tmp_path, count=5)), "--expect-at-least", "5"])
+            == EXIT_INTACT
+        )
+
+
+class TestAnUnsignedStoreSaysWhatItIsWorth:
+    """Self-review S-02. The digest takes no key, so anybody who can edit the
+    file can run the same three lines the sink runs. An unsigned chain detects
+    a careless edit and nothing from somebody who has the tool — and the code
+    used to call that 'the cheaper guarantee' without saying cheaper than what."""
+
+    def test_the_verdict_says_what_unsigned_does_not_cover(self, tmp_path, capsys):
+        main(["verify", "--path", str(_store(tmp_path))])
+
+        assert "careless" in capsys.readouterr().out.lower()
+
+    def test_a_signed_store_makes_no_such_disclaimer(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("REVIEW_AUDIT_KEY", KEY)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY_ID", "ops-2026")
+        path = _store(tmp_path, signer=HmacSigner(KEY, key_id="ops-2026"))
+
+        assert main(["verify", "--path", str(path)]) == EXIT_INTACT

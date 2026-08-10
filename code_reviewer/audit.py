@@ -53,6 +53,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify = subcommands.add_parser("verify", help="Check a store end to end.")
     verify.add_argument(
+        "--expect-at-least",
+        type=int,
+        default=0,
+        help=(
+            "How many records an anchor OUTSIDE this file says the store should "
+            "hold. Truncation is not detectable from the file alone — a prefix "
+            "of a valid chain is a valid chain — so this is the only way to "
+            "catch it, and it needs a number you kept elsewhere."
+        ),
+    )
+    verify.add_argument(
         "--path",
         default=os.environ.get(PATH_VARIABLE, ""),
         help=(
@@ -176,7 +187,7 @@ def _verify(args) -> int:
         print(f"Nothing to verify: '{args.path}' is not a file.", file=sys.stderr)  # stdout: the output
         return EXIT_CANNOT_VERIFY
 
-    verdict = verify_store(args.path, signer_from_environment())
+    verdict = verify_store(args.path, signer_from_environment(), expect_at_least=args.expect_at_least)
     print(status_line(verdict))  # stdout: the program's output, not a diagnostic
 
     if verdict.status is ChainStatus.INTACT:
