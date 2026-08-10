@@ -37,7 +37,7 @@ from .ports import (
     StaticAnalysis,
 )
 from .project_memory import ProjectMemory
-from .remediation_service import SuggestionService, render_suggestion
+from .remediation_service import SuggestionService, render_suggestions
 from .report import render_review_comment
 from .retrieval_service import query_from_change
 from .tracing import NullTracer, Tracer
@@ -299,20 +299,24 @@ class ReviewService:
             return
 
         for suggestion in suggestions:
-            try:
-                position = DiffPosition(
-                    path=suggestion.file_path,
-                    line=suggestion.start_line,
-                    base_sha=reference.base_sha,
-                    start_sha=reference.start_sha,
-                    head_sha=reference.head_sha,
-                )
-                self._forge.publish_suggestion(reference, position, render_suggestion(suggestion))
-            except Exception as error:
-                logger.warning(
-                    "Could not post a suggestion; the finding keeps its written advice",
-                    extra={"fields": {"rule_id": suggestion.rule_id, "error": str(error)}},
-                )
+            # One note per edit since Level 26: a suggestion block replaces
+            # lines around the note's own line and must include it, so two
+            # disjoint edits cannot share a note.
+            for line, body in render_suggestions(suggestion):
+                try:
+                    position = DiffPosition(
+                        path=suggestion.file_path,
+                        line=line,
+                        base_sha=reference.base_sha,
+                        start_sha=reference.start_sha,
+                        head_sha=reference.head_sha,
+                    )
+                    self._forge.publish_suggestion(reference, position, body)
+                except Exception as error:
+                    logger.warning(
+                        "Could not post a suggestion; the finding keeps its written advice",
+                        extra={"fields": {"rule_id": suggestion.rule_id, "error": str(error)}},
+                    )
 
     def _record(
         self,

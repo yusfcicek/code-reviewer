@@ -49,6 +49,13 @@ repository does about it today. A capability with no gap produces no level.
 | C-27 | A score that states its own uncertainty | — | Level 21's own non-goal. `1.00 over 15 cases` was printed exactly like `1.00 over 1500` | 25 |
 | C-28 | Measuring the model that is actually configured | — | Level 21's own non-goal. The corpus grades recordings, so a prompt edit shipped unmeasured | 25 |
 | C-29 | Comparing one measurement against another | — | Level 21's own non-goal. Nothing stored a baseline, so 'is this better than last week' had no answer | 25 |
+| C-30 | A suggestion that can touch more than one place | — | Level 22's own non-goal. One contiguous range, so a fix needing an import was not expressible | 26 |
+| C-31 | Recipes for the rules that are mechanical, measured | — | Level 22's own non-goal. Three recipes of thirty-nine rules, and nothing counted them | 26 |
+
+**C-30 and C-31 come from Level 22's own non-goals**, and the pattern is now
+three for three: a level that names its limits honestly leaves a later level a
+list of things worth doing, and the list is better than one invented from
+scratch.
 
 **C-27 to C-29 come from Level 21's own non-goals**, on the same reading: an
 instrument that cannot say how much it knows, cannot measure the model actually

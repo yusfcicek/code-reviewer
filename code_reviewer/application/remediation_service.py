@@ -128,6 +128,40 @@ class SuggestionService:
         return suggestion
 
 
+def render_suggestions(suggestion: Suggestion) -> list[tuple[int, str]]:
+    """One note per edit, as ``(line, body)`` pairs in file order.
+
+    A `suggestion:-a+b` block replaces lines *around the note's own line* and
+    must include it, so two disjoint edits cannot share a note — which is what
+    this level's plan assumed before somebody read the platform's rules. Each
+    edit is posted on its own line instead, and each names its position in the
+    whole: a reader who applies one must be able to see there is another.
+    """
+    ordered = sorted(suggestion.edits, key=lambda edit: edit.start_line)
+    total = len(ordered)
+    return [
+        (edit.start_line, _render_edit(suggestion, edit, position, total))
+        for position, edit in enumerate(ordered, start=1)
+    ]
+
+
+def _render_edit(suggestion: Suggestion, edit, position: int, total: int) -> str:
+    """One edit as a note the platform can turn into a change."""
+    part = f" — part {position} of {total}, apply all of them" if total > 1 else ""
+    return "\n".join(
+        [
+            f"**{suggestion.rule_id}** — suggested fix (`{suggestion.recipe}`){part}.",
+            "",
+            f"```suggestion:-0+{edit.end_line - edit.start_line}",
+            *edit.replacement,
+            "```",
+            "",
+            "_Proposed by static analysis and validated against this file; it is applied "
+            "only if you apply it._",
+        ]
+    )
+
+
 def render_suggestion(suggestion: Suggestion) -> str:
     """One suggestion, as a note the platform can turn into a change.
 

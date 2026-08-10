@@ -137,11 +137,14 @@ def test_a_rule_with_no_recipe_has_none():
 def test_every_registered_rule_names_a_rule_the_suite_can_emit():
     """A recipe for a rule id nobody produces is dead code that reads as a
     feature."""
+    # Level 26 added a QUALITY recipe, so the namespace is checked against what
+    # the attribution table registers rather than against one hard-coded name.
+    from code_reviewer.application.governance import PRODUCERS
     from code_reviewer.domain.fix_recipes import RECIPES
 
     for rule_id in RECIPES:
         namespace, _, name = rule_id.partition(".")
-        assert namespace == "SAST"
+        assert namespace in PRODUCERS, rule_id
         assert name.isupper()
 
 
@@ -154,3 +157,114 @@ def test_a_recipe_that_raises_costs_only_its_own_suggestion(monkeypatch):
     monkeypatch.setitem(recipes.RECIPES, "SAST.WEAK_CRYPTO", explode)
 
     assert suggest(_finding("SAST.WEAK_CRYPTO", 5), CRYPTO) is None
+
+
+# -- Level 26: the recipes the one-range format could not express ------------
+
+INSECURE_RANDOM = "import random\n\n\ndef token():\n    return random.random()\n"
+INSECURE_HTTP = 'ENDPOINT = "http://api.internal/v1"\n'
+BARE_EXCEPT = "def read(path):\n    try:\n        return open(path)\n    except:\n        return None\n"
+RERAISE = "def read(path):\n    try:\n        return open(path)\n    except:\n        raise\n"
+FILE_OPERATION = "def read(path):\n    return open(path)\n"
+
+
+def _applied(source, rule, line):
+    suggestion = suggest(_finding(rule, line), source)
+    return None if suggestion is None else suggestion.applied_to(source)
+
+
+class TestInsecureRandom:
+    """AC-6 — the two-part edit the format change exists for."""
+
+    def test_it_replaces_the_call(self):
+        assert "secrets.SystemRandom()" in _applied(INSECURE_RANDOM, "SAST.INSECURE_RANDOM", 5)
+
+    def test_it_adds_the_import(self):
+        assert "import secrets" in _applied(INSECURE_RANDOM, "SAST.INSECURE_RANDOM", 5)
+
+    def test_the_result_still_parses(self):
+        import ast
+
+        ast.parse(_applied(INSECURE_RANDOM, "SAST.INSECURE_RANDOM", 5))
+
+    def test_the_import_is_not_added_twice(self):
+        """AC-7."""
+        source = "import random\nimport secrets\n\n\ndef token():\n    return random.random()\n"
+
+        assert _applied(source, "SAST.INSECURE_RANDOM", 6).count("import secrets") == 1
+
+    def test_it_declines_a_line_without_the_call(self):
+        """AC-13."""
+        assert suggest(_finding("SAST.INSECURE_RANDOM", 1), INSECURE_RANDOM) is None
+
+    def test_it_declines_code_already_using_secrets(self):
+        """AC-14."""
+        source = "import secrets\n\n\ndef token():\n    return secrets.SystemRandom().random()\n"
+
+        assert suggest(_finding("SAST.INSECURE_RANDOM", 5), source) is None
+
+
+class TestInsecureHttp:
+    def test_it_upgrades_a_literal_scheme(self):
+        """AC-10."""
+        assert 'https://api.internal/v1"' in _applied(INSECURE_HTTP, "SAST.INSECURE_HTTP", 1)
+
+    def test_it_declines_a_url_built_from_a_variable(self):
+        """Upgrading a scheme it cannot see is a guess."""
+        source = 'ENDPOINT = scheme + "://api.internal/v1"\n'
+
+        assert suggest(_finding("SAST.INSECURE_HTTP", 1), source) is None
+
+    def test_it_declines_localhost(self):
+        """A loopback URL over http is not a defect, and rewriting one breaks a
+        development setup for no gain."""
+        for host in ("http://localhost:8080", "http://127.0.0.1:9000"):
+            assert suggest(_finding("SAST.INSECURE_HTTP", 1), f'URL = "{host}"\n') is None, host
+
+    def test_it_declines_a_line_without_a_url(self):
+        assert suggest(_finding("SAST.INSECURE_HTTP", 1), "x = 1\n") is None
+
+    def test_it_declines_a_url_already_https(self):
+        assert suggest(_finding("SAST.INSECURE_HTTP", 1), 'URL = "https://api/v1"\n') is None
+
+
+class TestBareExcept:
+    def test_it_names_the_exception(self):
+        """AC-11."""
+        assert "except Exception:" in _applied(BARE_EXCEPT, "QUALITY.ERROR_HANDLING", 4)
+
+    def test_it_keeps_the_indentation(self):
+        applied = _applied(BARE_EXCEPT, "QUALITY.ERROR_HANDLING", 4)
+
+        assert "    except Exception:" in applied
+
+    def test_it_declines_a_deliberate_re_raise(self):
+        """`except:` followed by a bare `raise` is a deliberate re-raise, and
+        naming the exception changes what it catches."""
+        assert suggest(_finding("QUALITY.ERROR_HANDLING", 4), RERAISE) is None
+
+    def test_it_declines_an_except_that_already_names_something(self):
+        source = BARE_EXCEPT.replace("except:", "except OSError:")
+
+        assert suggest(_finding("QUALITY.ERROR_HANDLING", 4), source) is None
+
+    def test_it_declines_a_line_that_is_not_an_except(self):
+        assert suggest(_finding("QUALITY.ERROR_HANDLING", 1), BARE_EXCEPT) is None
+
+
+class TestFileOperation:
+    def test_it_adds_the_mode(self):
+        """AC-12."""
+        assert 'open(path, "r")' in _applied(FILE_OPERATION, "SAST.INSECURE_FILE_OPERATION", 2)
+
+    def test_it_declines_a_call_that_already_has_a_mode(self):
+        assert suggest(_finding("SAST.INSECURE_FILE_OPERATION", 2), 'x = open(path, "w")\n') is None
+
+    def test_it_declines_anything_more_complex(self):
+        """Keyword arguments, more than one positional: the recipe cannot read
+        the shape, so it says nothing."""
+        for line in ("x = open(path, encoding='utf-8')\n", "x = open(a, b, c)\n"):
+            assert suggest(_finding("SAST.INSECURE_FILE_OPERATION", 1), line) is None, line
+
+    def test_it_declines_a_line_without_open(self):
+        assert suggest(_finding("SAST.INSECURE_FILE_OPERATION", 1), "x = 1\n") is None
