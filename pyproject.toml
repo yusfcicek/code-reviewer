@@ -61,6 +61,9 @@ ai-code-review = "code_reviewer.__main__:main"
 # `ai-code-review` with a fixed argument list, and moving it behind a
 # subcommand would break every one of them (Level 12, decision D-5).
 ai-code-review-eval = "code_reviewer.evaluate:main"
+# A fourth: verifying a store is an operator's action, not a review's, and it
+# runs where the records are rather than where the reviews happen (Level 24).
+ai-code-review-audit = "code_reviewer.audit:main"
 # A third: a service is not a subcommand of a job (Level 18).
 ai-code-review-serve = "code_reviewer.serve:main"
 
