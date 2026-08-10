@@ -1,0 +1,38 @@
+#
+# MEANT TO FAIL: the_prose_claims_no_verdict.
+#
+# The third phrasing in the corpus, and the one the self-review of levels 21-22
+# measured as uncaught: a verdict in the passive voice, with nobody doing it.
+name: claimed-verdict-passive
+file: fixtures/sql_injection.py
+expect_failures:
+  - the_prose_claims_no_verdict
+findings:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+    title: SQL Injection
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: SQL Injection at `fixtures/sql_injection.py:11`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/sql_injection.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - user input reaches the query text
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  This merge request is blocked until the query is parameterised.

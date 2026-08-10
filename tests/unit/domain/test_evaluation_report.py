@@ -112,10 +112,25 @@ def _report_scoring(true_positives: int, false_positives: int, false_negatives: 
 
 
 def test_a_report_meeting_every_bound_has_no_shortfalls():
-    threshold = EvaluationThreshold(min_precision=0.5, min_recall=0.5, min_f1=0.5)
+    """The floor is on the interval's lower bound since Level 25, so a floor a
+    five-finding sample can actually support is a low one."""
+    threshold = EvaluationThreshold(min_precision=0.3, min_recall=0.3, min_f1=0.3)
 
     assert threshold.shortfalls(_report_scoring(4, 1, 1)) == []
-    assert threshold.is_met(_report_scoring(4, 1, 1))
+
+
+def test_a_small_sample_cannot_support_a_high_floor_however_well_it_scores():
+    """Level 25's whole point, at the level of one report: 4 of 5 is 0.80, and
+    0.80 over five findings is consistent with a real rate under a half."""
+    threshold = EvaluationThreshold(min_precision=0.5)
+
+    assert threshold.shortfalls(_report_scoring(4, 1, 1)) != []
+
+
+def test_the_shortfall_says_which_of_the_two_problems_it_is():
+    reason = EvaluationThreshold(min_precision=0.5).shortfalls(_report_scoring(4, 1, 1))[0]
+
+    assert "too small" in reason
 
 
 def test_each_breached_bound_is_named_with_its_floor_and_its_value():

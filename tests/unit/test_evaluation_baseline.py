@@ -13,18 +13,22 @@ from code_reviewer.domain.evaluation import EVERYTHING, EvaluationThreshold
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.evaluation.dataset import FileSystemDataset
 
-#: The floors committed to CI, per decision D-4: the measured baseline with a
-#: margin. Level 12 opened at precision 1.00, recall 0.89, F1 0.94 and floored
-#: at 0.95 / 0.85 / 0.90 — the recall gap being the one defect the dataset
-#: recorded and the suite could not find. Level 13 closed it (E-01) and
-#: narrowed the rule that was firing on ordinary code (E-02), so the baseline
-#: is 1.00 across the board over ten cases and the floors rise with it.
+#: The floors committed to CI. **These are applied to the lower bound of a 95 %
+#: interval, not to the point estimate** (Level 25, decision D-2), and that
+#: change is why the numbers here went down while the measurement did not.
 #:
-#: Raising a floor is what a level earns. Lowering one to make a build green is
-#: the thing the harness exists to prevent.
-MIN_PRECISION = 0.95
-MIN_RECALL = 0.95
-MIN_F1 = 0.95
+#: The suite still scores 1.00 across the board. It does so over **ten graded
+#: findings**, and ten of ten is consistent with a real rate of 0.72 — so 0.95
+#: on the lower bound is a claim this corpus cannot support, and asserting it
+#: would have been the overclaim Level 25 exists to remove.
+#:
+#: Lowering a floor to make a build green is what the harness exists to
+#: prevent. This is the opposite: the floor now means something stricter than
+#: it did, and the only way to raise it is to write more cases. A later level
+#: that adds them earns the higher number.
+MIN_PRECISION = 0.70
+MIN_RECALL = 0.70
+MIN_F1 = 0.70
 
 #: Namespaces the dataset must exercise. A harness that grades only the SAST
 #: rules would report a healthy F1 while three analyzers went unmeasured.
@@ -97,7 +101,7 @@ def test_the_recorded_baseline_says_what_the_floors_actually_are(dataset):
 
     expected = (
         f"precision >= {MIN_PRECISION:.2f}, recall >= {MIN_RECALL:.2f}, "
-        f"f1 >= {MIN_F1:.2f} over {len(dataset.cases())} cases"
+        f"f1 >= {MIN_F1:.2f} (lower bound) over {len(dataset.cases())} cases"
     )
 
     assert expected == EVALUATION_BASELINE

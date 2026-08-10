@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar
 
+from .remediation import Suggestion
+
 
 class ClaimKind(Enum):
     """What a piece of a document asserts about the code."""
@@ -301,6 +303,10 @@ SIGNATURE_MISMATCH = "SIGNATURE_MISMATCH"
 UNKNOWN_OPTION = "UNKNOWN_OPTION"
 BROKEN_EXAMPLE = "BROKEN_EXAMPLE"
 DOCSTRING_DRIFT = "DOCSTRING_DRIFT"
+
+#: The namespace the deterministic tier reports under. Repeated here rather
+#: than imported from the application layer, which is the wrong direction.
+NAMESPACE_DOCS = "DOCS"
 
 #: Parameters a document is never expected to write.
 _IMPLICIT = frozenset({"self", "cls"})
@@ -686,3 +692,129 @@ def _docstring_defect(function: ast.FunctionDef | ast.AsyncFunctionDef, docstrin
     if not complaints:
         return None
     return DocDefect(DOCSTRING_DRIFT, function.name, function.lineno, "", "; ".join(complaints))
+
+
+@dataclass(frozen=True)
+class Rename:
+    """One name that became another in a single change."""
+
+    old: str
+    new: str
+
+    def __post_init__(self) -> None:
+        if not self.old or not self.new:
+            raise ValueError("A rename names both the old and the new symbol.")
+        if self.old == self.new:
+            raise ValueError("A rename to the same name is not a rename.")
+
+
+#: What kind of thing a line declares. A rename is two declarations of the
+#: **same** kind: a function that became a function, a flag that became a flag.
+#:
+#: Counting names without their kinds called a deletion plus an unrelated
+#: addition a rename — `start_app` "became" `MAX_RETRIES` — and offered a
+#: one-click button substituting the wrong word into somebody's README
+#: (self-review 27, S-02).
+_KINDS: Mapping[str, str] = {
+    "def": "function",
+    "async def": "function",
+    "class": "class",
+}
+
+
+def _declarations_on(line: str) -> set[tuple[str, str]]:
+    """Every ``(kind, name)`` a single line of source declares."""
+    found: set[tuple[str, str]] = set()
+
+    definition = _DEFINES.match(line)
+    if definition is not None:
+        name = definition.group("name")
+        if name:
+            keyword = line.strip().split()[0]
+            found.add((_KINDS.get(keyword, "function"), name))
+        elif definition.group("constant"):
+            found.add(("constant", definition.group("constant")))
+
+    for match in _QUOTED.finditer(line):
+        value = match.group("value")
+        found.add(("option" if value.startswith("--") else "environment", value))
+
+    return found
+
+
+def rename_in(diff: str) -> Rename | None:
+    """The rename a diff performed, or ``None``.
+
+    Exactly one declaration removed and exactly one added, **of the same kind**.
+    Two of each is ambiguous — which old name became which new one is not in the
+    diff — and two of different kinds is not a rename at all: a function deleted
+    beside a constant added is two changes, and substituting one for the other in
+    a document is a wrong edit offered as a button (self-review 27, S-02).
+
+    This is the whole of what makes a documentation edit offerable. The diff
+    already knows both names, so the substitution is arithmetic rather than a
+    sentence somebody has to review. Level 23 refused to suggest prose and that
+    refusal stands; this is not prose.
+    """
+    removed: set[tuple[str, str]] = set()
+    added: set[tuple[str, str]] = set()
+
+    for line in diff.splitlines():
+        if line.startswith(("---", "+++", "@@")):
+            continue
+        if line.startswith("-"):
+            removed |= _declarations_on(line[1:])
+        elif line.startswith("+"):
+            added |= _declarations_on(line[1:])
+
+    gone = removed - added
+    fresh = added - removed
+    if len(gone) != 1 or len(fresh) != 1:
+        return None
+
+    (old_kind, old), (new_kind, new) = next(iter(gone)), next(iter(fresh))
+    if old_kind != new_kind:
+        return None
+
+    try:
+        return Rename(old=old, new=new)
+    except ValueError:
+        return None
+
+
+def documentation_suggestion(path: str, text: str, line: int, rename: Rename) -> "Suggestion | None":
+    """A suggestion substituting a renamed symbol on one line of a document.
+
+    ``None`` when the line does not hold the old name as a whole word, when it
+    is past the end, or when the substitution would change nothing. A partial
+    word is refused: `start_application` is not `start_app`, and a substring
+    rename is how a document acquires `create_applicationlication`.
+
+    Every occurrence on the line is substituted rather than the first. Fixing
+    the first of two is half a fix a reader reads as a whole one — the finding
+    self-review 26 paid for in `fix_recipes.py`.
+    """
+    lines = text.splitlines()
+    if not 1 <= line <= len(lines):
+        return None
+
+    pattern = re.compile(rf"\b{re.escape(rename.old)}\b")
+    original = lines[line - 1]
+    if not pattern.search(original):
+        return None
+
+    replaced = pattern.sub(rename.new, original)
+    if replaced == original:
+        return None
+
+    try:
+        return Suggestion.single(
+            rule_id=f"{NAMESPACE_DOCS}.{DEAD_REFERENCE}",
+            file_path=path,
+            start_line=line,
+            end_line=line,
+            replacement=(replaced,),
+            recipe="rename-in-documentation",
+        )
+    except ValueError:
+        return None

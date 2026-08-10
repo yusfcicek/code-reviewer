@@ -42,6 +42,15 @@ DEFAULT_PER_FILE = 3
 #: twenty questions about prose.
 DEFAULT_CAP = 8
 
+#: How relevant a section must be to be worth a model call.
+#:
+#: Reciprocal rank fusion's scores are small and unbounded below — a chunk
+#: fused from two rankings at position twenty scores around 1/80 — so this is a
+#: floor on *being ranked at all* rather than a similarity threshold anybody
+#: should read as a percentage. Stated as a constant with its reasoning because
+#: a parameter with a default nobody chose is a number nobody can defend.
+DEFAULT_RELEVANCE_FLOOR = 0.005
+
 
 @dataclass(frozen=True)
 class DriftOutcome:
@@ -53,6 +62,12 @@ class DriftOutcome:
     #: Candidates the cap discarded. Stated so a reader knows the list is
     #: partial; a silent truncation reads as "we looked at everything".
     dropped: int = 0
+    #: Candidates the relevance floor discarded, for the same reason.
+    below_floor: int = 0
+    #: Whether the floor could be applied at all. ``False`` when the retriever
+    #: has no notion of a score — the old behaviour, now visible instead of
+    #: implied (Level 27, AC-5).
+    floor_applied: bool = True
 
 
 class DriftService:
@@ -64,11 +79,13 @@ class DriftService:
         judge: DriftJudge,
         per_file: int = DEFAULT_PER_FILE,
         cap: int = DEFAULT_CAP,
+        floor: float = DEFAULT_RELEVANCE_FLOOR,
     ):
         self._retriever = retriever
         self._judge = judge
         self._per_file = per_file
         self._cap = cap
+        self._floor = floor
 
     def review(
         self, changes: Sequence[FileChange], documents: Mapping[str, str] | None = None
@@ -85,7 +102,7 @@ class DriftService:
         """
         edited = set(documents or {})
         try:
-            candidates, dropped = self._candidates(changes, edited)
+            candidates, dropped, below, applied = self._candidates(changes, edited)
         except Exception as error:
             logger.warning("Drift candidates unavailable: %s", error)
             return DriftOutcome(degraded=f"retrieval was unavailable: {type(error).__name__}")
@@ -96,18 +113,32 @@ class DriftService:
             if verdict.is_reportable:
                 findings.append(_finding(candidate))
 
-        return DriftOutcome(findings=findings, dropped=dropped)
+        return DriftOutcome(findings=findings, dropped=dropped, below_floor=below, floor_applied=applied)
 
     # -- internals ----------------------------------------------------------
 
     def _candidates(
         self, changes: Sequence[FileChange], edited: set[str]
-    ) -> tuple[list[DriftCandidate], int]:
+    ) -> tuple[list[DriftCandidate], int, int, bool]:
         found: list[DriftCandidate] = []
+        below = 0
+        applied = True
+
         for change in changes:
             if _is_document(change.path) or not change.diff:
                 continue
-            for chunk in self._retriever.related(change.diff, limit=self._per_file):
+            for result in self._retriever.scored(change.diff, limit=self._per_file):
+                if not result.is_scored:
+                    # The retriever has no notion of a score, so the floor
+                    # cannot be applied. Reported rather than silently skipped:
+                    # a floor that quietly passes everything is how Level 23
+                    # lost a whole tier for a whole level (Level 27, AC-5).
+                    applied = False
+                elif result.score < self._floor:
+                    below += 1
+                    continue
+
+                chunk = result.chunk
                 if not _is_document(chunk.path) or chunk.path in edited:
                     continue
                 found.append(
@@ -123,8 +154,8 @@ class DriftService:
 
         unique = _deduplicated(found)
         if len(unique) <= self._cap:
-            return unique, 0
-        return unique[: self._cap], len(unique) - self._cap
+            return unique, 0, below, applied
+        return unique[: self._cap], len(unique) - self._cap, below, applied
 
     def _ask(self, candidate: DriftCandidate) -> DriftVerdict:
         """One candidate, one question. A model that fails answers `UNSURE`."""

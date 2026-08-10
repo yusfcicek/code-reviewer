@@ -158,7 +158,7 @@ class TestTheSuggestionBody(unittest.TestCase):
         from code_reviewer.application.remediation_service import render_suggestion
 
         body = render_suggestion(
-            Suggestion(
+            Suggestion.single(
                 rule_id="SAST.WEAK_CRYPTO",
                 file_path="src/hashing.py",
                 start_line=5,
@@ -176,7 +176,7 @@ class TestTheSuggestionBody(unittest.TestCase):
         from code_reviewer.application.remediation_service import render_suggestion
 
         body = render_suggestion(
-            Suggestion(
+            Suggestion.single(
                 rule_id="SAST.WEAK_CRYPTO",
                 file_path="a.py",
                 start_line=5,
@@ -201,3 +201,79 @@ class TestTheDiffPosition(unittest.TestCase):
         rejected, depending on the platform's mood."""
         with self.assertRaises(ValueError):
             DiffPosition(path="a.py", line=4, base_sha="", start_sha="s", head_sha="h")
+
+
+class TestAMultiEditSuggestionIsMoreThanOneNote:
+    """Level 26, step 6 — and a correction to this level's own plan.
+
+    The plan said a two-edit suggestion would be two blocks in one note. That
+    is not what the platform does: a `suggestion:-a+b` block replaces lines
+    *around the note's own line* and must include it, so two disjoint edits
+    cannot share a note. Each is its own note, and each says which part of the
+    whole it is — a reader who applies one must be able to see there is another.
+    """
+
+    def _suggestion(self):
+        from code_reviewer.domain.remediation import Suggestion, SuggestionEdit
+
+        return Suggestion(
+            rule_id="SAST.INSECURE_RANDOM",
+            file_path="app.py",
+            edits=(
+                SuggestionEdit(1, 1, ("import random", "import secrets")),
+                SuggestionEdit(5, 5, ("    return secrets.SystemRandom().random()",)),
+            ),
+            recipe="random-to-secrets",
+        )
+
+    def test_one_note_per_edit(self):
+        from code_reviewer.application.remediation_service import render_suggestions
+
+        assert len(render_suggestions(self._suggestion())) == 2
+
+    def test_each_note_is_anchored_on_its_own_line(self):
+        from code_reviewer.application.remediation_service import render_suggestions
+
+        assert [line for line, _ in render_suggestions(self._suggestion())] == [1, 5]
+
+    def test_each_note_says_which_part_of_the_whole_it_is(self):
+        from code_reviewer.application.remediation_service import render_suggestions
+
+        bodies = [body for _, body in render_suggestions(self._suggestion())]
+
+        assert "1 of 2" in bodies[0]
+        assert "2 of 2" in bodies[1]
+
+    def test_each_note_carries_only_its_own_replacement(self):
+        from code_reviewer.application.remediation_service import render_suggestions
+
+        first, second = (body for _, body in render_suggestions(self._suggestion()))
+
+        assert "import secrets" in first
+        assert "SystemRandom" not in first
+        assert "SystemRandom" in second
+
+    def test_a_single_edit_suggestion_is_one_note_and_says_nothing_about_parts(self):
+        from code_reviewer.application.remediation_service import render_suggestions
+        from code_reviewer.domain.remediation import Suggestion
+
+        single = Suggestion.single(
+            rule_id="SAST.WEAK_CRYPTO",
+            file_path="a.py",
+            start_line=4,
+            end_line=4,
+            replacement=("    return hashlib.sha256(value).hexdigest()",),
+            recipe="md5-to-sha256",
+        )
+
+        rendered = render_suggestions(single)
+
+        assert len(rendered) == 1
+        assert "of 1" not in rendered[0][1]
+
+    def test_every_note_names_the_rule_and_the_recipe(self):
+        from code_reviewer.application.remediation_service import render_suggestions
+
+        for _, body in render_suggestions(self._suggestion()):
+            assert "SAST.INSECURE_RANDOM" in body
+            assert "random-to-secrets" in body

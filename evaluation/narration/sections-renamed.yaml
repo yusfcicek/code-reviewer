@@ -1,0 +1,28 @@
+#
+# MEANT TO FAIL: required_sections_are_present.
+#
+# Every section is there under a heading of the model's own invention. Nothing
+# is missing to a human reader and everything is missing to anything that reads
+# the report by its structure — which is what the platform, and this harness,
+# both do.
+name: sections-renamed
+file: fixtures/parameterised_query.py
+expect_failures:
+  - required_sections_are_present
+findings: []
+review: |
+  ## Security review
+  - **SAST Scan Result**: PASS
+  - **Vulnerabilities Found**: None
+
+  ## What changed
+  - **Change Type**: REFACTOR
+
+  ## Who is affected
+  - **Dependencies Checked**: `fixtures/parameterised_query.py`
+
+  ## Quality notes
+  - **SOLID Compliance**: 90/100
+
+  ## Speed
+  - **Complexity Issues**: None

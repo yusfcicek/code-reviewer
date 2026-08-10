@@ -164,14 +164,19 @@ class SASTAnalyzer:
                 "CWE-78",
             ),
             (
-                r"eval\s*\(",
+                # `\b` so that a name *ending* in eval — `_grade_retrieval(`,
+                # `medieval(` — is not a call to eval. Found by this analyzer
+                # reporting a CRITICAL on its own repository's evaluate.py
+                # (Level 27), which is what the dogfooding gate is for.
+                r"\beval\s*\(",
                 Severity.CRITICAL,
                 "eval() executes arbitrary code",
                 "Avoid eval(). Use ast.literal_eval() for data parsing",
                 "CWE-95",
             ),
             (
-                r"exec\s*\(",
+                # Same boundary, same reason: `codec_exec(` is not `exec(`.
+                r"\bexec\s*\(",
                 Severity.CRITICAL,
                 "exec() executes arbitrary code",
                 "Avoid exec(). Find alternative approaches",

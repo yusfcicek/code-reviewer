@@ -1,0 +1,19 @@
+#
+# MEANT TO FAIL: required_sections_are_present.
+#
+# Four sections missing rather than one. The existing case drops a single
+# heading; a model that runs out of budget drops everything after the first,
+# and the two are different failures with the same name.
+name: only-a-security-section
+file: fixtures/sql_injection.py
+expect_failures:
+  - required_sections_are_present
+findings:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+    title: SQL Injection
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: SQL Injection at `fixtures/sql_injection.py:11`

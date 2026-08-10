@@ -32,6 +32,7 @@ would move two numbers for one defect (contract C-3).
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from .confidence import Interval, f1_interval, wilson
 from .finding import Finding
 from .severity import Severity
 
@@ -68,6 +69,32 @@ class ConfusionMatrix:
         """Of what was there, how much was reported."""
         present = self.true_positives + self.false_negatives
         return self.true_positives / present if present else 1.0
+
+    @property
+    def precision_interval(self) -> "Interval":
+        """Precision, with the rates still consistent with what was seen.
+
+        Over the *claims made*: a precision of 1.00 from four findings is a
+        different statement from the same number over four hundred, and until
+        Level 25 this repository printed them identically.
+        """
+        return wilson(self.true_positives, self.true_positives + self.false_positives)
+
+    @property
+    def recall_interval(self) -> "Interval":
+        """Recall, over the findings that should have been made."""
+        return wilson(self.true_positives, self.true_positives + self.false_negatives)
+
+    @property
+    def f1_interval(self) -> "Interval":
+        """A bound for F1, derived from the precision and recall bounds.
+
+        Not sampled: F1 is a harmonic mean and has no sample of successes of
+        its own. The first version of this manufactured one — a Wilson interval
+        over every graded outcome — and produced bounds belonging to 0.83 while
+        the number printed beside them read 0.80 (self-review 25, S-02).
+        """
+        return f1_interval(self.precision_interval, self.recall_interval)
 
     @property
     def f1(self) -> float:
@@ -275,15 +302,25 @@ class EvaluationThreshold:
             return reasons
 
         matrix = report.overall
-        for name, value, floor in (
-            ("precision", matrix.precision, self.min_precision),
-            ("recall", matrix.recall, self.min_recall),
-            ("f1", matrix.f1, self.min_f1),
+        for name, interval, floor in (
+            ("precision", matrix.precision_interval, self.min_precision),
+            ("recall", matrix.recall_interval, self.min_recall),
+            ("f1", matrix.f1_interval, self.min_f1),
         ):
-            # A hair of tolerance, so a floor of 0.9 is not breached by a
-            # value that is 0.9 in every way except its last binary digit.
-            if value < floor - 1e-9:
-                reasons.append(f"{name} {value:.2f} is below the floor of {floor:.2f}")
+            # The floor is applied to the interval's **lower bound**, not to the
+            # point estimate (Level 25, decision D-2). 1.00 over fifteen cases is
+            # consistent with a real rate of 0.80, and the previous arrangement
+            # cleared a 0.95 floor on it. The gate is deliberately harder now:
+            # the way to clear it is more cases rather than a better afternoon.
+            #
+            # A hair of tolerance, so a floor of 0.9 is not breached by a value
+            # that is 0.9 in every way except its last binary digit.
+            if interval.lower < floor - 1e-9:
+                reasons.append(
+                    f"{name} {interval.point:.2f} over {interval.total} case(s) has a lower bound of "
+                    f"{interval.lower:.2f}, below the floor of {floor:.2f} — "
+                    "either the measurement is worse than it looks or the corpus is too small to say"
+                )
 
         return reasons
 

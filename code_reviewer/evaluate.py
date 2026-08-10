@@ -39,10 +39,37 @@ from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationC
 #: The dataset shipped with this repository.
 DEFAULT_DATASET = "evaluation"
 
-#: The floor the shipped narration corpus holds. Every case either passes every
-#: check or declares the one it is built to break, so the measured value is
-#: 1.00 and the floor is the measurement rather than a hope (Level 21).
-DEFAULT_NARRATION_FLOOR = 1.0
+#: The floor the shipped narration corpus holds, applied to the **lower bound**
+#: of a 95 % interval over **cases**.
+#:
+#: 0.85 rather than 0.95, and the correction is a finding rather than a
+#: relaxation. The first version counted checks — twenty-four cases times five —
+#: as a hundred and twenty independent trials, which narrowed the interval from
+#: [0.86, 1.00] to [0.97, 1.00], and the floor was then chosen from the narrow
+#: number. Checks inside one review are not independent: a review with no
+#: sections fails two checks for one reason (self-review 25, S-01).
+#:
+#: Every case still either passes every check or declares the one it is built
+#: to break, so the point estimate is 1.00 and twenty-four cases support 0.86.
+DEFAULT_NARRATION_FLOOR = 0.85
+
+#: The floor the shipped retrieval corpus holds, on the lower bound.
+#:
+#: 0.35 rather than 0.55, and the correction is a finding rather than a
+#: relaxation. Every case originally carried three document sections and the
+#: measurement asked for the top three, so every section was always returned and
+#: recall was 1.00 by construction — a measurement that could not fail, which is
+#: the defect this level was written to close (self-review 27, S-01). With a
+#: haystack the retriever misses one case of five: 0.80 [0.38, 0.96].
+DEFAULT_RETRIEVAL_FLOOR = 0.35
+
+#: How often the related section must come back *first*. The figure a retriever
+#: can actually fail, so it is floored rather than only printed (S-03).
+DEFAULT_FIRST_PLACE_FLOOR = 0.4
+
+#: How deep the measurement looks — the drift tier's own per-file limit.
+#: Measuring at a depth the tier never uses measures something else.
+DEFAULT_RETRIEVAL_LIMIT = 3
 
 EXIT_OK = 0
 EXIT_BELOW_THRESHOLD = 1
@@ -107,6 +134,51 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum acceptable narration score. Below it, the command exits 1.",
     )
     parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "With --narration: grade what the configured model produces now "
+            "instead of the recorded reviews. Needs an endpoint; without one "
+            "the command exits 2, because a measurement that could not be "
+            "taken is not a bad score."
+        ),
+    )
+    parser.add_argument(
+        "--retrieval",
+        action="store_true",
+        help=(
+            "Grade the drift tier's retrieval: whether the document section a "
+            "reader says relates to a change comes back, and at what rank. "
+            "Deterministic — it measures what reached the model, never whether "
+            "the model was right."
+        ),
+    )
+    parser.add_argument(
+        "--min-retrieval",
+        type=_floor,
+        default=_floor(_env("EVALUATION_MIN_RETRIEVAL", str(DEFAULT_RETRIEVAL_FLOOR))),
+        help="Minimum acceptable recall, on the interval's lower bound.",
+    )
+    parser.add_argument(
+        "--write-baseline",
+        default="",
+        metavar="PATH",
+        help=(
+            "With --narration: store this run as a baseline, keyed by the model "
+            "and prompt fingerprint that produced it."
+        ),
+    )
+    parser.add_argument(
+        "--compare-baseline",
+        default="",
+        metavar="PATH",
+        help=(
+            "With --narration: report what moved since a stored baseline, per "
+            "check. Two runs over different cases are refused rather than "
+            "differenced."
+        ),
+    )
+    parser.add_argument(
         "--documentation",
         action="store_true",
         help=(
@@ -137,6 +209,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _grade_narration(args)
     if args.documentation:
         return _grade_documentation(args)
+    if args.retrieval:
+        return _grade_retrieval(args)
 
     threshold = EvaluationThreshold(
         min_precision=args.min_precision,
@@ -179,10 +253,31 @@ def _grade_narration(args) -> int:
 
     try:
         cases = NarrationCorpus(args.dataset).cases()
-        report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
     except ConfigurationError as error:
         print(f"Narration evaluation could not run: {error}", file=sys.stderr)  # stdout: the output
         return EXIT_CANNOT_MEASURE
+
+    if args.live:
+        outcome = _live_narration(cases, args)
+        if outcome is None:
+            return EXIT_CANNOT_MEASURE
+        if outcome.measured_nothing:
+            print(  # stdout: the program's output, not a diagnostic
+                f"Nothing could be measured: {len(outcome.unreachable)} case(s) unreachable.",
+                file=sys.stderr,
+            )
+            return EXIT_CANNOT_MEASURE
+        report = outcome.report
+        if outcome.unreachable:
+            print(  # stdout: the program's output, not a diagnostic
+                f"{len(outcome.unreachable)} case(s) could not be reviewed and are not in the score: "
+                f"{', '.join(outcome.unreachable)}",
+                file=sys.stderr,
+            )
+    else:
+        report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
+
+    _baselines(report, args)
 
     try:
         _emit(render_narration_report(report, args.min_narration), args.markdown)
@@ -194,7 +289,55 @@ def _grade_narration(args) -> int:
         )
         return EXIT_CANNOT_MEASURE
 
-    return EXIT_OK if report.score >= args.min_narration else EXIT_BELOW_THRESHOLD
+    # The lower bound, not the point estimate (Level 25, decision D-2). The
+    # exit code and the rendered verdict were reading two different numbers,
+    # which is how a report can say BELOW THE FLOOR and exit zero.
+    return EXIT_OK if report.score_interval.lower >= args.min_narration else EXIT_BELOW_THRESHOLD
+
+
+def _grade_retrieval(args) -> int:
+    """Grades the drift tier's retrieval. Same three exit codes.
+
+    The corpus carries its own documents, so each case builds its own index —
+    which is also what makes the cases independent, and therefore what makes
+    the interval over cases honest.
+    """
+    from code_reviewer.application.retrieval_recall import measure_recall, render_recall_report
+    from code_reviewer.application.retrieval_service import HybridRetriever
+    from code_reviewer.infrastructure.evaluation.retrieval_dataset import RetrievalCorpus
+    from code_reviewer.infrastructure.retrieval.chunking import chunk_markdown
+    from code_reviewer.infrastructure.retrieval.embedding import HashingEmbedding
+    from code_reviewer.infrastructure.retrieval.lexical import BM25Index
+    from code_reviewer.infrastructure.retrieval.vector_index import InMemoryVectorIndex
+
+    def build(documents):
+        retriever = HybridRetriever(
+            embedding=HashingEmbedding(), lexical=BM25Index(), vectors=InMemoryVectorIndex()
+        )
+        retriever.index([chunk for path, text in documents for chunk in chunk_markdown(path, text)])
+        return retriever
+
+    try:
+        cases = RetrievalCorpus(args.dataset).cases()
+    except ConfigurationError as error:
+        print(f"Retrieval evaluation could not run: {error}", file=sys.stderr)  # stdout: the output
+        return EXIT_CANNOT_MEASURE
+
+    report = measure_recall(cases, build, limit=DEFAULT_RETRIEVAL_LIMIT)
+
+    try:
+        _emit(render_recall_report(report, args.min_retrieval, DEFAULT_FIRST_PLACE_FLOOR), args.markdown)
+    except OSError as error:
+        print(  # stdout: the program's output, not a diagnostic
+            f"Retrieval evaluation ran but could not be written: {error}", file=sys.stderr
+        )
+        return EXIT_CANNOT_MEASURE
+
+    if report.errors or not report.results:
+        return EXIT_CANNOT_MEASURE
+    if report.first_rank_share < DEFAULT_FIRST_PLACE_FLOOR:
+        return EXIT_BELOW_THRESHOLD
+    return EXIT_OK if report.interval.lower >= args.min_retrieval else EXIT_BELOW_THRESHOLD
 
 
 def _grade_documentation(args) -> int:
@@ -229,6 +372,73 @@ def _grade_documentation(args) -> int:
     if report.has_errors:
         return EXIT_CANNOT_MEASURE
     return EXIT_OK if threshold.is_met(report) else EXIT_BELOW_THRESHOLD
+
+
+def _baselines(report, args) -> None:
+    """Stores this run, compares it with a stored one, or neither.
+
+    Never changes the exit code. A delta is something to read, not a gate: what
+    counts as an acceptable movement is a judgement, and encoding one here
+    would be inventing a policy nobody stated.
+    """
+    from code_reviewer.application.baselines import (
+        baseline_from,
+        compare,
+        read_baseline,
+        render_comparison,
+        write_baseline,
+    )
+    from code_reviewer.infrastructure.governance.identity import prompt_fingerprint
+
+    if not (args.write_baseline or args.compare_baseline):
+        return
+
+    model = os.environ.get("VLLM_MODEL_NAME", "")
+    fingerprint = prompt_fingerprint()
+
+    if args.compare_baseline:
+        stored = read_baseline(args.compare_baseline)
+        if stored is None:
+            print(  # stdout: the program's output, not a diagnostic
+                f"Nothing to compare against at '{args.compare_baseline}'.", file=sys.stderr
+            )
+        else:
+            print(render_comparison(compare(stored, report, model, fingerprint)))  # stdout: the output
+
+    if args.write_baseline:
+        from datetime import UTC, datetime
+
+        write_baseline(
+            args.write_baseline,
+            baseline_from(report, model, fingerprint, datetime.now(UTC).isoformat()),
+        )
+
+
+def _live_narration(cases, args):
+    """A live run, or ``None`` when there is no model to run it against.
+
+    Imported here rather than at module scope so that the recorded path — the
+    one CI takes — never so much as loads the code that can call a model.
+    """
+    from code_reviewer.application.live_narration import grade_live
+    from code_reviewer.infrastructure.governance.identity import prompt_fingerprint
+
+    try:
+        from code_reviewer.__main__ import _build_reviewer
+        from code_reviewer.cli import build_parser as review_parser
+
+        reviewer = _build_reviewer(review_parser().parse_args([]))
+    except Exception as error:  # pragma: no cover - depends on the deployment
+        print(  # stdout: the program's output, not a diagnostic
+            f"Live narration could not run: no reviewer could be built ({type(error).__name__}).",
+            file=sys.stderr,
+        )
+        return None
+
+    def _source(case):
+        return (Path(args.dataset) / case.file_path).read_text(encoding="utf-8")
+
+    return grade_live(cases, reviewer, _source, fingerprint=prompt_fingerprint())
 
 
 def _emit(text: str, destination: str) -> None:

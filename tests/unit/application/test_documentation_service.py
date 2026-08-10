@@ -325,3 +325,69 @@ class TestAMergeRequestThatOnlyDeletes:
 
         assert "README.md:3" in body
         assert "AI Review Report" in body
+
+
+class TestARenameYieldsASuggestion:
+    """Level 27, step 6 — wired to a review.
+
+    The only documentation edit this repository offers, and the reason it can:
+    the diff knows both names, so the substitution is arithmetic. A test in
+    `test_architecture.py` asserts nothing in this path can come from a model.
+    """
+
+    RENAME = "@@ -1,3 +1,3 @@\n-def start_app(config):\n+def create_app(config):\n     return config\n"
+
+    def _outcome(self, document="# Guide\n\nBoot with `start_app`.\n"):
+        return DocumentationService(index=INDEX, documents=[("README.md", document)]).review(
+            [FileChange(path="app.py", diff=self.RENAME)], {}
+        )
+
+    def test_the_dead_reference_carries_a_suggestion(self):
+        outcome = self._outcome()
+
+        assert outcome.suggestions
+
+    def test_the_suggestion_substitutes_the_new_name(self):
+        document = "# Guide\n\nBoot with `start_app`.\n"
+
+        applied = self._outcome(document).suggestions[0].applied_to(document)
+
+        assert "create_app" in applied
+        assert "start_app" not in applied
+
+    def test_the_finding_is_still_reported(self):
+        """The suggestion is additive. A reader who does not click still learns
+        the document is stale."""
+        assert [f.rule_id for f in self._outcome().findings] == ["DOCS.DEAD_REFERENCE"]
+
+    def test_an_ambiguous_rename_yields_the_finding_and_no_suggestion(self):
+        ambiguous = (
+            "@@ -1,6 +1,6 @@\n"
+            "-def start_app(config):\n"
+            "-def start_worker(config):\n"
+            "+def create_app(config):\n"
+            "+def create_worker(config):\n"
+        )
+
+        outcome = DocumentationService(
+            index=INDEX, documents=[("README.md", "# Guide\n\nBoot with `start_app`.\n")]
+        ).review([FileChange(path="app.py", diff=ambiguous)], {})
+
+        assert outcome.findings
+        assert outcome.suggestions == []
+
+    def test_a_removal_that_is_not_a_rename_yields_no_suggestion(self):
+        removal = "@@ -1,3 +1,1 @@\n-def start_app(config):\n-    return config\n"
+
+        outcome = DocumentationService(
+            index=INDEX, documents=[("README.md", "# Guide\n\nBoot with `start_app`.\n")]
+        ).review([FileChange(path="app.py", diff=removal)], {})
+
+        assert outcome.findings
+        assert outcome.suggestions == []
+
+    def test_a_clean_document_yields_neither(self):
+        outcome = self._outcome("# Guide\n\nNothing relevant here.\n")
+
+        assert outcome.findings == []
+        assert outcome.suggestions == []

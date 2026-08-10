@@ -1,0 +1,41 @@
+#
+# MEANT TO FAIL: severe_findings_are_mentioned.
+#
+# Two critical findings, one of them mentioned. A review that covers the first
+# and stops is the common shape of this failure, and it passes any check that
+# only asks whether *something* severe was named.
+name: silent-about-two-criticals
+file: fixtures/sql_injection.py
+expect_failures:
+  - severe_findings_are_mentioned
+findings:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+    title: SQL Injection
+  - rule: SAST.HARDCODED_SECRET
+    line: 5
+    severity: critical
+    title: Hardcoded Secret
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: SQL Injection at `fixtures/sql_injection.py:11`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/sql_injection.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - user input reaches the query text
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None

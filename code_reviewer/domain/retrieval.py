@@ -27,6 +27,11 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+#: What a retriever with no notion of a score reports. NaN rather than a
+#: sentinel number: every comparison against it is false, so a floor cannot
+#: accidentally pass or fail it — it has to be asked about explicitly.
+UNSCORED = float("nan")
+
 #: An embedding. A plain tuple so it is hashable, immutable and framework-free.
 Vector = tuple[float, ...]
 
@@ -70,10 +75,21 @@ class CodeChunk:
 
 @dataclass(frozen=True)
 class ScoredChunk:
-    """A chunk and how well it did, in whatever ranking produced it."""
+    """A chunk and how well it did, in whatever ranking produced it.
+
+    ``score`` may be :data:`UNSCORED`, which is a different statement from a
+    score of nought: it means the ranking that produced this chunk has no
+    notion of a score at all. A floor applied to unscored results must report
+    itself as inapplicable rather than passing everything — silence there is
+    how Level 23 lost a whole tier for a whole level (Level 27, decision D-2).
+    """
 
     chunk: CodeChunk
     score: float
+
+    @property
+    def is_scored(self) -> bool:
+        return self.score is not UNSCORED and self.score == self.score
 
 
 def render_chunks(chunks: Sequence[CodeChunk], separator: str = "\n\n") -> str:

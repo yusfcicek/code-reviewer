@@ -12,6 +12,7 @@ which handed callers a framework type through the abstraction meant to hide it
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,7 +21,7 @@ from code_reviewer.domain.evaluation import EvaluationCase
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.orchestration import AgentReport, Assignment
 from code_reviewer.domain.recollection import Recollection
-from code_reviewer.domain.retrieval import CodeChunk, ScoredChunk, Vector
+from code_reviewer.domain.retrieval import UNSCORED, CodeChunk, ScoredChunk, Vector
 from code_reviewer.domain.suppression import SuppressionResult
 
 
@@ -288,6 +289,21 @@ class CodeRetriever(ABC):
     workflow's whole knowledge of retrieval is this one method.
     """
 
+    def scored(self, query: str, limit: int = 5, exclude_path: str = "") -> list[ScoredChunk]:
+        """The same results, with the ranking's score attached.
+
+        The default delegates to :meth:`related` and marks every result
+        **unscored**, because a retriever with no notion of a score is a real
+        thing — a keyword-only adapter, a stub in a test — and a caller applying
+        a relevance floor has to be able to tell. Level 23 described a floor
+        this port could not express, dropped it, and then lost a whole tier to
+        the silence (Level 27).
+        """
+        return [
+            ScoredChunk(chunk=chunk, score=UNSCORED)
+            for chunk in self.related(query, limit=limit, exclude_path=exclude_path)
+        ]
+
     @abstractmethod
     def related(self, query: str, limit: int = 5, exclude_path: str = "") -> list[CodeChunk]:
         """Chunks worth showing alongside ``query``.
@@ -314,6 +330,106 @@ class DriftJudge(ABC):
     def still_describes(self, candidate: DriftCandidate) -> DriftVerdict:
         """The verdict for one candidate. Raising is allowed; the caller
         treats a failure as `UNSURE` and loses the candidate, not the review."""
+
+
+class Signer(ABC):
+    """Signs a decision record's digest, and checks a signature it made.
+
+    A port because the key is a deployment's and never this repository's — a
+    key that could be generated here is one an attacker with the repository can
+    generate (Level 24, decision D-2). The default adapter reads a key the
+    operator supplies and refuses to construct without one; a deployment that
+    supplies none gets a signer that signs nothing and says so.
+
+    Symmetric by default, which is honest about what it buys: the verifier
+    needs the key the signer had. An asymmetric adapter is a sibling module and
+    a key-distribution problem this repository cannot solve on anybody's behalf.
+    """
+
+    @property
+    @abstractmethod
+    def key_id(self) -> str:
+        """Which key this is. Never the key itself."""
+
+    @property
+    @abstractmethod
+    def is_signing(self) -> bool:
+        """Whether anything will actually be signed."""
+
+    @abstractmethod
+    def sign(self, digest: str) -> tuple[str, str]:
+        """The signature and the key id, or two empty strings."""
+
+    @abstractmethod
+    def accepts(self, digest: str, signature: str, key_id: str) -> bool:
+        """Whether this key produced that signature. Never raises."""
+
+
+class NullSigner(Signer):
+    """Signs nothing, and says so.
+
+    What a deployment with no key gets, and a null object rather than a `None`
+    check at every call site — the same choice `NullTracer` made for the same
+    reason.
+
+    Records are still written and still chained, and that is worth exactly what
+    it is worth: the digest takes no key, so an unsigned chain catches
+    corruption and a careless edit, and catches nothing at all from somebody
+    who can run this tool. The verifier says so on every unsigned answer rather
+    than leaving a deployment to infer it (self-review 24, S-02).
+    """
+
+    @property
+    def key_id(self) -> str:
+        return ""
+
+    @property
+    def is_signing(self) -> bool:
+        return False
+
+    def sign(self, digest: str) -> tuple[str, str]:
+        return "", ""
+
+    def accepts(self, digest: str, signature: str, key_id: str) -> bool:
+        """Nothing. A verifier handed one reports *unverifiable*, not intact."""
+        return False
+
+
+class AuditStore(ABC):
+    """A sealed decision-record store, as an operator's tool sees it.
+
+    A port because erasure is policy — what to remove, what to refuse — and the
+    file it happens to live in is not. Level 22 made the same move when the
+    architecture test caught a service reaching into infrastructure for its
+    recipes: the answer is not an exception, it is noticing which half is a
+    rule about data and which half is I/O.
+    """
+
+    @abstractmethod
+    def exists(self) -> bool:
+        """Whether there is a store here at all.
+
+        Distinct from an empty one: a store with no records is a deployment
+        that has reviewed nothing, and a store that is not there is a path
+        somebody got wrong. An erasure refuses the second rather than creating
+        it.
+        """
+
+    @abstractmethod
+    def payloads(self) -> list[dict]:
+        """Every record, in stored order. Tombstones included."""
+
+    @abstractmethod
+    def is_signed(self) -> bool:
+        """Whether anything in the store carries a signature."""
+
+    @abstractmethod
+    def is_verifiable(self, signer: "Signer") -> tuple[bool, str]:
+        """Whether the store verifies, and what is wrong if it does not."""
+
+    @abstractmethod
+    def replace(self, payloads: "Sequence[Mapping[str, Any]]", signer: "Signer") -> None:
+        """Re-seals the whole store from the beginning, atomically."""
 
 
 class MemoryStore(ABC):

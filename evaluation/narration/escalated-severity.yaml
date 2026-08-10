@@ -1,0 +1,37 @@
+#
+# MEANT TO FAIL: severity_claims_are_backed.
+#
+# A real finding, graded HIGH, described in the prose as CRITICAL. The
+# direction that matters: a model that rounds severity upward makes every
+# review louder and the loud ones meaningless.
+name: escalated-severity
+file: fixtures/weak_crypto.py
+expect_failures:
+  - severity_claims_are_backed
+findings:
+  - rule: SAST.WEAK_CRYPTO
+    line: 7
+    severity: high
+    title: Weak Crypto
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - CRITICAL
+  - **Vulnerabilities Found**: Weak Crypto at `fixtures/weak_crypto.py:7`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/weak_crypto.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: CRITICAL - the digest is not collision resistant
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None

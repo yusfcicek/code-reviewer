@@ -7,6 +7,320 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.21.1] — 2026-08-10
+
+The self-review of Level 27, and its three findings closed. Recorded in
+[`docs/roadmap/self-review-27.md`](docs/roadmap/self-review-27.md).
+
+The level was written because Level 23 shipped a tier whose complete absence was
+indistinguishable from its working. The first finding is that its replacement had
+the same property.
+
+### Fixed
+
+- **The retrieval measurement could not fail.** Every case carried three
+  document sections and the measurement asked for the top three, so every
+  section was always returned: recall was 1.00 by construction, and would have
+  stayed 1.00 for a retriever that ranked at random. Each case now hides its
+  answer among ten sections, the retriever misses one case of five, and the
+  floor is 0.35 — the number went down because the corpus got harder, not
+  because the retriever got worse. A test asserts every case has more sections
+  than the measurement asks for.
+- **Any one-removal, one-addition diff was called a rename.** A function
+  deleted beside an unrelated constant added produced `start_app → MAX_RETRIES`
+  and would have substituted the wrong word into a README on one click. A rename
+  now needs both sides to be declarations of the **same kind**.
+- **The only informative number was not floored.** Recall was the floored figure
+  and, per the first finding, was free; the first-place share is what a
+  retriever can fail, and it is floored at 40 % now.
+
+---
+
+## [2.21.0] — 2026-08-10
+
+Level 27 — measuring the half that was never measured. Recorded in
+[`docs/roadmap/level-27/spec.md`](docs/roadmap/level-27/spec.md) and
+[ADR 0029](docs/adr/0029-measure-the-half-that-is-measurable.md).
+
+Level 23 declared the retrieved tier unmeasurable because its answer comes from
+a model. That is true of the judgement and was taken to be true of the whole
+tier — and the tier then returned nothing at all for a level, with nothing to
+notice.
+
+### Added
+
+- **A scored query on the retrieval port.** The default marks results
+  *unscored*, so a floor over them reports itself as NOT APPLIED rather than
+  passing everything. `NaN` rather than a sentinel, so a floor cannot
+  accidentally pass or fail it.
+- **A relevance floor on the drift tier**, with the number it dropped reported.
+- **`evaluate --retrieval`.** Five authored cases, each carrying its own
+  documents and the argument for why they relate. Recall `0.80 [0.38, 0.96]`
+  over 5 at the tier's own limit of three, floored at 0.35, with the related
+  section first 60 % of the time and floored there too. What is *not* measured — whether the model was
+  right — is printed in the report.
+- **Go, JavaScript, TypeScript and Java in the symbol index.** Declarations, not
+  programs; `COVERED_LANGUAGES` states the scope. Python keeps its AST path and
+  therefore its parameter names.
+- **A rename suggestion for documentation.** The diff knows both names, so the
+  substitution is arithmetic. Ambiguous renames yield nothing; prose is still
+  never suggested.
+
+### Notes
+
+**`DOCS` still blocks nothing, and now there is a number for why.** Six graded
+findings support a lower bound of 0.61; a blocking gate wants 0.95, which on a
+lower bound needs about a hundred. A test records the arithmetic.
+
+### Fixed
+
+- The SAST table's `eval\s*\(` matched `_grade_retrieval(args)` and reported a
+  CRITICAL command injection in this repository's own `evaluate.py`. `eval` and
+  `exec` now require a word boundary — found by the dogfooding gate, which is
+  what it is for.
+
+---
+
+## [2.20.1] — 2026-08-10
+
+The self-review of Level 26, and its four findings closed. Recorded in
+[`docs/roadmap/self-review-26.md`](docs/roadmap/self-review-26.md).
+
+The level's spec says the recipes were chosen by mechanism rather than by ease.
+Three of the four were. The fourth was chosen by imagining what its rule
+detects, without reading it.
+
+### Fixed
+
+- **`except: raise` was rewritten to `except Exception:` and the `raise` was
+  deleted.** A handler that re-raised began swallowing the exception —
+  invisible in a one-line diff, and the opposite of a fix. The guard for exactly
+  this looked at the *following* lines, and the single-line form has none. Every
+  single-line body is now declined, because the replacement discarded whatever
+  came after the colon.
+- **A recipe answered a question its rule never asks.**
+  `SAST.INSECURE_FILE_OPERATION` fires on `chmod(…777)` and on `open(…, "w")`;
+  the recipe handled `open(path)` with no mode, which the rule never reports,
+  and added `"r"` — the default, so it changed nothing. Removed, and declined on
+  the record with that reason. Coverage is 6 of 39, not 7.
+- **Only the first URL on a line was upgraded.** Half a fix a reviewer reads as
+  a whole one, and the half left behind is the one nobody looks at again because
+  the finding is now closed. Every URL on the line, or none.
+- **A `random` call inside a comment yielded a suggestion** and an unused
+  import. The rule is not wrong to fire — its pattern has no notion of context —
+  but the recipe was wrong to act on it.
+
+---
+
+## [2.20.0] — 2026-08-10
+
+Level 26 — more of the fixes that are arithmetic. Recorded in
+[`docs/roadmap/level-26/spec.md`](docs/roadmap/level-26/spec.md) and
+[ADR 0028](docs/adr/0028-a-suggestion-is-a-set-of-edits.md).
+
+Level 22 shipped three recipes against thirty-nine emittable rules, so 8 % of
+findings got a button and the rest got a paragraph telling somebody what to
+type. Its one-contiguous-range rule cost the other half by accident: a fix
+needing an import at the top and a call in the middle was not expressible.
+
+### Added
+
+- **A suggestion is a set of edits.** Non-overlapping, applied bottom-up, and
+  bounded as a whole — five edits of twelve lines is not a twelve-line
+  suggestion. `Suggestion.single` keeps the Level 22 shape, and the tests that
+  pinned it were not rewritten.
+- **Three recipes**, taking coverage from three rules to six.
+  `SAST.INSECURE_RANDOM` rewrites the call *and* adds `import secrets`, which is
+  the two-part edit the format change exists for. `SAST.INSECURE_HTTP` and
+  `QUALITY.ERROR_HANDLING` each decline more than they accept.
+- **An import that lands where imports go** — after the last import, or after
+  the module docstring, never before it, and never when the module is already
+  imported in any spelling.
+- **Recipe coverage, measured.** 6 of 39, and the thirty-three without one each
+  carry a recorded reason. A rule with neither is a red test.
+
+### Changed
+
+- **One note per edit.** A `suggestion` block replaces lines around the note's
+  own line and must include it, so two disjoint edits cannot share a note — a
+  correction to this level's own plan, found by reading the platform's rules.
+  Each note says which part of the whole it is.
+
+### Notes
+
+`SAST.DEBUG_CODE` is the most obviously mechanical rule left and is declined on
+the record: its fix is a deletion, and Level 22 refused an empty replacement for
+a reason this level honours rather than reverses in passing.
+
+---
+
+## [2.19.1] — 2026-08-10
+
+The self-review of Level 25, and its four findings closed. Recorded in
+[`docs/roadmap/self-review-25.md`](docs/roadmap/self-review-25.md).
+
+The level's subject is a number that does not imply more than it knows. Two of
+its own did, and one of the two is what set a floor.
+
+### Fixed
+
+- **The narration interval treated 120 correlated checks as independent.** 24
+  cases × 5 checks went to Wilson as 120 trials, narrowing the interval from
+  `[0.86, 1.00]` to `[0.97, 1.00]` — and the floor was chosen from the narrow
+  number. Checks inside one review are not independent: a review with no
+  sections fails two checks for one reason. The interval is now over cases and
+  the floor is 0.85.
+- **The F1 "interval" was not an interval for the number beside it.** F1 is a
+  harmonic mean with no sample of successes, and the manufactured Wilson bounds
+  belonged to 0.83 while the printed point read 0.80. F1 is monotone in both
+  inputs, so the bound is now the harmonic mean of the precision and recall
+  bounds — conservative, and defensible.
+- **A baseline predating a check reported a rise from nothing.** Reading an
+  absent rate as nought rendered adding a check to the corpus as the reviewer
+  improving on four fronts. New checks are reported as new.
+- **A live run that measured nothing exited `1` rather than `2`.** Every case
+  unreachable is not a bad score, a distinction enforced since Level 10.
+
+---
+
+## [2.19.0] — 2026-08-10
+
+Level 25 — a measurement that says how much it knows. Recorded in
+[`docs/roadmap/level-25/spec.md`](docs/roadmap/level-25/spec.md) and
+[ADR 0027](docs/adr/0027-a-score-that-states-its-own-uncertainty.md).
+
+This repository has printed `1.00 over eleven cases` since Level 12 and treated
+the two halves as one fact. Both are true; together they mislead, and the
+arithmetic says by how much — ten of ten is consistent with a real rate of 0.72.
+
+### Added
+
+- **A Wilson interval on every score**, with the method and confidence printed
+  beside it. The normal approximation gives `[1.00, 1.00]` at fifteen of
+  fifteen, which is how this happened in the first place.
+- **Coverage per check, in both directions** — how many cases pass it, how many
+  demonstrate it firing. A check under three demonstrations is named rather than
+  averaged away.
+- **Nine narration cases**, chosen from the coverage table: a citation past the
+  end of a real file and one to a sibling, a verdict in the passive voice, an
+  invented critical and an escalated severity, two criticals with one mentioned
+  and a severe finding implied but never named, a review cut to one section and
+  one whose sections are all renamed.
+- **`evaluate --narration --live`** grades what the configured reviewer produces
+  now. Opt-in; the default suite never calls a model, asserted by a test.
+- **`--write-baseline` and `--compare-baseline`.** A baseline carries the model
+  and prompt fingerprint that produced it; a comparison reports per-check
+  movement and refuses two different case sets.
+
+### Changed
+
+- **The floor is applied to the interval's lower bound.** The gate is strictly
+  harder, and the committed floors are 0.70 (analyzers), 0.60 (documentation)
+  and 0.95 (narration) — the most those samples support. A later level that adds
+  cases earns the higher numbers.
+- A dataset that measures nothing no longer clears every floor by dividing
+  nothing by nothing.
+- The narration corpus README, the analyzer baseline and the run identity all
+  quote the interval rather than the bare score.
+
+### Fixed
+
+- The narration exit code compared the point estimate while the rendered verdict
+  compared the bound, so a report could say BELOW THE FLOOR and exit zero.
+
+---
+
+## [2.18.1] — 2026-08-10
+
+The self-review of Level 24, and its four findings closed. Recorded in
+[`docs/roadmap/self-review-24.md`](docs/roadmap/self-review-24.md).
+
+The level's argument was "we say exactly what this buys and no more". Twice
+that sentence was untrue, and the review found it by running the attacks rather
+than by reading the claims.
+
+### Fixed
+
+- **A signed store could be truncated at the tail and still verified.** Five
+  records, the last three deleted: every remaining link correct, every remaining
+  signature valid, because nothing said how long the store should be — and the
+  record somebody wants gone is usually the most recent. Each record now carries
+  its position, verification reports where the store ends, and
+  `verify --expect-at-least N` compares against a count kept outside the file.
+  Truncation still cannot be *detected* from the file alone, and the README, the
+  ADR and the spec now say so instead of claiming otherwise.
+- **An unsigned chain detected nothing an attacker with the tool does.** The
+  digest takes no key, so editing a line and recomputing every seal produced a
+  store that verified. The verifier now states this on every unsigned answer;
+  the code used to call it "the cheaper guarantee" without saying cheaper than
+  what.
+- **An undated record was destroyed by every age-based erasure.** `"" >= before`
+  is false, so a record with no `recorded_at` fell through every guard and
+  matched. What cannot be dated cannot be aged out; it can still be erased by
+  name.
+- **Timestamps were compared as strings.** `2026-06-01T05:00:00+03:00` is 02:00Z
+  and sorted after a 03:00Z cutoff, so it survived an erasure it was two hours
+  older than — any runner outside UTC was exposed, and an erasure request that
+  leaves data in place is the failure with a legal consequence attached. Compared
+  as instants now, and a cutoff that cannot be read refuses the whole operation.
+
+---
+
+## [2.18.0] — 2026-08-10
+
+Level 24 — a record somebody else can check. Recorded in
+[`docs/roadmap/level-24/spec.md`](docs/roadmap/level-24/spec.md) and
+[ADR 0026](docs/adr/0026-detection-rather-than-prevention.md).
+
+Level 20 wrote the decision record and refused three things in the same
+document. Each refusal was right about the thing it named and wrong about the
+thing beside it: a record that cannot hold a key can still be **signable**, a
+control mapping is not an **obligation**, and a deletion mechanism is not a
+**retention policy**.
+
+**What this buys, stated plainly:** an operator holding the key *and* the store
+can forge anything. What a chain and a signature buy is that the cheap tampers —
+edit one line, delete one line, swap two — stop being invisible. Those are the
+tampers an ordinary mistake and an ordinary insider produce.
+
+### Added
+
+- **A sealed store.** Each record names the digest of the one before it and
+  its own position, so an edited, removed or reordered line is detectable.
+  `--audit-path` writes one now.
+- **Signing with a key this repository never produces.** No generated key, no
+  bundled key, no fallback to something weaker: `REVIEW_AUDIT_KEY` or nothing is
+  signed. A key that is present but too short produces no signer, and neither
+  case stops the process.
+- **A verifier that answers with a position.** `ai-code-review-audit verify`
+  reports the first failing record and whether the *digest* disagreed (the line
+  was edited) or the *link* did (one was removed, inserted or moved).
+- **Three states, not two.** `unverifiable` — unsigned, partly signed, or signed
+  with no key available — is distinguished from `tampered`. Conflating them is
+  how a verifier gets turned off before it ever sees a real tamper.
+- **A control mapping as data.** NIST SP 800-53 Rev. 5 ships as a replaceable
+  YAML file naming its publisher and revision. The rendering says what a run is
+  *evidence of*; a test asserts it never says "compliant" or "certified", and
+  controls with **no** evidence are listed rather than omitted.
+- **Erasure and redaction.** `audit erase` and `audit redact` rewrite and
+  re-sign the chain so the store still verifies, leaving a **tombstone** at each
+  removed position with the time and the policy. A store that did not verify
+  beforehand is refused: rewriting it would re-seal somebody else's alteration.
+
+### Changed
+
+- `NullSigner` lives beside the `Signer` port, the way `NullTracer` sits beside
+  `Tracer`.
+
+### Notes
+
+Nothing in this level can fail a review. A signer that raises writes the record
+unsigned; a store that cannot be written loses the record and logs it. And
+nothing erases by itself — a test parses the review path and asserts it does not
+import the erasure module at all.
+
+---
+
 ## [2.17.1] — 2026-08-10
 
 The self-review of Level 23, and its six findings closed. Recorded in

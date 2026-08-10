@@ -43,6 +43,40 @@ repository does about it today. A capability with no gap produces no level.
 | C-21 | Grounded generation: an assistant's output checked against its input | S2, S3 | Level 12 graded the analyzers and said in its own non-goals that it did not grade the prose | 21 |
 | C-22 | An agent that acts, not only reports | S1, S3 | Level 13 left it deliberately: the agent reviews, it does not write the patch | 22 |
 | C-23 | Documentation checked against the code it describes | — | None. The roadmap has required it since Level 0 and nothing enforced it; three defects of this kind reached `development` | 23 |
+| C-24 | Integrity of the audit trail | — | Level 20's own non-goal. A record could be edited or deleted and nothing noticed | 24 |
+| C-25 | An evidence mapping an organisation can adopt | — | Level 20's own non-goal. An auditor was handed rule ids and left to derive the mapping from source | 24 |
+| C-26 | A lifecycle a retention policy can be written against | — | Level 20's own non-goal. No deletion path existed, so the honest answer to an erasure request was 'edit the file by hand' | 24 |
+| C-27 | A score that states its own uncertainty | — | Level 21's own non-goal. `1.00 over 15 cases` was printed exactly like `1.00 over 1500` | 25 |
+| C-28 | Measuring the model that is actually configured | — | Level 21's own non-goal. The corpus grades recordings, so a prompt edit shipped unmeasured | 25 |
+| C-29 | Comparing one measurement against another | — | Level 21's own non-goal. Nothing stored a baseline, so 'is this better than last week' had no answer | 25 |
+| C-30 | A suggestion that can touch more than one place | — | Level 22's own non-goal. One contiguous range, so a fix needing an import was not expressible | 26 |
+| C-31 | Recipes for the rules that are mechanical, measured | — | Level 22's own non-goal. Three recipes of thirty-nine rules, and nothing counted them | 26 |
+| C-32 | A retrieval tier measured without grading a model | — | Level 23's own non-goal. Unmeasured, and its complete absence went unnoticed for a level | 27 |
+| C-33 | Relevance as a number a floor can be applied to | — | Level 23's plan described a floor the port could not express, and dropped it | 27 |
+| C-34 | Documentation resolution beyond one language | — | Level 23's own non-goal. A symbol in any other language resolved to nothing, silently | 27 |
+
+**C-32 to C-34 come from Level 23's own non-goals and its plan**, and four
+levels in a row have now been sourced this way. The inventory that produced
+levels 12 to 23 is closed; what has replaced it is each level's own honest list
+of what it did not do, which turns out to be the better source — it is written
+by somebody who had just looked.
+
+**C-30 and C-31 come from Level 22's own non-goals**, and the pattern is now
+three for three: a level that names its limits honestly leaves a later level a
+list of things worth doing, and the list is better than one invented from
+scratch.
+
+**C-27 to C-29 come from Level 21's own non-goals**, on the same reading: an
+instrument that cannot say how much it knows, cannot measure the model actually
+configured, and cannot compare two runs is an instrument in only one of the
+three senses that matter.
+
+**C-24 to C-26 come from Level 20's own non-goals.** Each refusal there was
+right about the thing it named and wrong about the thing beside it: a record
+that cannot hold a key can still be signable, a mapping is not an obligation,
+and a lifecycle mechanism is not a retention policy. Recording them as sourced
+from a role description would be inventing a provenance
+([ADR 0026](../adr/0026-detection-rather-than-prevention.md)).
 
 **C-23 has no role description behind it, and the table says so.** Its source
 is this project's own Level 0 working agreement — *documentation may never claim

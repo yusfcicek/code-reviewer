@@ -1,0 +1,40 @@
+#
+# MEANT TO FAIL: citations_are_grounded.
+#
+# The file exists and the line does not. A model that has seen a hundred lines
+# of a file and writes a plausible number past its end produces exactly this,
+# and the first version of the corpus only ever demonstrated the *wrong file*
+# case (Level 25, step 5: one example pins one author's idea of a check).
+name: citation-past-the-end
+file: fixtures/sql_injection.py
+expect_failures:
+  - citations_are_grounded
+findings:
+  - rule: SAST.SQL_INJECTION
+    line: 11
+    severity: critical
+    title: SQL Injection
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: SQL Injection at `fixtures/sql_injection.py:11`
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/sql_injection.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - user input reaches the query text
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None
+
+  The same construction is repeated at `fixtures/sql_injection.py:4096`.
