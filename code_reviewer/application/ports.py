@@ -21,7 +21,7 @@ from code_reviewer.domain.evaluation import EvaluationCase
 from code_reviewer.domain.finding import Finding
 from code_reviewer.domain.orchestration import AgentReport, Assignment
 from code_reviewer.domain.recollection import Recollection
-from code_reviewer.domain.retrieval import CodeChunk, ScoredChunk, Vector
+from code_reviewer.domain.retrieval import UNSCORED, CodeChunk, ScoredChunk, Vector
 from code_reviewer.domain.suppression import SuppressionResult
 
 
@@ -288,6 +288,21 @@ class CodeRetriever(ABC):
     two indexes, fusion, diversification — is one adapter's business, and the
     workflow's whole knowledge of retrieval is this one method.
     """
+
+    def scored(self, query: str, limit: int = 5, exclude_path: str = "") -> list[ScoredChunk]:
+        """The same results, with the ranking's score attached.
+
+        The default delegates to :meth:`related` and marks every result
+        **unscored**, because a retriever with no notion of a score is a real
+        thing — a keyword-only adapter, a stub in a test — and a caller applying
+        a relevance floor has to be able to tell. Level 23 described a floor
+        this port could not express, dropped it, and then lost a whole tier to
+        the silence (Level 27).
+        """
+        return [
+            ScoredChunk(chunk=chunk, score=UNSCORED)
+            for chunk in self.related(query, limit=limit, exclude_path=exclude_path)
+        ]
 
     @abstractmethod
     def related(self, query: str, limit: int = 5, exclude_path: str = "") -> list[CodeChunk]:
