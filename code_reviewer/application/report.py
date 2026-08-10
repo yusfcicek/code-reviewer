@@ -113,6 +113,9 @@ def render_review_comment(
         decision_summary: One line naming what decided, from the record that
             was written. Never the model's prose — a verdict rests on
             deterministic producers, and this says which (ADR 0004, 0022).
+        suggestion_count: How many applicable suggestions were posted on the
+            changed lines. The block says they exist; the suggestions
+            themselves are notes on the lines they edit (Level 22).
         documentation: What Level 23 found about the repository's prose. Two
             blocks, never one: what resolved against the code, and what a
             model selected and nothing verified.
@@ -231,6 +234,24 @@ def _suggestion_lines(count: int) -> list[str]:
     ]
 
 
+#: Locations listed per tier before the block says "and N more". The count is
+#: the fact; the list is the convenience. Unbounded, a change that removed a
+#: widely documented symbol spent the whole comment budget on locations and
+#: truncated the per-file reviews the run was for (self-review S-06, and the
+#: shape of finding G-19 before it).
+MAX_DOCUMENTATION_LISTED = 10
+
+
+def _listed(findings: Sequence[Finding]) -> list[str]:
+    """At most :data:`MAX_DOCUMENTATION_LISTED` locations, then a count."""
+    lines = [f"- `{finding.location}` — {finding.title}" for finding in findings[:MAX_DOCUMENTATION_LISTED]]
+    hidden = len(findings) - MAX_DOCUMENTATION_LISTED
+    if hidden > 0:
+        lines.append(f"- _…and {hidden} more, in the same two rules._")
+    lines.append("")
+    return lines
+
+
 def _documentation_lines(summary: "DocumentationSummary | None") -> list[str]:
     """What the change did to the documentation, in two blocks.
 
@@ -250,8 +271,7 @@ def _documentation_lines(summary: "DocumentationSummary | None") -> list[str]:
 
     if summary.resolved:
         lines.append(f"**{len(summary.resolved)} resolved against the code** — each of these is checkable:\n")
-        lines.extend(f"- `{finding.location}` — {finding.title}" for finding in summary.resolved)
-        lines.append("")
+        lines.extend(_listed(summary.resolved))
 
     if summary.candidates:
         lines.append(
@@ -259,8 +279,7 @@ def _documentation_lines(summary: "DocumentationSummary | None") -> list[str]:
             "stale by the model. Nothing below was resolved against the code, and none of it affects "
             "the verdict:\n"
         )
-        lines.extend(f"- `{finding.location}` — {finding.title}" for finding in summary.candidates)
-        lines.append("")
+        lines.extend(_listed(summary.candidates))
 
     if summary.dropped:
         lines.append(

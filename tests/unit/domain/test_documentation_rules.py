@@ -32,7 +32,7 @@ EDITED = ChangeScope(document_changed=True)
 
 
 def _defects(text, index=INDEX, scope=REMOVED):
-    return documentation_defects(claims_in(text), index, scope)
+    return documentation_defects(claims_in(text, named=scope.names), index, scope)
 
 
 def _rules(text, index=INDEX, scope=REMOVED):
@@ -177,3 +177,52 @@ def test_an_indented_fence_is_dedented_before_it_is_parsed():
     text = "1. Like this:\n\n   ```python\n   value = 1\n   ```\n"
 
     assert documentation_defects(claims_in(text), INDEX, EDITED) == []
+
+
+class TestTheScopeOutranksTheShapeTest:
+    """Self-review S-02 — two safeguards, and the blunt one cancelled the sharp one.
+
+    `_symbol_shaped` refuses a bare lowercase word, so `async` and `false` in a
+    README are not read as symbols. That was right when every backtick was
+    resolved against the tree. Since the scope rework it is wrong: a name the
+    diff *removed* is direct evidence that the name was this repository's, and
+    the shape test threw that evidence away.
+
+    Measured against the real index: 113 of 648 bare functions (17 %) were
+    invisible — `add`, `analyze`, `bind`, `cases`, `claim`, `covers`.
+    """
+
+    PLAIN = ChangeScope(removed=frozenset({"drain"}), touched=frozenset({"drain"}))
+    #: `drain` is gone from the tree, which is what makes the document stale.
+    WITHOUT_DRAIN = SymbolIndex(names=frozenset({"create_app"}), signatures={"create_app": ("config",)})
+
+    def test_a_plain_lowercase_name_the_change_removed_is_reported(self):
+        assert _rules("Call `drain` on exit.", index=self.WITHOUT_DRAIN, scope=self.PLAIN) == [
+            "DEAD_REFERENCE"
+        ]
+
+    def test_the_same_name_is_still_ignored_when_the_change_did_not_remove_it(self):
+        """The shape test still does its job everywhere the diff proves nothing."""
+        assert _rules("Call `drain` on exit.", index=self.WITHOUT_DRAIN, scope=ChangeScope()) == []
+
+    def test_an_english_word_the_change_happens_to_have_removed_is_still_reported(self):
+        """Accepted consequence: if a change deletes something called `false`,
+        a document saying `false` is reported. The diff said it was ours."""
+        scope = ChangeScope(removed=frozenset({"false"}), touched=frozenset({"false"}))
+
+        assert _rules("Set it to `false`.", index=self.WITHOUT_DRAIN, scope=scope) == ["DEAD_REFERENCE"]
+
+    def test_an_ordinary_word_is_untouched_when_nothing_removed_it(self):
+        for word in ("async", "false", "critical", "auto"):
+            assert _rules(f"Set it to `{word}`.", scope=EDITED) == [], word
+
+    def test_a_removed_plain_name_that_still_resolves_is_not_reported(self):
+        index = SymbolIndex(names=frozenset({"drain"}), signatures={"drain": ("worker",)})
+
+        assert _rules("Call `drain`.", index=index, scope=self.PLAIN) == []
+
+    def test_a_plain_name_signature_is_compared_when_the_change_touched_it(self):
+        index = SymbolIndex(names=frozenset({"drain"}), signatures={"drain": ("worker", "seconds")})
+        scope = ChangeScope(touched=frozenset({"drain"}))
+
+        assert _rules("Call `drain(worker)`.", index=index, scope=scope) == ["SIGNATURE_MISMATCH"]

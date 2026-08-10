@@ -159,7 +159,9 @@ class DocumentationService:
                 # A document that could not be read costs that document and
                 # nothing else, the same answer `corpus.py` gives.
                 continue
-            defects = documentation_defects(claims_in(text), self._index, scope.for_document(path in edited))
+            defects = documentation_defects(
+                claims_in(text, named=scope.names), self._index, scope.for_document(path in edited)
+            )
             findings.extend(_finding(path, defect) for defect in defects)
         return findings
 
@@ -167,7 +169,9 @@ class DocumentationService:
     def _docstring_findings(changes: Sequence[FileChange], sources: Mapping[str, str]) -> list[Finding]:
         findings: list[Finding] = []
         for change in changes:
-            if _suffix(change.path) not in SOURCE_SUFFIXES:
+            if change.is_deleted or _suffix(change.path) not in SOURCE_SUFFIXES:
+                # A deleted file's docstrings are gone. Reporting drift in them
+                # is reporting a defect nobody can fix (self-review S-03).
                 continue
             source = sources.get(change.path)
             if not source:

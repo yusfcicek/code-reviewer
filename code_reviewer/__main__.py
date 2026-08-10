@@ -18,7 +18,6 @@ from code_reviewer.application.governance import DecisionRecorder
 from code_reviewer.application.orchestration_service import ReviewOrchestrator
 from code_reviewer.application.ports import Reviewer
 from code_reviewer.application.project_memory import ProjectMemory
-from code_reviewer.application.retrieval_service import HybridRetriever
 from code_reviewer.application.review_service import ReviewService
 from code_reviewer.application.tasks import SequentialRunner, TaskRunner
 from code_reviewer.cli import parse_args
@@ -42,9 +41,9 @@ from code_reviewer.infrastructure.metrics.collector import MetricsCollector, Rev
 from code_reviewer.infrastructure.observability.logging import configure_logging, get_logger
 from code_reviewer.infrastructure.observability.trace_rendering import JsonTraceExporter, render_trace_tree
 from code_reviewer.infrastructure.observability.tracer import SpanRecorder, get_tracer, set_tracer
-from code_reviewer.infrastructure.retrieval.chunking import chunk_markdown
 from code_reviewer.infrastructure.retrieval.corpus import build_retriever
-from code_reviewer.infrastructure.tools import Workspace, get_retriever, set_retriever, set_workspace
+from code_reviewer.infrastructure.retrieval.document_corpus import build_document_retriever
+from code_reviewer.infrastructure.tools import Workspace, set_retriever, set_workspace
 
 #: Exit codes. The split exists because "the gate blocked the merge request"
 #: and "the agent fell over" both used to be `1`, so no pipeline could tell
@@ -245,17 +244,16 @@ def _build_documentation(args, provider=None):
 
     documentation = DocumentationService(index=index, documents=documents)
 
-    retriever = get_retriever()
-    if provider is None or not isinstance(retriever, HybridRetriever) or not documents:
-        # No model, no index, or no prose: the retrieved tier has nothing to
-        # ask or nothing to ask about. The deterministic one still runs.
+    if provider is None or not documents:
+        # No model or no prose: the retrieved tier has nothing to ask, or
+        # nothing to ask about. The deterministic one still runs.
         return documentation, None
 
-    # The documents join the corpus the code already occupies. One index, as
-    # Level 23's non-goals require — a second retrieval path would be a second
-    # thing to keep correct.
-    retriever.index([chunk for path, text in documents for chunk in chunk_markdown(path, text or "")])
-    drift = DriftService(retriever=retriever, judge=ModelDriftJudge(provider))
+    # Its own index, holding only prose. Sharing the code index was the shape of
+    # self-review finding S-01: code won every ranking, the limit was spent
+    # before the document filter ran, and the tier returned nothing at all. The
+    # retrieval *implementation* is still the single one Level 13 built.
+    drift = DriftService(retriever=build_document_retriever(args.repo_root), judge=ModelDriftJudge(provider))
     return documentation, drift
 
 

@@ -399,3 +399,75 @@ class TestDocumentationBlock(unittest.TestCase):
         """A tier that could not run must not look like a tier that found
         nothing (self-review 12-20, S-02)."""
         self.assertIn("Documentation", self._body(degraded=("retrieval was unavailable",)))
+
+
+class TestTheDocumentationBlockIsBounded(unittest.TestCase):
+    """Self-review S-06 — the block that ate the reviews.
+
+    It lists every finding, with no bound, and sits *above* the per-file
+    sections so that truncation keeps the verdict. A change removing a symbol
+    documented in forty places therefore spent the comment budget on forty
+    locations and truncated the reviews the run was for.
+
+    Level 5 solved this shape once (finding G-19) and Level 22 respected it.
+    """
+
+    LISTED = 10
+
+    @staticmethod
+    def _findings(count, rule="DOCS.DEAD_REFERENCE"):
+        from code_reviewer.domain.finding import Finding, FindingCategory
+        from code_reviewer.domain.severity import Severity
+
+        return [
+            Finding(
+                category=FindingCategory.DOCUMENTATION,
+                severity=Severity.LOW,
+                file_path=f"docs/page_{index}.md",
+                line_number=index + 1,
+                title="Documentation names a symbol this change removed",
+                description="",
+                remediation="",
+                rule_id=rule,
+            )
+            for index in range(count)
+        ]
+
+    def _body(self, **kwargs):
+        from code_reviewer.application.documentation_service import DocumentationSummary
+
+        return render_review_comment(
+            "1.0", ReviewOutcome(), ["SECTION-ONE"], documentation=DocumentationSummary(**kwargs)
+        )
+
+    def test_a_long_list_is_cut_to_the_bound(self):
+        body = self._body(resolved=self._findings(40))
+
+        self.assertEqual(body.count("docs/page_"), self.LISTED)
+
+    def test_the_total_is_still_stated(self):
+        """The count is the fact; the list is the convenience."""
+        self.assertIn("40 resolved", self._body(resolved=self._findings(40)))
+
+    def test_what_the_bound_hid_is_named(self):
+        body = self._body(resolved=self._findings(40))
+
+        self.assertIn("30 more", body)
+
+    def test_a_short_list_is_shown_whole(self):
+        body = self._body(resolved=self._findings(3))
+
+        self.assertEqual(body.count("docs/page_"), 3)
+        self.assertNotIn("more", body.split("### 📄")[1].split("---")[0])
+
+    def test_each_tier_is_bounded_on_its_own(self):
+        body = self._body(
+            resolved=self._findings(40),
+            candidates=self._findings(40, rule="DRIFT.POSSIBLE_STALE_SECTION"),
+        )
+
+        self.assertEqual(body.count("docs/page_"), self.LISTED * 2)
+
+    def test_the_per_file_reviews_survive_a_long_list(self):
+        """The point of the bound."""
+        self.assertIn("SECTION-ONE", self._body(resolved=self._findings(200)))

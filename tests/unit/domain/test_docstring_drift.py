@@ -195,3 +195,116 @@ def test_no_defect_carries_a_sentence_from_the_docstring():
     """AC-14, inside the source file this time."""
     for defect in docstring_defects(INVENTED_PARAMETER):
         assert "no longer exists" not in defect.detail
+
+
+class TestAStubDocumentsAContract:
+    """Self-review S-04 — a 33 % false-positive rate on the only real corpus.
+
+    Run over this repository the rule produced three findings, and one was
+    `JobStore.submit` — an `@abstractmethod` whose body is a docstring,
+    documenting `Raises: QueueFull`. That is not drift. It is the contract every
+    implementer must honour, and the declaration is the only place to state it.
+
+    A body that does nothing cannot contradict anything, so a stub is not
+    examined for what its body does. What it *says about its own signature* is
+    still checked: a documented parameter the signature lacks is wrong wherever
+    it is written.
+    """
+
+    ABSTRACT = '''
+from abc import ABC, abstractmethod
+
+
+class Store(ABC):
+    @abstractmethod
+    def submit(self, job, max_queued):
+        """Adds it.
+
+        Raises:
+            QueueFull: when accepting it would exceed max_queued.
+
+        Returns:
+            The job now in flight.
+        """
+'''
+
+    def test_a_documented_exception_on_a_stub_is_not_reported(self):
+        assert _rules(self.ABSTRACT) == []
+
+    def test_a_documented_return_on_a_stub_is_not_reported(self):
+        source = '''
+def read(path):
+    """Reads it.
+
+    Returns:
+        The bytes.
+    """
+'''
+
+        assert _rules(source) == []
+
+    def test_an_ellipsis_body_is_a_stub_too(self):
+        source = '''
+def read(path):
+    """Reads it.
+
+    Raises:
+        OSError: when it fails.
+    """
+    ...
+'''
+
+        assert _rules(source) == []
+
+    def test_a_pass_body_is_a_stub_too(self):
+        source = '''
+def read(path):
+    """Reads it.
+
+    Returns:
+        The bytes.
+    """
+    pass
+'''
+
+        assert _rules(source) == []
+
+    def test_a_stub_is_still_checked_against_its_own_signature(self):
+        """The half a stub can still get wrong."""
+        source = '''
+def read(path):
+    """Reads it.
+
+    Args:
+        path: where.
+        mode: no longer a parameter.
+    """
+'''
+
+        assert _rules(source) == ["DOCSTRING_DRIFT"]
+
+    def test_a_raising_body_is_not_a_stub(self):
+        source = '''
+def read(path):
+    """Reads it.
+
+    Raises:
+        OSError: when it fails.
+    """
+    raise NotImplementedError
+'''
+
+        assert _rules(source) == []
+
+    def test_a_real_body_is_still_examined(self):
+        source = '''
+def read(path):
+    """Reads it.
+
+    Returns:
+        The bytes.
+    """
+    print(path)
+'''
+
+        assert _rules(source) == ["DOCSTRING_DRIFT"]
