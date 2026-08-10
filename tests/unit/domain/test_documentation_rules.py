@@ -226,3 +226,60 @@ class TestTheScopeOutranksTheShapeTest:
         scope = ChangeScope(touched=frozenset({"drain"}))
 
         assert _rules("Call `drain(worker)`.", index=index, scope=scope) == ["SIGNATURE_MISMATCH"]
+
+
+class TestAMethodNameThatTwoClassesShare:
+    """Self-review 28, S-02.
+
+    Level 28 widened the scope check so a diff's **bare** `render` covers a
+    document's **qualified** `Renderer.render` — without which no method's
+    signature had ever been checked. The widening was defended on the grounds
+    that a name belonging to something else would fail to resolve.
+
+    It resolves whenever two classes share a method name, which for `render`,
+    `run`, `close` and `read` is the ordinary case rather than the exotic one.
+    The change then proves nothing about the other class, and the tier reports a
+    stale signature on a symbol nobody touched — the false-positive species this
+    whole tier's scope discipline exists to prevent.
+    """
+
+    TWO_RENDERERS = SymbolIndex(
+        names=frozenset({"render", "Renderer", "Legacy", "Renderer.render", "Legacy.render"}),
+        signatures={
+            "Renderer.render": ("self", "width", "height"),
+            "Legacy.render": ("self", "a", "b"),
+        },
+    )
+    ONE_RENDERER = SymbolIndex(
+        names=frozenset({"render", "Renderer", "Renderer.render"}),
+        signatures={"Renderer.render": ("self", "width", "height")},
+    )
+    TOUCHED = ChangeScope(touched=frozenset({"render"}))
+
+    def test_the_other_class_is_not_the_one_the_change_touched(self):
+        assert _rules("Call `Legacy.render(a)`.", index=self.TWO_RENDERERS, scope=self.TOUCHED) == []
+
+    def test_neither_is_the_one_the_change_touched_when_both_are_documented(self):
+        """The diff names `render`; which class it belongs to is not in it."""
+        assert (
+            _rules(
+                "Call `Renderer.render(width)` or `Legacy.render(a)`.",
+                index=self.TWO_RENDERERS,
+                scope=self.TOUCHED,
+            )
+            == []
+        )
+
+    def test_the_only_method_with_that_name_is_still_checked(self):
+        """Level 28's gap stays closed: one owner is not an ambiguity."""
+        assert _rules("Call `Renderer.render(width)`.", index=self.ONE_RENDERER, scope=self.TOUCHED) == [
+            "SIGNATURE_MISMATCH"
+        ]
+
+    def test_a_qualified_name_the_diff_names_in_full_is_always_checked(self):
+        """No ambiguity to resolve: the change said which one."""
+        scope = ChangeScope(touched=frozenset({"Legacy.render"}))
+
+        assert _rules("Call `Legacy.render(a)`.", index=self.TWO_RENDERERS, scope=scope) == [
+            "SIGNATURE_MISMATCH"
+        ]

@@ -54,7 +54,7 @@ def report(fixtures):
 
 
 def test_the_corpus_loads(fixtures):
-    assert len(fixtures) >= 23
+    assert len(fixtures) >= 24
 
 
 def test_every_rule_is_exercised(fixtures):
@@ -80,15 +80,15 @@ def test_the_precision_half_is_exercised(fixtures):
     quiet = [fixture for fixture in fixtures if not fixture.case.expected]
     forbidding = [fixture for fixture in fixtures if fixture.case.forbidden]
 
-    assert len(quiet) >= 7
-    assert len(forbidding) >= 5
+    assert len(quiet) >= 8
+    assert len(forbidding) >= 6
 
 
 def test_several_cases_forbid_a_rule(fixtures):
     """A fixed false positive is only fixed while something pins it."""
     forbidding = [fixture for fixture in fixtures if fixture.case.forbidden]
 
-    assert len(forbidding) >= 5
+    assert len(forbidding) >= 6
 
 
 def test_no_case_failed_to_run(report):
@@ -220,4 +220,4 @@ def test_the_quiet_half_was_not_diluted(fixtures):
     better without anything improving."""
     quiet = [fixture for fixture in fixtures if not fixture.case.expected]
 
-    assert len(quiet) >= 7
+    assert len(quiet) >= 8
