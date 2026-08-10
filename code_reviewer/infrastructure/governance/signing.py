@@ -28,7 +28,11 @@ import hmac
 import logging
 from collections.abc import Mapping
 
-from code_reviewer.application.ports import Signer
+from code_reviewer.application.ports import NullSigner, Signer
+
+#: Re-exported: the null object lives beside the port it implements, and this
+#: module is where a caller looks for signers.
+__all__ = ["DEFAULT_KEY_ID", "MINIMUM_KEY_BYTES", "HmacSigner", "NullSigner", "signer_from_environment"]
 
 logger = logging.getLogger(__name__)
 
@@ -44,29 +48,6 @@ DEFAULT_KEY_ID = "unnamed-key"
 #: Where the key and its name are read from.
 KEY_VARIABLE = "REVIEW_AUDIT_KEY"
 KEY_ID_VARIABLE = "REVIEW_AUDIT_KEY_ID"
-
-
-class NullSigner(Signer):
-    """Signs nothing, and says so.
-
-    What a deployment with no key gets. Records are still written and still
-    chained — the links are the cheaper guarantee and they cost no key at all.
-    """
-
-    @property
-    def key_id(self) -> str:
-        return ""
-
-    @property
-    def is_signing(self) -> bool:
-        return False
-
-    def sign(self, digest: str) -> tuple[str, str]:
-        return "", ""
-
-    def accepts(self, digest: str, signature: str, key_id: str) -> bool:
-        """Nothing. A verifier handed one reports *unverifiable*, not intact."""
-        return False
 
 
 class HmacSigner(Signer):

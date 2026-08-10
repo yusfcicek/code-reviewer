@@ -22,12 +22,14 @@ reports, not by what the writer hopes.
 
 import json
 import logging
-from collections.abc import Mapping
+import os
+import tempfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from code_reviewer.application.governance import AuditSink
-from code_reviewer.application.ports import Signer
+from code_reviewer.application.ports import AuditStore, Signer
 from code_reviewer.domain.audit import GENESIS, ChainStatus, ChainVerdict, Seal, sealed, verify
 from code_reviewer.domain.provenance import DecisionRecord
 
@@ -237,3 +239,63 @@ def status_line(verdict: ChainVerdict) -> str:
     if verdict.status is ChainStatus.UNVERIFIABLE:
         return f"unverifiable: {verdict.reason} ({verdict.checked} record(s))"
     return f"TAMPERED at record {verdict.position}: {verdict.reason}"
+
+
+class FileAuditStore(AuditStore):
+    """The store as a file of newline-delimited sealed records.
+
+    The I/O half of erasure. What to remove and what to refuse is policy and
+    lives in the application layer; opening a file, re-sealing every line and
+    moving it into place is not (Level 24, and the architecture test that said
+    so before a human did).
+    """
+
+    def __init__(self, path: str | Path):
+        self._path = Path(path)
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def exists(self) -> bool:
+        return self._path.is_file()
+
+    def payloads(self) -> list[dict]:
+        return [dict(payload) for _, payload in read_store(self._path)]
+
+    def is_signed(self) -> bool:
+        return any(seal.is_signed for seal, _ in read_store(self._path))
+
+    def is_verifiable(self, signer: Signer) -> tuple[bool, str]:
+        verdict = verify_store(self._path, signer if signer.is_signing else None)
+        if verdict.status is ChainStatus.TAMPERED:
+            return False, f"record {verdict.position}: {verdict.reason}"
+        return True, ""
+
+    def replace(self, payloads: "Sequence[Mapping[str, Any]]", signer: Signer) -> None:
+        """Re-seals from the beginning and moves the result over the original.
+
+        Through a temporary file in the same directory, so a crash halfway
+        leaves the old store rather than half of a new one. A partially
+        rewritten audit trail is the failure this level would least like to
+        cause.
+        """
+        previous = GENESIS
+        lines = []
+        for payload in payloads:
+            seal = sealed(payload, previous, sign=(signer.sign if signer.is_signing else None))
+            lines.append(json.dumps({"record": payload, "seal": _seal_json(seal)}, sort_keys=True))
+            previous = seal.digest
+
+        handle, temporary = tempfile.mkstemp(
+            dir=str(self._path.parent), prefix=self._path.name, suffix=".rewrite"
+        )
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as writer:
+                writer.write("\n".join(lines) + ("\n" if lines else ""))
+                writer.flush()
+                os.fsync(writer.fileno())
+            os.replace(temporary, self._path)
+        except OSError:
+            Path(temporary).unlink(missing_ok=True)
+            raise
