@@ -22,8 +22,9 @@ and the store is somebody's deployment.
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 #: What the first record in a store names as its predecessor.
@@ -106,3 +107,148 @@ def digest_of(payload: Mapping[str, Any], previous: str = GENESIS) -> str:
 def is_digest(value: str) -> bool:
     """Whether a string has the shape of one of our digests."""
     return len(value) == DIGEST_WIDTH and all(character in _HEX for character in value)
+
+
+class ChainStatus(Enum):
+    """What a verification found.
+
+    Three, and the third is the point. A deployment that has not configured a
+    key has an unsigned store, and calling that *tampered* is how a verifier
+    gets turned off before it ever sees a real tamper (contract C-5).
+    """
+
+    #: Every link holds and every signature that could be checked was valid.
+    INTACT = "intact"
+    #: Something does not add up, at a stated position.
+    TAMPERED = "tampered"
+    #: The links hold, but the signatures could not be established — no key, no
+    #: signatures, or only some of them.
+    UNVERIFIABLE = "unverifiable"
+
+
+@dataclass(frozen=True)
+class ChainVerdict:
+    """What was found, and where.
+
+    A position and a reason rather than a boolean. "Something is wrong somewhere
+    in twelve hundred records" is not actionable, and a tool that answers that
+    way gets run once (contract C-4).
+
+    Carries no record content. Whoever reads this output is not necessarily
+    somebody allowed to read the records.
+    """
+
+    status: ChainStatus
+    #: 1-based position of the first failure; zero when there is none.
+    position: int = 0
+    reason: str = ""
+    #: How many records were examined.
+    checked: int = 0
+    #: How many carried a signature.
+    signed: int = 0
+
+
+#: Signs a digest, returning the signature and the key that made it.
+Signature = tuple[str, str]
+
+
+def sealed(
+    payload: Mapping[str, Any],
+    previous: str = GENESIS,
+    sign: "Callable[[str], Signature] | None" = None,
+) -> Seal:
+    """The seal for one record, signed if a signer was given.
+
+    A signer that raises is the caller's problem, not this function's: the
+    decision about whether an unsignable record is still written belongs where
+    the key does (contract C-2, and the sink makes it).
+    """
+    digest = digest_of(payload, previous)
+    if sign is None:
+        return Seal(previous=previous, digest=digest)
+    signature, key_id = sign(digest)
+    return Seal(previous=previous, digest=digest, signature=signature, key_id=key_id)
+
+
+def verify(
+    entries: "Sequence[tuple[Seal, Mapping[str, Any]]]",
+    accepts: "Callable[[str, str, str], bool] | None" = None,
+) -> ChainVerdict:
+    """Checks a store, and reports the first thing that does not hold.
+
+    Args:
+        entries: Seals with the payloads they sealed, in stored order.
+        accepts: Whether a signature is valid for a digest and key id. ``None``
+            means no key is available, which makes signatures *unverifiable*
+            rather than wrong.
+
+    Two failures are distinguished on purpose. A **digest** that disagrees with
+    its payload means that record was edited. A **link** that does not point at
+    the record before it means one was removed, inserted or moved. An operator
+    needs to know which, and the reason says so.
+    """
+    previous = GENESIS
+    signed = 0
+
+    for position, (seal, payload) in enumerate(entries, start=1):
+        if seal.previous != previous:
+            return ChainVerdict(
+                ChainStatus.TAMPERED,
+                position,
+                "the chain does not link here: a record was removed, inserted or moved",
+                position - 1,
+                signed,
+            )
+
+        if seal.digest != digest_of(payload, seal.previous):
+            return ChainVerdict(
+                ChainStatus.TAMPERED,
+                position,
+                "the digest disagrees with the record: this line was edited",
+                position - 1,
+                signed,
+            )
+
+        if seal.is_signed:
+            signed += 1
+            if accepts is not None and not accepts(seal.digest, seal.signature, seal.key_id):
+                return ChainVerdict(
+                    ChainStatus.TAMPERED,
+                    position,
+                    "the signature is not one this key could have produced",
+                    position - 1,
+                    signed - 1,
+                )
+
+        previous = seal.digest
+
+    return _signature_verdict(len(entries), signed, accepts)
+
+
+def _signature_verdict(checked: int, signed: int, accepts: object) -> ChainVerdict:
+    """Every link held. Whether that is the whole story depends on the keys."""
+    if checked == 0:
+        return ChainVerdict(ChainStatus.INTACT, checked=0)
+    if accepts is None:
+        if signed == 0:
+            return ChainVerdict(ChainStatus.INTACT, checked=checked, reason="no signatures were expected")
+        return ChainVerdict(
+            ChainStatus.UNVERIFIABLE,
+            reason="the records are signed and no key was given to check them",
+            checked=checked,
+            signed=signed,
+        )
+    if signed == 0:
+        return ChainVerdict(
+            ChainStatus.UNVERIFIABLE,
+            reason="the links hold; the records are unsigned, so nothing attests to them",
+            checked=checked,
+        )
+    if signed < checked:
+        return ChainVerdict(
+            ChainStatus.UNVERIFIABLE,
+            reason=f"the links hold; {checked - signed} of {checked} record(s) are unsigned",
+            checked=checked,
+            signed=signed,
+        )
+    return ChainVerdict(ChainStatus.INTACT, checked=checked, signed=signed)
