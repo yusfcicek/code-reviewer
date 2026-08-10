@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.18.1.** Rebuilt from an imported prototype across twenty-four
+> **Status: 2.19.0.** Rebuilt from an imported prototype across twenty-five
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2243 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2323 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -287,10 +287,16 @@ each retrieval, each memory access.
   able to tell a bad score from a broken harness.
 - Findings a case does not grade are **counted and named**, never dropped, so
   narrowing what is graded cannot quietly improve the score.
-- The current baseline is precision 1.00, recall 1.00, F1 1.00 over eleven
-  cases ([baseline](docs/roadmap/level-12/baseline.md)). Level 12 opened at
-  recall 0.89 — the gap was a real defect the dataset recorded rather than
-  annotated away, and Level 13 closed it.
+- The current baseline is precision, recall and F1 all `1.00 [0.72, 1.00] over
+  10 graded findings` ([baseline](docs/roadmap/level-12/baseline.md)). The
+  interval is the honest form of the number: ten of ten is consistent with a
+  real rate of 0.72, and until Level 25 this was printed exactly the way a
+  measurement a hundred times larger would be. The committed floors are applied
+  to the **lower bound**, which is why they read 0.70 rather than 0.95 — a
+  stricter claim, not a weaker one
+  ([ADR 0027](docs/adr/0027-a-score-that-states-its-own-uncertainty.md)).
+- Level 12 opened at recall 0.89 — the gap was a real defect the dataset
+  recorded rather than annotated away, and Level 13 closed it.
 
 ### 🛠️ 16. A fix you can apply
 - Three deterministic recipes — `hashlib.md5` → `sha256`, `yaml.load` →
@@ -423,6 +429,35 @@ each retrieval, each memory access.
   alteration.
 - Nothing here erases by itself, and nothing here can fail a review.
 
+### 📐 21. A measurement that says how much it knows
+- **Every score carries a Wilson interval.** `1.00 over 15 cases` and `1.00 over
+  1500` used to print identically; the first is consistent with a real rate of
+  0.80 and now says so. The method and the confidence level are printed beside
+  the number.
+- **The floor is applied to the lower bound**, not the point estimate. That makes
+  the gate strictly harder: the way to clear it becomes writing more cases
+  rather than having a better afternoon. It is also why the committed floors
+  read 0.70 and 0.60 — the most ten and six graded findings can carry
+  ([ADR 0027](docs/adr/0027-a-score-that-states-its-own-uncertainty.md)).
+- **Coverage is counted per check, in both directions.** How many cases pass a
+  check, and how many demonstrate it *firing*. Before this level every narration
+  check was passed by fourteen cases and demonstrated firing by one — which is
+  how a check catching three phrasings of eight survived the corpus built to
+  demonstrate it.
+- **Nine cases added where the coverage report said the corpus was thinnest**,
+  three demonstrations per check, each a different way of getting the same thing
+  wrong. Twenty-four cases is still not a sample anybody should generalise from,
+  and no output claims otherwise — a test greps for the words.
+- **`--live` grades what the configured model produces now**, from the same
+  cases, so a prompt edit is measurable. Opt-in, never in the default suite, and
+  a model that fails one case costs that case and is named.
+- **A baseline names what produced it** — model, prompt fingerprint, cases — and
+  a comparison reports per-check movement rather than one number. Two runs over
+  different case sets are refused rather than differenced.
+- This level measures and does not tune. Performing a prompt change needs an
+  endpoint this repository does not have, and reporting a tuning that did not
+  happen is the defect Level 23 exists to catch.
+
 ---
 
 ## 📋 Current status
@@ -454,7 +489,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
-| Evaluation harness | ✅ Works | Ten annotated cases scored on every push against committed floors — precision 1.00, recall 1.00, F1 1.00 — with ungraded findings counted rather than dropped |
+| Evaluation harness | ✅ Works | Eleven annotated cases scored on every push against floors applied to a 95 % lower bound — `1.00 [0.72, 1.00]` over 10 graded findings — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
 | Container & manifests | ✅ Works | Multi-stage image running as uid 10001, Kubernetes manifests with limits and a locked-down security context, and a test that parses both and asserts every claim |
