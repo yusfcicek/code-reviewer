@@ -175,6 +175,59 @@ RECIPES: Mapping[str, Recipe] = {
     "QUALITY.ERROR_HANDLING": _name_the_exception,
 }
 
+#: Rules with no recipe, and why — the half of coverage that is a judgement.
+#:
+#: Level 25 made the argument this exists for: a coverage claim nobody can check
+#: is a coverage claim. "We ship seven recipes" is a number somebody counts by
+#: hand unless the ones without are named, and *declined* with no reason reads
+#: as *forgotten*.
+#:
+#: Two kinds of entry. Most are declined because the fix is a **decision**, and
+#: a recipe that guesses a decision produces a button that breaks a build. One
+#: — `SAST.DEBUG_CODE` — is declined because its fix is a deletion, and Level 22
+#: refused an empty replacement for a stated reason that this level honours
+#: rather than reverses in passing.
+DECLINED: Mapping[str, str] = {
+    "SAST.DEBUG_CODE": (
+        "the fix is a deletion, and Level 22 refused an empty replacement: deleting code is a "
+        "change worth writing by hand"
+    ),
+    "SAST.SQL_INJECTION": (
+        "parameterising a query means knowing which values are data, which is a reading of the "
+        "code rather than a substitution in it"
+    ),
+    "SAST.COMMAND_INJECTION": "the safe form depends on what the command is for; no one-line rewrite exists",
+    "SAST.PATH_TRAVERSAL": "the correct root to confine to is a decision about the deployment",
+    "SAST.MISSING_INPUT_VALIDATION": "what counts as valid is the thing the code has not said",
+    "SAST.SENSITIVE_DATA_EXPOSURE": "what is sensitive is a judgement about the data, not the syntax",
+    "SAST.XSS": "the right escaping depends on the context the value lands in",
+    "QUALITY.CODE_SMELL": "a smell names a shape; the fix is a rewrite somebody chooses",
+    "QUALITY.DRY": "extracting the duplicate needs a name and a home, both decisions",
+    "QUALITY.MAINTAINABILITY": "the fix is an extraction, and where to cut is the judgement",
+    "QUALITY.TESTABILITY": "the fix is an injection point, which changes an interface",
+    "QUALITY.SOLID_SRP": "splitting a class is a design decision; a recipe guessing one is wrong loudly",
+    "QUALITY.SOLID_OCP": "the extension point is a design decision",
+    "QUALITY.SOLID_LSP": "the fix is to the hierarchy, not to a line",
+    "QUALITY.SOLID_ISP": "which interface to split, and where, is a decision",
+    "QUALITY.SOLID_DIP": "the abstraction to depend on does not exist yet",
+    "PERFORMANCE.N_PLUS_ONE": "the batched form depends on the data access layer",
+    "PERFORMANCE.INEFFICIENT_LOOP": "the faster shape depends on what the loop is for",
+    "PERFORMANCE.HIGH_COMPLEXITY": "the fix is an extraction, and where to cut is the judgement",
+    "PERFORMANCE.BLOCKING_OPERATION": "making a call asynchronous changes every caller",
+    "PERFORMANCE.MEMORY_LEAK": "the fix is to a lifetime, which is not on one line",
+    "PERFORMANCE.RESOURCE_LEAK": "a context manager changes the block's shape, not one line in it",
+    "PERFORMANCE.LARGE_MEMORY": "streaming instead of loading is a redesign of the function",
+    "PERFORMANCE.RECURSIVE_RISK": "converting recursion to iteration is a rewrite",
+    "PERFORMANCE.UNNECESSARY_COPY": "whether the copy is necessary is what the analyzer guessed at",
+    "SEMANTIC.BREAKING": "a breaking change is a fact about the change, not a defect with a fix",
+    "SEMANTIC.BUGFIX": "not a defect",
+    "SEMANTIC.DOCS": "not a defect",
+    "SEMANTIC.FEATURE": "not a defect",
+    "SEMANTIC.REFACTOR": "not a defect",
+    "SEMANTIC.STYLE": "not a defect",
+    "SEMANTIC.UNKNOWN": "not a defect",
+}
+
 #: Recipes whose edit needs a module the file may not import yet. The second
 #: edit is produced by :func:`import_edit`, which declines when the import is
 #: already there — Level 26's reason for a suggestion being a *set*.
