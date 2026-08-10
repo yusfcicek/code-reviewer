@@ -7,6 +7,37 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.20.1] — 2026-08-10
+
+The self-review of Level 26, and its four findings closed. Recorded in
+[`docs/roadmap/self-review-26.md`](docs/roadmap/self-review-26.md).
+
+The level's spec says the recipes were chosen by mechanism rather than by ease.
+Three of the four were. The fourth was chosen by imagining what its rule
+detects, without reading it.
+
+### Fixed
+
+- **`except: raise` was rewritten to `except Exception:` and the `raise` was
+  deleted.** A handler that re-raised began swallowing the exception —
+  invisible in a one-line diff, and the opposite of a fix. The guard for exactly
+  this looked at the *following* lines, and the single-line form has none. Every
+  single-line body is now declined, because the replacement discarded whatever
+  came after the colon.
+- **A recipe answered a question its rule never asks.**
+  `SAST.INSECURE_FILE_OPERATION` fires on `chmod(…777)` and on `open(…, "w")`;
+  the recipe handled `open(path)` with no mode, which the rule never reports,
+  and added `"r"` — the default, so it changed nothing. Removed, and declined on
+  the record with that reason. Coverage is 6 of 39, not 7.
+- **Only the first URL on a line was upgraded.** Half a fix a reviewer reads as
+  a whole one, and the half left behind is the one nobody looks at again because
+  the finding is now closed. Every URL on the line, or none.
+- **A `random` call inside a comment yielded a suggestion** and an unused
+  import. The rule is not wrong to fire — its pattern has no notion of context —
+  but the recipe was wrong to act on it.
+
+---
+
 ## [2.20.0] — 2026-08-10
 
 Level 26 — more of the fixes that are arithmetic. Recorded in
@@ -24,15 +55,14 @@ needing an import at the top and a call in the middle was not expressible.
   bounded as a whole — five edits of twelve lines is not a twelve-line
   suggestion. `Suggestion.single` keeps the Level 22 shape, and the tests that
   pinned it were not rewritten.
-- **Four recipes**, taking coverage from three rules to seven.
+- **Three recipes**, taking coverage from three rules to six.
   `SAST.INSECURE_RANDOM` rewrites the call *and* adds `import secrets`, which is
-  the two-part edit the format change exists for. `SAST.INSECURE_HTTP`,
-  `QUALITY.ERROR_HANDLING` and `SAST.INSECURE_FILE_OPERATION` each decline more
-  than they accept.
+  the two-part edit the format change exists for. `SAST.INSECURE_HTTP` and
+  `QUALITY.ERROR_HANDLING` each decline more than they accept.
 - **An import that lands where imports go** — after the last import, or after
   the module docstring, never before it, and never when the module is already
   imported in any spelling.
-- **Recipe coverage, measured.** 7 of 39, and the thirty-two without one each
+- **Recipe coverage, measured.** 6 of 39, and the thirty-three without one each
   carry a recorded reason. A rule with neither is a red test.
 
 ### Changed

@@ -91,8 +91,26 @@ def _secret_to_environment(finding: Finding, lines: Sequence[str]) -> tuple[str,
 _INSECURE_RANDOM = re.compile(r"\brandom\.(random|randint|choice|randrange|shuffle|uniform)\(")
 _HTTP_LITERAL = re.compile(r"""(?P<quote>['"])http://(?P<rest>[^'"]*)(?P=quote)""")
 _LOOPBACK = re.compile(r"^(localhost|127\.0\.0\.1|\[::1\])(?:[:/]|$)")
-_BARE_EXCEPT = re.compile(r"^(?P<indent>\s*)except\s*:")
-_OPEN_ONE_ARGUMENT = re.compile(r"\bopen\(\s*(?P<argument>[A-Za-z_][A-Za-z0-9_.]*)\s*\)")
+#: A bare `except:` with nothing after it on the line. The trailing `$` is the
+#: whole of self-review S-01: without it, `except: raise` matched, the
+#: replacement discarded everything after the colon, and a handler that
+#: re-raised silently began swallowing.
+_BARE_EXCEPT = re.compile(r"^(?P<indent>\s*)except\s*:\s*$")
+
+
+def _is_commented_out(line: str, position: int) -> bool:
+    """Whether the match at ``position`` sits inside a comment or a string.
+
+    Crude on purpose — counting quotes before the match and looking for a `#`
+    that is not itself quoted. A recipe needs to know *this line is not code*,
+    which is a much smaller question than parsing it, and the answer is only
+    used to decline (self-review 26, S-04).
+    """
+    prefix = line[:position]
+    if prefix.count("'") % 2 or prefix.count('"') % 2:
+        return True
+    marker = prefix.find("#")
+    return marker != -1
 
 
 def _random_to_secrets(finding: Finding, lines: Sequence[str]) -> tuple[str, ...] | None:
@@ -105,7 +123,7 @@ def _random_to_secrets(finding: Finding, lines: Sequence[str]) -> tuple[str, ...
     """
     line = lines[finding.line_number - 1]
     match = _INSECURE_RANDOM.search(line)
-    if match is None:
+    if match is None or _is_commented_out(line, match.start()):
         return None
     return (line[: match.start()] + f"secrets.SystemRandom().{match.group(1)}(" + line[match.end() :],)
 
@@ -120,11 +138,21 @@ def _http_to_https(finding: Finding, lines: Sequence[str]) -> tuple[str, ...] | 
     breaks a development setup for nothing.
     """
     line = lines[finding.line_number - 1]
-    match = _HTTP_LITERAL.search(line)
-    if match is None or _LOOPBACK.match(match.group("rest")):
+    matches = list(_HTTP_LITERAL.finditer(line))
+    if not matches:
         return None
-    quote = match.group("quote")
-    return (line[: match.start()] + f"{quote}https://{match.group('rest')}{quote}" + line[match.end() :],)
+
+    # Every URL on the line, or none. `search` upgraded the first and left the
+    # second, which is half a fix a reviewer reads as a whole one — and the half
+    # left behind is the one nobody looks at again, because the finding is now
+    # closed (self-review 26, S-03).
+    if any(_LOOPBACK.match(match.group("rest")) for match in matches):
+        return None
+
+    rewritten = _HTTP_LITERAL.sub(
+        lambda m: f"{m.group('quote')}https://{m.group('rest')}{m.group('quote')}", line
+    )
+    return (rewritten,)
 
 
 def _name_the_exception(finding: Finding, lines: Sequence[str]) -> tuple[str, ...] | None:
@@ -149,20 +177,6 @@ def _name_the_exception(finding: Finding, lines: Sequence[str]) -> tuple[str, ..
     return (f"{match.group('indent')}except Exception:",)
 
 
-def _name_the_file_mode(finding: Finding, lines: Sequence[str]) -> tuple[str, ...] | None:
-    """`open(path)` → `open(path, "r")`.
-
-    Only the one-positional-argument shape. A call with a keyword or a second
-    positional is a shape this cannot read, and reading it wrong would change
-    what the program does to somebody's file.
-    """
-    line = lines[finding.line_number - 1]
-    match = _OPEN_ONE_ARGUMENT.search(line)
-    if match is None:
-        return None
-    return (line[: match.start()] + f'open({match.group("argument")}, "r")' + line[match.end() :],)
-
-
 #: Rule id to recipe. One recipe per rule at most: two recipes for one finding
 #: would be two buttons doing different things to the same line.
 RECIPES: Mapping[str, Recipe] = {
@@ -171,7 +185,6 @@ RECIPES: Mapping[str, Recipe] = {
     "SAST.HARDCODED_SECRET": _secret_to_environment,
     "SAST.INSECURE_RANDOM": _random_to_secrets,
     "SAST.INSECURE_HTTP": _http_to_https,
-    "SAST.INSECURE_FILE_OPERATION": _name_the_file_mode,
     "QUALITY.ERROR_HANDLING": _name_the_exception,
 }
 
@@ -188,6 +201,12 @@ RECIPES: Mapping[str, Recipe] = {
 #: refused an empty replacement for a stated reason that this level honours
 #: rather than reverses in passing.
 DECLINED: Mapping[str, str] = {
+    "SAST.INSECURE_FILE_OPERATION": (
+        "the rule never reports the shape a recipe could fix: it fires on chmod(...777) and on "
+        "open(..., 'w'), and the first needs a permission somebody chooses while the second needs "
+        "path validation. A recipe written from the rule's name rather than its patterns is "
+        "self-review 26, S-02"
+    ),
     "SAST.DEBUG_CODE": (
         "the fix is a deletion, and Level 22 refused an empty replacement: deleting code is a "
         "change worth writing by hand"
@@ -243,7 +262,6 @@ RECIPE_NAMES: Mapping[str, str] = {
     "SAST.HARDCODED_SECRET": "secret-to-environment",
     "SAST.INSECURE_RANDOM": "random-to-secrets",
     "SAST.INSECURE_HTTP": "http-to-https",
-    "SAST.INSECURE_FILE_OPERATION": "name-the-file-mode",
     "QUALITY.ERROR_HANDLING": "name-the-exception",
 }
 
