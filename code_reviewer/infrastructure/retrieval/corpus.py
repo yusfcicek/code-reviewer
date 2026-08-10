@@ -102,7 +102,13 @@ def collect_chunks(
     max_chunks: int = DEFAULT_MAX_CHUNKS,
 ) -> list[CodeChunk]:
     """Every chunk of every indexable file, in a stable order."""
-    directory = Path(root)
+    # Resolved: `Workspace` resolves the paths it is given *against its root*,
+    # so a relative root walked relatively produced `pkg/pkg/app.py`, every read
+    # was refused, and the index came back empty — indistinguishable from a
+    # repository with no source in it. Silent since Level 13 for any relative
+    # root other than `.`, which is the default and the reason nobody saw it
+    # (self-review 23, S-05).
+    directory = Path(root).resolve()
     if not directory.is_dir():
         logger.warning("Nothing to index: '%s' is not a directory", directory)
         return []

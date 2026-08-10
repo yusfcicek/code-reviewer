@@ -111,3 +111,62 @@ def test_the_file_under_review_is_excluded_by_its_indexed_path(tmp_path):
     found = retriever.related("authenticate_user token", limit=3, exclude_path="pkg/auth.py")
 
     assert all(chunk.path != "pkg/auth.py" for chunk in found)
+
+
+class TestARelativeRootIsIndexed:
+    """Self-review S-05 — the defect Level 23 found in its own copy of this
+    pattern and did not look for in the original.
+
+    `Workspace` resolves the paths it is given *against its root*, so walking a
+    relative root relatively produced `pkg/pkg/app.py`, every read was refused,
+    and the index came back empty. Measured before the fix:
+
+        collect_chunks('code_reviewer')   -> 0 chunks
+        collect_chunks('./code_reviewer') -> 0 chunks
+        collect_chunks('.')               -> 4205 chunks
+        collect_chunks('<absolute>')      -> 1172 chunks
+
+    Retrieval was therefore silently dead since Level 13 for any relative root
+    other than `.`. The default happens to be `.`, which is why nobody noticed —
+    and why the log line read `Indexed 0 chunk(s)` rather than an error.
+    """
+
+    SOURCE = "def create_app(config):\n    return config\n"
+
+    def _tree(self, tmp_path):
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "app.py").write_text(self.SOURCE)
+        return tmp_path
+
+    def test_a_relative_subdirectory_is_indexed(self, tmp_path, monkeypatch):
+        from code_reviewer.infrastructure.retrieval.corpus import collect_chunks
+
+        self._tree(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        assert collect_chunks("pkg")
+
+    def test_a_dot_prefixed_relative_root_is_indexed(self, tmp_path, monkeypatch):
+        from code_reviewer.infrastructure.retrieval.corpus import collect_chunks
+
+        self._tree(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        assert collect_chunks("./pkg")
+
+    def test_a_relative_root_indexes_the_same_files_as_an_absolute_one(self, tmp_path, monkeypatch):
+        from code_reviewer.infrastructure.retrieval.corpus import collect_chunks
+
+        tree = self._tree(tmp_path)
+        absolute = collect_chunks(tree / "pkg")
+        monkeypatch.chdir(tmp_path)
+
+        assert len(collect_chunks("pkg")) == len(absolute)
+
+    def test_chunk_paths_stay_relative_to_the_root(self, tmp_path, monkeypatch):
+        from code_reviewer.infrastructure.retrieval.corpus import collect_chunks
+
+        self._tree(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        assert next(chunk.path for chunk in collect_chunks("pkg")).startswith("app.py")
