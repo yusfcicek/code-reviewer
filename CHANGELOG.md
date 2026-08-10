@@ -7,6 +7,52 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.22.1] — 2026-08-11
+
+The self-review of Level 28, and the seven findings it closed. Every one is a
+version of the question the last five self-reviews converged on: *what would
+this say if the thing it checks were broken?*
+
+### Fixed
+
+- **CI has been failing since Level 25, and four level reports said it passed.**
+  Level 25 moved every floor onto a 95 % interval's lower bound. The pipelines
+  passed their own numbers on the command line and went on asking for
+  0.95/0.95/0.95 and 1.00 against bounds — so both evaluation jobs exited 1
+  while each report recorded a local run made with different arguments. Every
+  floor now has one copy, in `evaluate.py` beside its derivation, and
+  `tests/unit/test_ci_gates.py` reads both pipelines and pins each number to it.
+- **Two of the four harnesses were never run by CI.** Level 28 earned floors for
+  corpora no pipeline graded. Both pipelines now run all four.
+- **A method name two classes share was attributed to whichever one changed.**
+  Level 28 taught the documentation scope that a diff declares `render` while a
+  document writes `Renderer.render`; matching on the final segment alone made a
+  change to one class report a stale signature on another's. The tree is now
+  asked how many owners the name has, and the widening applies only when the
+  answer is one.
+- **The shipped retrieval floor was 0.35 while the level claimed 0.40** — the
+  0.40 lived in a test module. It is 0.50 today, which is what the corpus holds.
+- **The first-place floor was compared against a point estimate**, the last
+  figure in the repository still exempt from Level 25's rule. On the bound it is
+  0.39 rather than a share of 0.62; the floor takes 0.35.
+- **Two retrieval cases asked after the same section**, and both missed, so one
+  weakness spent two of sixteen observations that `RecallReport.interval` calls
+  independent. Replaced by a question nothing else asks; a test refuses a repeat.
+- **The default metric floor was zero**, which made `ai-code-review-eval` with no
+  arguments a command that could not fail. It is now the floor of whichever
+  corpus is being graded.
+- **The README quoted measurements the code stopped producing** — ten graded
+  findings, five retrieval cases, 1585 tests. This repository ships a tier whose
+  whole thesis is that documentation may not claim behaviour the code lacks.
+
+### Changed
+
+- **Retrieval floor 0.40 → 0.50**, recall 0.75 [0.51, 0.90] over sixteen cases.
+- **Documentation corpus 23 → 24 cases**, nineteen graded findings supporting
+  0.83. `DOCS` still warns rather than blocks; 0.95 needs seventy-three.
+
+---
+
 ## [2.22.0] — 2026-08-11
 
 Level 28 — earning the floors. Recorded in

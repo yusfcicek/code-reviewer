@@ -57,7 +57,8 @@ DEFAULT_ANALYZER_FLOOR = 0.80
 #: The floor the shipped documentation corpus holds, on the same lower bound.
 #:
 #: 0.80 since Level 28: eighteen graded findings supported 0.82, and the case
-#: self-review 28 added for the method-name collision makes it nineteen. A
+#: self-review 28 added for the method-name collision makes it nineteen at
+#: 0.83. A
 #: blocking gate would want the 0.95 the analyzers are held to, which needs
 #: seventy-three — so `DOCS` still warns and does not block.
 #:

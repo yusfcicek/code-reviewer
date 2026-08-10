@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.22.0.** Rebuilt from an imported prototype across twenty-eight
+> **Status: 2.22.1.** Rebuilt from an imported prototype across twenty-eight
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2505 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2516 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -287,12 +287,12 @@ each retrieval, each memory access.
   able to tell a bad score from a broken harness.
 - Findings a case does not grade are **counted and named**, never dropped, so
   narrowing what is graded cannot quietly improve the score.
-- The current baseline is precision, recall and F1 all `1.00 [0.72, 1.00] over
-  10 graded findings` ([baseline](docs/roadmap/level-12/baseline.md)). The
-  interval is the honest form of the number: ten of ten is consistent with a
-  real rate of 0.72, and until Level 25 this was printed exactly the way a
+- The current baseline is precision, recall and F1 all `1.00 [0.84, 1.00] over
+  20 graded findings` ([baseline](docs/roadmap/level-12/baseline.md)). The
+  interval is the honest form of the number: twenty of twenty is consistent with
+  a real rate of 0.84, and until Level 25 this was printed exactly the way a
   measurement a hundred times larger would be. The committed floors are applied
-  to the **lower bound**, which is why they read 0.70 rather than 0.95 — a
+  to the **lower bound**, which is why they read 0.80 rather than 0.95 — a
   stricter claim, not a weaker one
   ([ADR 0027](docs/adr/0027-a-score-that-states-its-own-uncertainty.md)).
 - Level 12 opened at recall 0.89 — the gap was a real defect the dataset
@@ -479,11 +479,13 @@ each retrieval, each memory access.
   retriever, look for the section, record the rank — and it is the half that
   failed: Level 23's tier returned *nothing at all* for a level with nothing to
   notice.
-- Recall `0.80 [0.38, 0.96]` over five cases at the tier's own limit of three,
-  floored at 0.35, with the related section first 60 % of the time and floored
-  there too. Every case hides its answer among ten sections — a corpus whose
-  answer is always returned measures arithmetic, which is what the first version
-  of this one did. **What is not measured is printed**: whether the model was
+- Recall `0.75 [0.51, 0.90]` over sixteen cases at the tier's own limit of
+  three, floored at 0.50, with the related section first 62 % of the time —
+  `[0.39, 0.80]`, floored at 0.35 on the bound like every other floor here.
+  Every case hides its answer among ten sections, and no two cases ask after the
+  same section: a corpus whose answer is always returned measures arithmetic,
+  which is what the first version of this one did, and a corpus that asks one
+  question twice counts one weakness as two. **What is not measured is printed**: whether the model was
   right about a candidate it saw needs a human on every case
   ([ADR 0029](docs/adr/0029-measure-the-half-that-is-measurable.md)).
 - Each case carries **its own documents** so a reader sees the whole haystack, and
@@ -534,7 +536,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
-| Evaluation harness | ✅ Works | Eleven annotated cases scored on every push against floors applied to a 95 % lower bound — `1.00 [0.72, 1.00]` over 10 graded findings — with ungraded findings counted rather than dropped |
+| Evaluation harness | ✅ Works | Seventeen annotated cases scored on every push against floors applied to a 95 % lower bound — `1.00 [0.84, 1.00]` over 20 graded findings — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
 | Container & manifests | ✅ Works | Multi-stage image running as uid 10001, Kubernetes manifests with limits and a locked-down security context, and a test that parses both and asserts every claim |
@@ -830,17 +832,17 @@ expect_absent:           # where a fixed false positive is pinned
     line: 14
 ```
 
-Write what *should* be found, not what is found today. The shipped dataset
-states one defect the suite still misses, which is why the committed recall
-floor is 0.85 rather than 1.00. The loader refuses anything it does not
+Write what *should* be found, not what is found today. The committed floor is
+0.80 rather than 1.00 because it is applied to a lower bound: twenty graded
+findings, all of them correct, support 0.84 and no more. The loader refuses anything it does not
 recognise — an unknown key, a missing line, an unparseable severity — because a
 dataset is ground truth and a key nobody reads is a claim nobody checks.
 
-CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
+CI runs exactly these eight checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-1585 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+2516 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no

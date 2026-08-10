@@ -152,12 +152,12 @@ def test_the_corpus_does_not_support_a_blocking_floor(report):
     that measured it. Level 27 measured, and the answer is still no:
 
         6 graded findings, all correct -> lower bound 0.61   (Level 23-27)
-       18                              -> 0.82   (Level 28, today)
+       19                              -> 0.83   (today)
        35                              -> 0.90
        73                              -> 0.95
 
     Level 28 asked again with a corpus three times the size, and the answer is
-    still no — but it is now a much shorter no. Eighteen findings support 0.82;
+    still no — but it is now a much shorter no. Nineteen findings support 0.83;
     a blocking gate wants the 0.95 the analyzers are held to, which needs
     seventy-three. That is one more level of authoring rather than an open
     question, and this test is the record of the number rather than a preference
