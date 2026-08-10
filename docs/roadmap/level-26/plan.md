@@ -45,10 +45,12 @@ Each new recipe gets the same three tests Level 22 gave the first three: it
 fires on the shape it is for, it declines a line its pattern does not match, and
 it declines code already correct.
 
+`SAST.DEBUG_CODE` is deliberately absent: its fix is a deletion, and Level 22
+refused an empty replacement for a stated reason. The coverage report carries
+that refusal rather than the code quietly reversing it.
+
 - AC-6: `SAST.INSECURE_RANDOM` — `random.random()` → `secrets.SystemRandom()`,
   with `import secrets` added. The two-part edit the format change exists for.
-- AC-9: `SAST.DEBUG_CODE` — remove the line. The only recipe that deletes, and
-  it declines anything on the line beside the debug call.
 - AC-10: `SAST.INSECURE_HTTP` — `http://` → `https://` in a literal only.
   Declines a URL built from a variable, because upgrading a scheme it cannot see
   is a guess.

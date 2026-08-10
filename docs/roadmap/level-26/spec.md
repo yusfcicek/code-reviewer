@@ -59,6 +59,11 @@ than asserted). Both come from Level 22's own non-goals.
   file, so a two-file suggestion cannot be one click. A change that spans files
   is a merge request, and offering it as a button would be offering something
   the platform will not honour.
+- **Deleting code by button.** Level 22 refused an empty replacement — *"deleting
+  code is a change worth writing by hand"* — and this level honours that rather
+  than quietly reversing it. `SAST.DEBUG_CODE` would be the obvious candidate
+  and is therefore declined *on the record*, in the coverage report, with that
+  reason beside it.
 - **A recipe for every rule.** Most of the remaining 29 are not mechanical:
   `QUALITY.SOLID_SRP` and `PERFORMANCE.N_PLUS_ONE` need a design decision, and a
   recipe that guesses one produces a button that breaks a build. What ships is
@@ -125,7 +130,6 @@ A finding with a suggestion blocks exactly as it did without one.
 | AC-6 | `SAST.INSECURE_RANDOM` becomes `secrets`, with the import added | Recipe test |
 | AC-7 | The import is not added when it is already present | Recipe test |
 | AC-8 | The import lands after the last import, not before a docstring | Recipe test |
-| AC-9 | `SAST.DEBUG_CODE` removes the offending line | Recipe test |
 | AC-10 | `SAST.INSECURE_HTTP` becomes `https` where the scheme is a literal | Recipe test |
 | AC-11 | `QUALITY.ERROR_HANDLING` turns a bare `except:` into `except Exception:` | Recipe test |
 | AC-12 | `SAST.INSECURE_FILE_OPERATION` adds the missing mode where it is unambiguous | Recipe test |
@@ -157,7 +161,13 @@ reader to assume the rule was forgotten.
 recipes" was a number nobody could check without counting. The same argument
 that put check coverage in the narration report puts recipe coverage here.
 
-**D-5 — Multi-file stays out, with the platform reason recorded.** Level 22 left
+**D-5 — An earlier refusal is honoured rather than reversed in passing.**
+`DEBUG_CODE` is the most obviously mechanical rule left and its fix is a
+deletion, which Level 22 refused for a stated reason. Reversing that reason
+would need an argument this level does not have, so the rule is declined and the
+coverage report carries the refusal — which is what the report is for.
+
+**D-6 — Multi-file stays out, with the platform reason recorded.** Level 22 left
 it out without saying why. The why is that a suggestion is applied from one diff
 note on one file, so a cross-file suggestion is not a thing the platform can
 honour — a better reason than "we did not get to it".

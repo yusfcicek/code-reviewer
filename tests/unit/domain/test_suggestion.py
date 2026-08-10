@@ -24,7 +24,10 @@ def _suggestion(**overrides) -> Suggestion:
         "replacement": ("    return hashlib.sha256(value).hexdigest()",),
         "recipe": "md5-to-sha256",
     }
-    return Suggestion(**{**defaults, **overrides})
+    # `single` rather than the set constructor: these tests are the regression
+    # suite for the Level 22 shape, and they are deliberately not rewritten
+    # against the Level 26 one.
+    return Suggestion.single(**{**defaults, **overrides})
 
 
 # -- what it carries ---------------------------------------------------------
@@ -122,3 +125,93 @@ def test_the_replaced_text_is_available_for_a_check():
 
 def test_nothing_is_replaced_when_the_range_is_outside_the_file():
     assert _suggestion(start_line=99, end_line=99).replaced_in(SOURCE) == ()
+
+
+class TestASuggestionIsASetOfEdits:
+    """Level 26, step 1 — the one-range rule excluded a whole shape of fix.
+
+    A fix that needs an import at the top and a call in the middle was not
+    offerable at all, and it was excluded by an accident of format rather than
+    by judgement: every guarantee that mattered was about *validation*, and
+    validating a set is the same operation as validating one.
+    """
+
+    SOURCE = "import random\n\n\ndef token():\n    return random.random()\n"
+
+    def _edit(self, start, end, replacement):
+        from code_reviewer.domain.remediation import SuggestionEdit
+
+        return SuggestionEdit(start_line=start, end_line=end, replacement=tuple(replacement))
+
+    def _suggestion(self, *edits):
+        from code_reviewer.domain.remediation import Suggestion
+
+        return Suggestion(
+            rule_id="SAST.INSECURE_RANDOM",
+            file_path="app.py",
+            edits=tuple(edits),
+            recipe="insecure_random",
+        )
+
+    def test_two_edits_are_both_applied(self):
+        """AC-1."""
+        suggestion = self._suggestion(
+            self._edit(1, 1, ["import secrets"]),
+            self._edit(5, 5, ["    return secrets.SystemRandom().random()"]),
+        )
+
+        applied = suggestion.applied_to(self.SOURCE)
+
+        assert "import secrets" in applied
+        assert "secrets.SystemRandom" in applied
+
+    def test_edits_apply_bottom_up_so_an_earlier_one_does_not_move_a_later_one(self):
+        """AC-3. Applying top-down invalidates every later line number — the
+        arithmetic that is wrong once and then wrong everywhere."""
+        suggestion = self._suggestion(
+            self._edit(1, 1, ["import secrets", "import os"]),  # grows the file by a line
+            self._edit(5, 5, ["    return secrets.SystemRandom().random()"]),
+        )
+
+        applied = suggestion.applied_to(self.SOURCE).splitlines()
+
+        assert applied[0] == "import secrets"
+        assert applied[1] == "import os"
+        assert applied[-1] == "    return secrets.SystemRandom().random()"
+
+    def test_overlapping_edits_are_refused_at_construction(self):
+        """AC-2. Two edits claiming one line produce a result nobody can
+        predict, so they are refused rather than resolved by ordering."""
+        import pytest
+
+        with pytest.raises(ValueError):
+            self._suggestion(self._edit(3, 5, ["a"]), self._edit(4, 6, ["b"]))
+
+    def test_adjacent_edits_are_allowed(self):
+        assert self._suggestion(self._edit(1, 1, ["a"]), self._edit(2, 2, ["b"])).edits
+
+    def test_the_line_bound_counts_every_edit_together(self):
+        """AC-5. Otherwise five edits of twelve lines is a sixty-line button."""
+        import pytest
+
+        from code_reviewer.domain.remediation import MAX_SUGGESTION_LINES
+
+        half = ["x"] * (MAX_SUGGESTION_LINES // 2 + 1)
+        with pytest.raises(ValueError):
+            self._suggestion(self._edit(1, 1, half), self._edit(10, 10, half))
+
+    def test_an_empty_edit_set_is_refused(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            self._suggestion()
+
+    def test_an_edit_past_the_end_of_the_file_yields_nothing(self):
+        suggestion = self._suggestion(self._edit(1, 1, ["import secrets"]), self._edit(99, 99, ["x"]))
+
+        assert suggestion.applied_to(self.SOURCE) is None
+
+    def test_a_single_edit_still_behaves_as_it_did(self):
+        suggestion = self._suggestion(self._edit(1, 1, ["import secrets"]))
+
+        assert suggestion.applied_to(self.SOURCE).startswith("import secrets\n")

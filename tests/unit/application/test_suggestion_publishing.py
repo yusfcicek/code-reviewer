@@ -158,7 +158,7 @@ class TestTheSuggestionBody(unittest.TestCase):
         from code_reviewer.application.remediation_service import render_suggestion
 
         body = render_suggestion(
-            Suggestion(
+            Suggestion.single(
                 rule_id="SAST.WEAK_CRYPTO",
                 file_path="src/hashing.py",
                 start_line=5,
@@ -176,7 +176,7 @@ class TestTheSuggestionBody(unittest.TestCase):
         from code_reviewer.application.remediation_service import render_suggestion
 
         body = render_suggestion(
-            Suggestion(
+            Suggestion.single(
                 rule_id="SAST.WEAK_CRYPTO",
                 file_path="a.py",
                 start_line=5,

@@ -138,7 +138,7 @@ def suggest(finding: Finding, source: str) -> Suggestion | None:
         return None
 
     try:
-        return Suggestion(
+        return Suggestion.single(
             rule_id=finding.rule_id,
             file_path=finding.file_path,
             start_line=finding.line_number,
