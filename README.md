@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.21.0.** Rebuilt from an imported prototype across twenty-seven
+> **Status: 2.21.1.** Rebuilt from an imported prototype across twenty-seven
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2489 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2494 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -479,10 +479,12 @@ each retrieval, each memory access.
   retriever, look for the section, record the rank — and it is the half that
   failed: Level 23's tier returned *nothing at all* for a level with nothing to
   notice.
-- Recall `1.00 [0.57, 1.00]` over five cases at the tier's own limit of three,
-  floored at 0.55, with the related section first 60 % of the time. **What is not
-  measured is printed**: whether the model was right about a candidate it saw
-  needs a human on every case
+- Recall `0.80 [0.38, 0.96]` over five cases at the tier's own limit of three,
+  floored at 0.35, with the related section first 60 % of the time and floored
+  there too. Every case hides its answer among ten sections — a corpus whose
+  answer is always returned measures arithmetic, which is what the first version
+  of this one did. **What is not measured is printed**: whether the model was
+  right about a candidate it saw needs a human on every case
   ([ADR 0029](docs/adr/0029-measure-the-half-that-is-measurable.md)).
 - Each case carries **its own documents** so a reader sees the whole haystack, and
   **the argument for why the two relate** so somebody can disagree. No case's diff

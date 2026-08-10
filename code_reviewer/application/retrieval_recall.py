@@ -139,7 +139,7 @@ def _rank_of(chunks, case: RecallCase) -> int:
     return NOT_RETRIEVED
 
 
-def render_recall_report(report: RecallReport, floor: float) -> str:
+def render_recall_report(report: RecallReport, floor: float, first_place_floor: float = 0.0) -> str:
     """The measurement as markdown: the number, the ranks, and what missed."""
     interval = report.interval
     lines = [
@@ -155,7 +155,10 @@ def render_recall_report(report: RecallReport, floor: float) -> str:
         "about it — that needs a human on every case._",
         "",
         f"**First place**: {report.first_rank_share:.0%} of cases returned the related section "
-        "at rank 1. The tier's per-file limit is three, so rank is not a detail.",
+        f"at rank 1 (floor {first_place_floor:.0%}) — "
+        f"{'met' if report.first_rank_share >= first_place_floor else 'BELOW THE FLOOR'}. "
+        "The tier's per-file limit is three, so rank is not a detail — and this is the figure "
+        "a retriever can actually fail, so it is floored too (self-review 27, S-03).",
         "",
     ]
 

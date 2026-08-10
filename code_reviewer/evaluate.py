@@ -53,9 +53,19 @@ DEFAULT_DATASET = "evaluation"
 #: to break, so the point estimate is 1.00 and twenty-four cases support 0.86.
 DEFAULT_NARRATION_FLOOR = 0.85
 
-#: The floor the shipped retrieval corpus holds, on the lower bound. Five cases
-#: at 1.00 support 0.57; the floor says 0.55 and not a decimal more.
-DEFAULT_RETRIEVAL_FLOOR = 0.55
+#: The floor the shipped retrieval corpus holds, on the lower bound.
+#:
+#: 0.35 rather than 0.55, and the correction is a finding rather than a
+#: relaxation. Every case originally carried three document sections and the
+#: measurement asked for the top three, so every section was always returned and
+#: recall was 1.00 by construction — a measurement that could not fail, which is
+#: the defect this level was written to close (self-review 27, S-01). With a
+#: haystack the retriever misses one case of five: 0.80 [0.38, 0.96].
+DEFAULT_RETRIEVAL_FLOOR = 0.35
+
+#: How often the related section must come back *first*. The figure a retriever
+#: can actually fail, so it is floored rather than only printed (S-03).
+DEFAULT_FIRST_PLACE_FLOOR = 0.4
 
 #: How deep the measurement looks — the drift tier's own per-file limit.
 #: Measuring at a depth the tier never uses measures something else.
@@ -316,7 +326,7 @@ def _grade_retrieval(args) -> int:
     report = measure_recall(cases, build, limit=DEFAULT_RETRIEVAL_LIMIT)
 
     try:
-        _emit(render_recall_report(report, args.min_retrieval), args.markdown)
+        _emit(render_recall_report(report, args.min_retrieval, DEFAULT_FIRST_PLACE_FLOOR), args.markdown)
     except OSError as error:
         print(  # stdout: the program's output, not a diagnostic
             f"Retrieval evaluation ran but could not be written: {error}", file=sys.stderr
@@ -325,6 +335,8 @@ def _grade_retrieval(args) -> int:
 
     if report.errors or not report.results:
         return EXIT_CANNOT_MEASURE
+    if report.first_rank_share < DEFAULT_FIRST_PLACE_FLOOR:
+        return EXIT_BELOW_THRESHOLD
     return EXIT_OK if report.interval.lower >= args.min_retrieval else EXIT_BELOW_THRESHOLD
 
 

@@ -7,6 +7,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.21.1] — 2026-08-10
+
+The self-review of Level 27, and its three findings closed. Recorded in
+[`docs/roadmap/self-review-27.md`](docs/roadmap/self-review-27.md).
+
+The level was written because Level 23 shipped a tier whose complete absence was
+indistinguishable from its working. The first finding is that its replacement had
+the same property.
+
+### Fixed
+
+- **The retrieval measurement could not fail.** Every case carried three
+  document sections and the measurement asked for the top three, so every
+  section was always returned: recall was 1.00 by construction, and would have
+  stayed 1.00 for a retriever that ranked at random. Each case now hides its
+  answer among ten sections, the retriever misses one case of five, and the
+  floor is 0.35 — the number went down because the corpus got harder, not
+  because the retriever got worse. A test asserts every case has more sections
+  than the measurement asks for.
+- **Any one-removal, one-addition diff was called a rename.** A function
+  deleted beside an unrelated constant added produced `start_app → MAX_RETRIES`
+  and would have substituted the wrong word into a README on one click. A rename
+  now needs both sides to be declarations of the **same kind**.
+- **The only informative number was not floored.** Recall was the floored figure
+  and, per the first finding, was free; the first-place share is what a
+  retriever can fail, and it is floored at 40 % now.
+
+---
+
 ## [2.21.0] — 2026-08-10
 
 Level 27 — measuring the half that was never measured. Recorded in
@@ -26,9 +55,9 @@ notice.
   accidentally pass or fail it.
 - **A relevance floor on the drift tier**, with the number it dropped reported.
 - **`evaluate --retrieval`.** Five authored cases, each carrying its own
-  documents and the argument for why they relate. Recall `1.00 [0.57, 1.00]`
-  over 5 at the tier's own limit of three, floored at 0.55, with the related
-  section first 60 % of the time. What is *not* measured — whether the model was
+  documents and the argument for why they relate. Recall `0.80 [0.38, 0.96]`
+  over 5 at the tier's own limit of three, floored at 0.35, with the related
+  section first 60 % of the time and floored there too. What is *not* measured — whether the model was
   right — is printed in the report.
 - **Go, JavaScript, TypeScript and Java in the symbol index.** Declarations, not
   programs; `COVERED_LANGUAGES` states the scope. Python keeps its AST path and
