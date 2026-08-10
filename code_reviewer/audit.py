@@ -187,8 +187,16 @@ def _verify(args) -> int:
         print(f"Nothing to verify: '{args.path}' is not a file.", file=sys.stderr)  # stdout: the output
         return EXIT_CANNOT_VERIFY
 
-    verdict = verify_store(args.path, signer_from_environment(), expect_at_least=args.expect_at_least)
+    signer = signer_from_environment()
+    verdict = verify_store(args.path, signer, expect_at_least=args.expect_at_least)
     print(status_line(verdict))  # stdout: the program's output, not a diagnostic
+    if verdict.status is ChainStatus.UNVERIFIABLE and signer.key_ids:
+        # Both halves of the comparison, because the mistake this is for is a
+        # name that does not match: a retired key configured as `2025-KEY`
+        # against records that wrote `2025-key` (Level 30).
+        print(  # stdout: the program's output, not a diagnostic
+            f"  Keys held: {', '.join(signer.key_ids)}."
+        )
 
     if verdict.status is ChainStatus.INTACT:
         return EXIT_INTACT

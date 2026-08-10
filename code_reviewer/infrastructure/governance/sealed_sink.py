@@ -137,9 +137,19 @@ def verify_store(path: str | Path, signer: Signer | None = None, expect_at_least
     ``signer`` is what can attest to the signatures. Without one, a signed store
     is *unverifiable* rather than wrong — the state of anybody holding the file
     and not the key.
+
+    It used to ask whether the signer was *signing*, which is a different
+    question and got the answer wrong for the deployment this most matters to:
+    one that has stopped signing but still holds the retired keys its history
+    was signed with. What it asks now is whether the signer holds any key at
+    all — signing and verifying are two capabilities (Level 30).
+
+    Still `None` for a signer holding nothing, because "no key was supplied and
+    nothing is signed" is an intact store and "a key was supplied and nothing
+    is signed" is not.
     """
     entries = read_store(path)
-    accepts = signer.accepts if signer is not None and signer.is_signing else None
+    accepts = signer.accepts if signer is not None and signer.key_ids else None
     return verify(entries, accepts=accepts, expect_at_least=expect_at_least)
 
 

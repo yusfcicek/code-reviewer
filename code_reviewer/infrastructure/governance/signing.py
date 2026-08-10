@@ -159,6 +159,10 @@ class Keyring(Signer):
     def is_signing(self) -> bool:
         return self._signing.is_signing
 
+    @property
+    def key_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._by_id))
+
     def sign(self, digest: str) -> tuple[str, str]:
         return self._signing.sign(digest)
 

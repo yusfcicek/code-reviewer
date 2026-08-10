@@ -266,3 +266,61 @@ class TestAnUnsignedStoreSaysWhatItIsWorth:
         path = _store(tmp_path, signer=HmacSigner(KEY, key_id="ops-2026"))
 
         assert main(["verify", "--path", str(path)]) == EXIT_INTACT
+
+
+class TestAKeyThatWasRotatedAway:
+    """Level 30, AC-12 — the operator sees a missing key, not an accusation."""
+
+    CURRENT = "current-key-material-long-enough"
+    RETIRED = "retired-key-material-long-enough"
+
+    def _signed_by_the_old_key(self, tmp_path):
+        return _store(tmp_path, count=1, signer=HmacSigner(self.RETIRED, key_id="2025-key"))
+
+    def _environment(self, monkeypatch, **variables):
+        for name in ("REVIEW_AUDIT_KEY", "REVIEW_AUDIT_KEY_ID", "REVIEW_AUDIT_KEY_RETIRED_2025-key"):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in variables.items():
+            monkeypatch.setenv(name.replace("RETIRED", "RETIRED_2025-key").replace("_2025-key_", "_"), value)
+
+    def test_a_store_signed_by_a_key_that_is_gone_is_unverifiable(self, tmp_path, monkeypatch):
+        path = self._signed_by_the_old_key(tmp_path)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY", self.CURRENT)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY_ID", "2026-key")
+        monkeypatch.delenv("REVIEW_AUDIT_KEY_RETIRED_2025-key", raising=False)
+
+        assert main(["verify", "--path", str(path)]) == EXIT_CANNOT_VERIFY
+
+    def test_it_names_the_key_it_could_not_check_and_the_ones_it_holds(self, tmp_path, monkeypatch, capsys):
+        """The mistake this is for: a retired key configured under a name that
+        does not match what the records wrote. Both halves of the comparison
+        are printed, so the operator can see the difference rather than deduce
+        it."""
+        path = self._signed_by_the_old_key(tmp_path)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY", self.CURRENT)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY_ID", "2026-key")
+        monkeypatch.delenv("REVIEW_AUDIT_KEY_RETIRED_2025-key", raising=False)
+
+        main(["verify", "--path", str(path)])
+
+        printed = capsys.readouterr().out
+        assert "2025-key" in printed
+        assert "2026-key" in printed
+        assert "TAMPERED" not in printed
+
+    def test_the_retired_key_configured_makes_it_intact_again(self, tmp_path, monkeypatch):
+        """AC-1, end to end. Rotation costs nothing while the old key is kept."""
+        path = self._signed_by_the_old_key(tmp_path)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY", self.CURRENT)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY_ID", "2026-key")
+        monkeypatch.setenv("REVIEW_AUDIT_KEY_RETIRED_2025-key", self.RETIRED)
+
+        assert main(["verify", "--path", str(path)]) == EXIT_INTACT
+
+    def test_a_deployment_that_stopped_signing_can_still_read_its_history(self, tmp_path, monkeypatch):
+        path = self._signed_by_the_old_key(tmp_path)
+        monkeypatch.delenv("REVIEW_AUDIT_KEY", raising=False)
+        monkeypatch.delenv("REVIEW_AUDIT_KEY_ID", raising=False)
+        monkeypatch.setenv("REVIEW_AUDIT_KEY_RETIRED_2025-key", self.RETIRED)
+
+        assert main(["verify", "--path", str(path)]) == EXIT_INTACT
