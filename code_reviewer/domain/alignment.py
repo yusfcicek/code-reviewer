@@ -113,6 +113,12 @@ class AlignmentReport:
     unbacked: tuple[UnbackedCheck, ...] = ()
     #: Headings the prompt demands that nothing grades and nothing declines.
     ungoverned: tuple[str, ...] = ()
+    #: Headings the code names — as graded or as deliberately ungraded — that
+    #: the prompt does not demand. The more damaging direction, and the one
+    #: Level 29 forgot to look in: a demanded heading nothing grades costs a
+    #: reader nothing, while a *graded* heading nothing demands fails every
+    #: case in the corpus, forever (self-review 29, S-01).
+    ungrounded: tuple[str, ...] = ()
     #: Headings deliberately left ungraded, each with a reason on record.
     declined: tuple[str, ...] = ()
     #: Checks the prompt does back.
@@ -122,7 +128,7 @@ class AlignmentReport:
 
     @property
     def is_aligned(self) -> bool:
-        return not self.unbacked and not self.ungoverned
+        return not self.unbacked and not self.ungoverned and not self.ungrounded
 
 
 def sections_demanded(prompt: str) -> tuple[str, ...]:
@@ -149,6 +155,21 @@ def sections_demanded(prompt: str) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _refuse_contradictions(checked: tuple[str, ...], declined: dict[str, str]) -> None:
+    """Two ways the code can disagree with itself rather than with the prompt.
+
+    Neither is a fact about the prompt, so neither belongs in the report: a
+    decline with no reason is indistinguishable from an oversight, and a
+    heading that is both graded and deliberately ungraded is one constant
+    contradicting another.
+    """
+    for heading, reason in declined.items():
+        if not reason.strip():
+            raise ValueError(f"{heading}: a declined section needs a reason, not a blank")
+        if heading in checked:
+            raise ValueError(f"{heading} is both graded and declined; it cannot be both")
+
+
 def alignment(
     prompt: str,
     expectations: tuple[Expectation, ...],
@@ -158,10 +179,14 @@ def alignment(
     """Compares a prompt against the checks that grade what it produces.
 
     ``checked`` is the headings something grades; ``declined`` maps a heading to
-    the reason nothing does. A decline with no reason, or a decline of a heading
-    the prompt does not demand, is refused rather than accepted — the first is
-    indistinguishable from an oversight and the second is a note that outlived
-    the section it was about.
+    the reason nothing does. Both are names the code carries, and a name the
+    prompt does not demand is a misalignment in the direction Level 29 forgot to
+    look in — reported as ``ungrounded`` rather than raised, because the
+    measurement was taken and the answer is known (self-review 29, S-01, S-03).
+
+    Two things are still refused outright, because they are contradictions
+    between two constants rather than facts about the prompt: a decline with no
+    reason, and a heading that is both graded and deliberately ungraded.
     """
     if not expectations:
         # A measurement over nothing reports perfect alignment. Self-review 25
@@ -169,13 +194,9 @@ def alignment(
         # corpus; twice is enough to refuse it in the constructor of the third.
         raise ValueError("alignment needs at least one expectation to check")
 
+    _refuse_contradictions(checked, declined)
     demanded = sections_demanded(prompt)
-    for heading, reason in declined.items():
-        if not reason.strip():
-            raise ValueError(f"{heading}: a declined section needs a reason, not a blank")
-        if heading not in demanded:
-            raise ValueError(f"{heading}: the prompt does not demand it, so declining it says nothing")
-
+    named = sorted({*checked, *declined})
     unbacked = tuple(
         UnbackedCheck(check=expectation.check, missing=expectation.absent_from(prompt))
         for expectation in expectations
@@ -184,6 +205,7 @@ def alignment(
     return AlignmentReport(
         unbacked=unbacked,
         ungoverned=tuple(name for name in demanded if name not in checked and name not in declined),
+        ungrounded=tuple(name for name in named if name not in demanded),
         declined=tuple(name for name in demanded if name in declined),
         aligned=tuple(expectation.check for expectation in expectations if expectation.met_by(prompt)),
         demanded=demanded,
