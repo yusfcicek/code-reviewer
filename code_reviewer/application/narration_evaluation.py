@@ -180,14 +180,28 @@ class NarrationReport:
 
     @property
     def score_interval(self) -> Interval:
-        """The score, and the rates still consistent with it.
+        """The rates still consistent with what was seen, **over cases**.
 
-        A share of checks over a corpus this size is not a number to quote
-        bare: 1.00 over fifteen cases is consistent with a real rate of 0.80,
-        and this repository printed it as though it were not (Level 25).
+        The unit is a case, not a check. The first version of this counted
+        checks — twenty-four cases times five — and handed a hundred and twenty
+        to Wilson as though they were independent trials. They are not: a
+        review with no sections fails `required_sections_are_present` and
+        usually `severe_findings_are_mentioned` too, because the sections that
+        would have mentioned the finding are the missing ones.
+
+        The difference is not academic. Independent: `[0.97, 1.00]`. Over
+        cases: `[0.86, 1.00]`. The narration floor had been chosen from the
+        first number, in the level built to remove exactly that (self-review
+        25, S-01).
+
+        A case counts as a success when it agreed with its declaration on every
+        check — conservative, and right for the unit: a review with one wrong
+        claim in it is a review with a wrong claim in it. The headline
+        :attr:`score` stays per check, because a review with one flaw is not as
+        wrong as a review with five and a per-case number cannot say so.
         """
-        agreed = sum(1 for graded in self.graded for result in graded.results if graded.agrees(result))
-        return wilson(agreed, self.check_count)
+        whole = sum(1 for graded in self.graded if all(graded.agrees(result) for result in graded.results))
+        return wilson(whole, self.case_count)
 
     def rate_for(self, check: str) -> float:
         """The share of cases that passed one named check.

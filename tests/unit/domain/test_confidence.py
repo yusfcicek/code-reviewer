@@ -104,3 +104,70 @@ class TestSayingWhichConventionProducedIt:
 
         assert interval.point == 0.5
         assert interval.total == 10
+
+
+class TestF1HasNoSampleOfItsOwn:
+    """Self-review S-02 — an interval around a different number.
+
+    F1 is a harmonic mean, not a proportion, so there is no sample of successes
+    to put an interval around. The first version manufactured one and printed
+    it in the same column as precision and recall, where its bounds belonged to
+    0.83 while the number beside them read 0.80.
+
+    F1 is monotone increasing in both inputs, so a conservative bound is
+    available honestly: the harmonic mean of the two bounds.
+    """
+
+    def test_the_bound_is_the_harmonic_mean_of_the_two_bounds(self):
+        from code_reviewer.domain.confidence import f1_interval, harmonic
+
+        interval = f1_interval(wilson(8, 10), wilson(8, 10))
+
+        assert interval.lower == harmonic(wilson(8, 10).lower, wilson(8, 10).lower)
+
+    def test_the_point_is_the_harmonic_mean_of_the_two_points(self):
+        from code_reviewer.domain.confidence import f1_interval
+
+        interval = f1_interval(wilson(8, 10), wilson(6, 10))
+
+        assert abs(interval.point - 2 * 0.8 * 0.6 / (0.8 + 0.6)) < 1e-9
+
+    def test_the_point_sits_inside_its_own_bounds(self):
+        """The defect, stated as a property: it did not."""
+        from code_reviewer.domain.confidence import f1_interval
+
+        for successes in range(11):
+            interval = f1_interval(wilson(successes, 10), wilson(10 - successes, 10))
+
+            assert interval.lower <= interval.point <= interval.upper, successes
+
+    def test_it_says_it_is_derived_rather_than_sampled(self):
+        from code_reviewer.domain.confidence import f1_interval
+
+        assert "derived" in f1_interval(wilson(8, 10), wilson(8, 10)).method.lower()
+
+    def test_two_perfect_inputs_give_a_bound_below_one(self):
+        from code_reviewer.domain.confidence import f1_interval
+
+        assert f1_interval(wilson(10, 10), wilson(10, 10)).lower < 1.0
+
+    def test_a_zero_input_gives_a_zero_point(self):
+        from code_reviewer.domain.confidence import f1_interval
+
+        assert f1_interval(wilson(0, 10), wilson(10, 10)).point == 0.0
+
+    def test_the_total_is_the_smaller_of_the_two_samples(self):
+        """The measurement is only as strong as its weaker half."""
+        from code_reviewer.domain.confidence import f1_interval
+
+        assert f1_interval(wilson(8, 10), wilson(3, 4)).total == 4
+
+
+class TestCorrelatedObservations:
+    """Self-review S-01 — 120 observations that were 24."""
+
+    def test_the_helper_takes_the_number_of_independent_units(self):
+        from code_reviewer.domain.confidence import wilson
+
+        assert wilson(24, 24).total == 24
+        assert wilson(24, 24).lower < wilson(120, 120).lower

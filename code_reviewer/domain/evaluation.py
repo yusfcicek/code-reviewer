@@ -32,7 +32,7 @@ would move two numbers for one defect (contract C-3).
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from .confidence import Interval, wilson
+from .confidence import Interval, f1_interval, wilson
 from .finding import Finding
 from .severity import Severity
 
@@ -87,21 +87,14 @@ class ConfusionMatrix:
 
     @property
     def f1_interval(self) -> "Interval":
-        """F1's interval, taken over the total evidence behind it.
+        """A bound for F1, derived from the precision and recall bounds.
 
-        F1 is a harmonic mean rather than a proportion, so it has no natural
-        sample. The denominator used is every graded outcome — hits, misses and
-        spurious findings — which is the evidence the number rests on, and the
-        interval is therefore about *how much was measured* rather than a
-        derivation anybody should quote in a paper. Named in the report as such.
+        Not sampled: F1 is a harmonic mean and has no sample of successes of
+        its own. The first version of this manufactured one — a Wilson interval
+        over every graded outcome — and produced bounds belonging to 0.83 while
+        the number printed beside them read 0.80 (self-review 25, S-02).
         """
-        total = self.true_positives + self.false_positives + self.false_negatives
-        return Interval(
-            point=self.f1,
-            lower=wilson(round(self.f1 * total), total).lower,
-            upper=wilson(round(self.f1 * total), total).upper,
-            total=total,
-        )
+        return f1_interval(self.precision_interval, self.recall_interval)
 
     @property
     def f1(self) -> float:

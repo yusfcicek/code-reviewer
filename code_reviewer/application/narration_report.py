@@ -27,11 +27,14 @@ def render_narration_report(report: NarrationReport, floor: float) -> str:
     interval = report.score_interval
     lines += [
         "",
-        f"**Score**: {interval} (floor {floor:.2f} on the lower bound) — "
+        f"**Score**: {report.score:.2f} per check; {interval} per case "
+        f"(floor {floor:.2f} on the lower bound) — "
         f"{'met' if interval.lower >= floor else 'BELOW THE FLOOR'}",
         "",
-        f"_{interval.method}, {interval.confidence:.0%}. The point estimate alone would say "
-        "the same thing about a corpus a hundred times this size._",
+        f"_{interval.method}, {interval.confidence:.0%}, over **cases** — a case counts once "
+        "however many checks it has, because checks within one review are not independent. "
+        "The point estimate alone would say the same thing about a corpus a hundred times "
+        "this size._",
         "",
     ]
 

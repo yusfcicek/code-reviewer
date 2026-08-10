@@ -176,3 +176,37 @@ def test_the_outcome_carries_both_halves():
     outcome = LiveNarration(report=None, unreachable=("a",))
 
     assert outcome.unreachable == ("a",)
+
+
+class TestNothingMeasuredIsNotABadScore:
+    """Self-review S-04. A live run where every case fails produces zero graded
+    cases, an interval of [0, 1] and a lower bound of 0.0 — which failed a floor
+    and exited 1. Nothing was measured: that is exit 2, a distinction this
+    repository has enforced since Level 10 and re-enforced in Level 24."""
+
+    def test_a_run_that_graded_nothing_says_so(self):
+        outcome = grade_live([_case("a")], _Reviewer(error=RuntimeError("no endpoint")), _source)
+
+        assert outcome.measured_nothing
+
+    def test_a_run_that_graded_something_does_not(self):
+        outcome = grade_live([_case("a")], _Reviewer(CLEAN), _source)
+
+        assert not outcome.measured_nothing
+
+    def test_a_partly_reachable_run_is_a_measurement(self):
+        """Incomplete is not absent. The hole is named; the rest is a score."""
+
+        class _Flaky(_Reviewer):
+            def review_diff(self, brief):
+                self.briefs.append(brief)
+                if len(self.briefs) == 1:
+                    raise RuntimeError("timeout")
+                return CLEAN
+
+        outcome = grade_live([_case("a"), _case("b")], _Flaky(), _source)
+
+        assert not outcome.measured_nothing
+
+    def test_an_empty_corpus_measured_nothing_too(self):
+        assert grade_live([], _Reviewer(), _source).measured_nothing

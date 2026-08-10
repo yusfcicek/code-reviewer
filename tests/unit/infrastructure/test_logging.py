@@ -243,7 +243,7 @@ class TestNoPrints(unittest.TestCase):
         # the one reason it refuses to start. Everything below them logs.
         self.assertEqual(
             marked,
-            ["__main__.py"] + ["audit.py"] * 6 + ["evaluate.py"] * 11 + ["serve.py"],
+            ["__main__.py"] + ["audit.py"] * 6 + ["evaluate.py"] * 12 + ["serve.py"],
             marked,
         )
 

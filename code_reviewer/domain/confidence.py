@@ -96,3 +96,38 @@ def rate_interval(rate: float, total: int) -> Interval:
     a proportion over ``total`` items came from whole items.
     """
     return wilson(round(rate * total), total)
+
+
+def harmonic(first: float, second: float) -> float:
+    """The harmonic mean, which is nought when either input is."""
+    if first <= 0 or second <= 0:
+        return 0.0
+    return 2 * first * second / (first + second)
+
+
+def f1_interval(precision: Interval, recall: Interval) -> Interval:
+    """A bound for F1, derived rather than sampled.
+
+    Self-review 25, S-02. F1 is a harmonic mean, not a proportion, so there is
+    no sample of successes to put a Wilson interval around. The first version
+    of this level manufactured one — ``wilson(round(f1 * total), total)`` — and
+    printed it in the same column as precision and recall, where its bounds
+    belonged to 0.83 and the number beside them read 0.80.
+
+    F1 is monotone increasing in both of its inputs, so the harmonic mean of
+    the two lower bounds **is** a lower bound for F1, and likewise above. That
+    is conservative — it is not the shortest interval available — and it is a
+    statement that can be defended, which the previous one was not.
+
+    ``total`` is the smaller of the two samples: a measurement is only as
+    strong as its weaker half, and reporting the larger would be the same kind
+    of flattery in a different field.
+    """
+    return Interval(
+        point=harmonic(precision.point, recall.point),
+        lower=harmonic(precision.lower, recall.lower),
+        upper=harmonic(precision.upper, recall.upper),
+        total=min(precision.total, recall.total),
+        confidence=precision.confidence,
+        method="derived from the precision and recall bounds",
+    )

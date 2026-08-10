@@ -40,14 +40,18 @@ from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationC
 DEFAULT_DATASET = "evaluation"
 
 #: The floor the shipped narration corpus holds, applied to the **lower bound**
-#: of a 95 % interval since Level 25 rather than to the point estimate.
+#: of a 95 % interval over **cases**.
+#:
+#: 0.85 rather than 0.95, and the correction is a finding rather than a
+#: relaxation. The first version counted checks — twenty-four cases times five —
+#: as a hundred and twenty independent trials, which narrowed the interval from
+#: [0.86, 1.00] to [0.97, 1.00], and the floor was then chosen from the narrow
+#: number. Checks inside one review are not independent: a review with no
+#: sections fails two checks for one reason (self-review 25, S-01).
 #:
 #: Every case still either passes every check or declares the one it is built
-#: to break, so the point estimate is 1.00. Seventy-five checks over fifteen
-#: cases put the lower bound at 0.95, and that is the floor: a value of 1.00
-#: here would be unreachable by any finite corpus, which is a floor that can
-#: only be met by nobody measuring.
-DEFAULT_NARRATION_FLOOR = 0.95
+#: to break, so the point estimate is 1.00 and twenty-four cases support 0.86.
+DEFAULT_NARRATION_FLOOR = 0.85
 
 EXIT_OK = 0
 EXIT_BELOW_THRESHOLD = 1
@@ -220,6 +224,12 @@ def _grade_narration(args) -> int:
     if args.live:
         outcome = _live_narration(cases, args)
         if outcome is None:
+            return EXIT_CANNOT_MEASURE
+        if outcome.measured_nothing:
+            print(  # stdout: the program's output, not a diagnostic
+                f"Nothing could be measured: {len(outcome.unreachable)} case(s) unreachable.",
+                file=sys.stderr,
+            )
             return EXIT_CANNOT_MEASURE
         report = outcome.report
         if outcome.unreachable:

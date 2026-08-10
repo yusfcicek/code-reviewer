@@ -40,6 +40,18 @@ class LiveNarration:
     #: different facts, and only the second is a measurement.
     unreachable: tuple[str, ...] = ()
 
+    @property
+    def measured_nothing(self) -> bool:
+        """Whether the run produced no measurement at all.
+
+        Distinct from a bad score, and the caller exits `2` on it rather than
+        `1`. A run where every case failed has a lower bound of nought, which
+        fails any floor — and reporting "the reviewer scored badly" when the
+        endpoint was unreachable is the conflation this repository has refused
+        since Level 10 (self-review 25, S-04).
+        """
+        return self.report is None or self.report.case_count == 0
+
 
 def grade_live(
     cases: Sequence[NarrationCase],
