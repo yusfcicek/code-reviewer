@@ -14,23 +14,14 @@ import pytest
 
 from code_reviewer.application.documentation_evaluation import evaluate_documentation
 from code_reviewer.domain.evaluation import EvaluationThreshold
+from code_reviewer.evaluate import DEFAULT_DOCUMENTATION_FLOOR
 from code_reviewer.infrastructure.evaluation.documentation_dataset import DocumentationCorpus
 
 #: The floors committed to CI, applied to the **lower bound** of a 95 %
-#: interval since Level 25 rather than to the point estimate.
-#:
-#: 0.80 since Level 28. Six graded findings supported 0.61; eighteen support
-#: 0.82, and the floor takes 0.80 of it.
-#:
-#: Ten cases got it there, each covering a rule or a shape nothing exercised —
-#: the Returns and Raises halves of DOCSTRING_DRIFT, a signature on a method, a
-#: fenced block that fails to parse the way a person actually writes one. The
-#: seven cases that deliberately expect nothing are untouched: they are where
-#: this tier's failure mode lives, and diluting them to raise a number would be
-#: the move every self-review here has caught somebody making.
-MIN_PRECISION = 0.80
-MIN_RECALL = 0.80
-MIN_F1 = 0.80
+#: interval since Level 25 rather than to the point estimate. One copy, in
+#: `evaluate.py`, for the reason self-review 28 found the hard way: a floor a
+#: test module holds is not the floor the shipped command applies.
+MIN_PRECISION = MIN_RECALL = MIN_F1 = DEFAULT_DOCUMENTATION_FLOOR
 
 #: Rules the corpus must exercise. A harness grading only dead references would
 #: report a healthy F1 while four rules went unmeasured.

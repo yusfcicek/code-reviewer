@@ -18,6 +18,7 @@ from code_reviewer.application.retrieval_recall import (
     render_recall_report,
 )
 from code_reviewer.application.retrieval_service import HybridRetriever
+from code_reviewer.evaluate import DEFAULT_FIRST_PLACE_FLOOR, DEFAULT_RETRIEVAL_FLOOR
 from code_reviewer.infrastructure.evaluation.retrieval_dataset import (
     RetrievalCorpus,
     RetrievalDatasetError,
@@ -42,12 +43,12 @@ from code_reviewer.infrastructure.retrieval.vector_index import InMemoryVectorIn
 #: The four misses are named in the report rather than averaged. Improving them
 #: is a later level's work and would be a change to the retriever, which this
 #: level deliberately does not make: a miss is a fact, not a proven defect.
-MIN_RECALL = 0.40
+MIN_RECALL = DEFAULT_RETRIEVAL_FLOOR
 
 #: How often the related section must come back first. The figure a retriever
 #: can actually fail (S-03), on the lower bound like every other floor here
 #: (self-review 28, S-05).
-MIN_FIRST_PLACE = 0.35
+MIN_FIRST_PLACE = DEFAULT_FIRST_PLACE_FLOOR
 
 #: How deep the measurement looks. The tier's own per-file limit, because
 #: measuring at a depth the tier never uses measures something else.
