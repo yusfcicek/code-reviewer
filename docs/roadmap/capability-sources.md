@@ -55,6 +55,7 @@ repository does about it today. A capability with no gap produces no level.
 | C-33 | Relevance as a number a floor can be applied to | — | Level 23's plan described a floor the port could not express, and dropped it | 27 |
 | C-34 | Documentation resolution beyond one language | — | Level 23's own non-goal. A symbol in any other language resolved to nothing, silently | 27 |
 | C-35 | Measurements strong enough to gate on | — | Level 25's non-goal read forwards. Sixteen levels of "a floor is earned" and not one had moved a floor up | 28 |
+| C-36 | The prompt and the checks over its output kept consistent | — | Level 21's non-goal ("tuning the prompt against the checks"), read as far as it goes without a model. Three of five checks graded a rule the prompt never stated | 29 |
 
 **C-32 to C-34 come from Level 23's own non-goals and its plan**, and four
 levels in a row have now been sourced this way. The inventory that produced
