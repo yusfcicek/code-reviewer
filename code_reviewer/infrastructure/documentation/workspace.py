@@ -21,6 +21,8 @@ document the first time a checkout is shallow.
 import ast
 import logging
 import os
+import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from code_reviewer.domain.documentation import SymbolIndex
@@ -42,6 +44,62 @@ DEFAULT_MAX_SOURCE_FILES = 2_000
 
 #: Ceiling on documents read.
 DEFAULT_MAX_DOCUMENTS = 500
+
+#: Declaration syntax, per language, for the languages this index reads.
+#:
+#: Declarations rather than programs. The index answers *does this name exist*,
+#: and a regex over declaration syntax answers that; it is honest about
+#: answering nothing else. A parser per language is a different project, and
+#: Level 27's decision D-3 says so rather than leaving it implied.
+#:
+#: Python is absent on purpose: it is read with `ast`, which also yields
+#: parameter names, so a signature mismatch is only ever claimed about Python.
+_DECLARATIONS: dict[str, tuple[str, ...]] = {
+    ".go": (
+        r"^func\s+(?P<name>[A-Za-z_]\w*)\s*\(",
+        r"^func\s+\([^)]*\)\s*(?P<name2>[A-Za-z_]\w*)\s*\(",
+        r"^type\s+(?P<name3>[A-Za-z_]\w*)\b",
+        r"^(?:const|var)\s+(?P<name4>[A-Za-z_]\w*)\b",
+    ),
+    ".js": (),
+    ".jsx": (),
+    ".ts": (),
+    ".tsx": (),
+    ".java": (),
+}
+
+#: The shapes shared by JavaScript, TypeScript and their JSX variants.
+_SCRIPT_DECLARATIONS: tuple[str, ...] = (
+    r"^(?:export\s+)?(?:async\s+)?function\s+(?P<name>[A-Za-z_$][\w$]*)\s*\(",
+    r"^(?:export\s+)?(?:abstract\s+)?class\s+(?P<name2>[A-Za-z_$][\w$]*)\b",
+    r"^(?:export\s+)?interface\s+(?P<name3>[A-Za-z_$][\w$]*)\b",
+    r"^(?:export\s+)?type\s+(?P<name4>[A-Za-z_$][\w$]*)\s*=",
+    r"^(?:export\s+)?(?:const|let|var)\s+(?P<name5>[A-Za-z_$][\w$]*)\b",
+)
+
+#: Java's, which put the name after a return type and a pile of modifiers.
+_JAVA_DECLARATIONS: tuple[str, ...] = (
+    r"^(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+|static\s+)*"
+    r"(?:class|interface|enum|record)\s+(?P<name>[A-Za-z_]\w*)\b",
+    r"^(?:public\s+|private\s+|protected\s+|static\s+|final\s+|synchronized\s+)+"
+    r"[A-Za-z_][\w<>\[\],.\s]*\s+(?P<name2>[A-Za-z_]\w*)\s*\(",
+)
+
+for _suffix in (".js", ".jsx", ".ts", ".tsx"):
+    _DECLARATIONS[_suffix] = _SCRIPT_DECLARATIONS
+_DECLARATIONS[".java"] = _JAVA_DECLARATIONS
+
+#: Compiled once. A comment marker is stripped before matching, because a
+#: commented-out declaration is not a declaration — the lesson self-review 26
+#: paid for in a different module.
+_COMPILED: Mapping[str, tuple[re.Pattern[str], ...]] = {
+    suffix: tuple(re.compile(pattern) for pattern in patterns) for suffix, patterns in _DECLARATIONS.items()
+}
+
+#: Every language this index reads, stated so a reader can see what is out of
+#: scope without reading the patterns. `.py` is read with `ast`; the rest with
+#: the declaration patterns above.
+COVERED_LANGUAGES: frozenset[str] = frozenset({".py", ".pyi", *_DECLARATIONS})
 
 #: Receivers whose subscript or `.get` reads an environment variable. Named
 #: rather than assumed: `.get("key")` on an ordinary dictionary is not a read
@@ -68,13 +126,18 @@ def build_symbol_index(root: str | Path, max_files: int = DEFAULT_MAX_SOURCE_FIL
     workspace = Workspace(directory, total_read_budget_bytes=DEFAULT_INDEX_BUDGET_BYTES)
     collector = _Collector()
 
-    for count, path in enumerate(_files_under(directory, {".py", ".pyi"})):
+    for count, path in enumerate(_files_under(directory, COVERED_LANGUAGES)):
         if count >= max_files:
             logger.warning("Symbol index truncated at %d file(s); the repository is larger", max_files)
             break
         source = _read(workspace, path)
-        if source is not None:
-            collector.absorb(source, str(path.relative_to(directory)))
+        if source is None:
+            continue
+        relative = str(path.relative_to(directory))
+        if path.suffix in (".py", ".pyi"):
+            collector.absorb(source, relative)
+        else:
+            collector.absorb_declarations(source, path.suffix)
 
     return collector.index()
 
@@ -138,6 +201,29 @@ class _Collector:
                 self._absorb_call(node)
             elif isinstance(node, ast.Subscript):
                 self._absorb_subscript(node)
+
+    def absorb_declarations(self, source: str, suffix: str) -> None:
+        """Adds the names a non-Python file declares.
+
+        Nothing else: no parameters, no qualified names, no imports. The index
+        answers *does this name exist* for these languages and says so.
+
+        A line whose declaration is behind a comment marker contributes nothing.
+        That is the lesson self-review 26 paid for in `fix_recipes.py`, applied
+        here before it could cost anything.
+        """
+        for raw in source.splitlines():
+            line = raw.strip()
+            if not line or line.startswith(("//", "#", "*", "/*")):
+                continue
+            for pattern in _COMPILED.get(suffix, ()):
+                match = pattern.match(line)
+                if match is None:
+                    continue
+                name = next((value for value in match.groupdict().values() if value), "")
+                if name:
+                    self._names.add(name)
+                break
 
     def _absorb_class(self, node: ast.ClassDef) -> None:
         self._names.add(node.name)
