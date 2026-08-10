@@ -361,8 +361,15 @@ class Signer(ABC):
         """The signature and the key id, or two empty strings."""
 
     @abstractmethod
-    def accepts(self, digest: str, signature: str, key_id: str) -> bool:
-        """Whether this key produced that signature. Never raises."""
+    def accepts(self, digest: str, signature: str, key_id: str) -> bool | None:
+        """Whether this key produced that signature. Never raises.
+
+        Three answers since Level 30. ``None`` means **no key of that name is
+        held**, which is what a deployment that has rotated its key is in, and
+        it is not the same fact as *this signature is wrong*. A verifier reads
+        the first as unverifiable and the second as tampered; collapsing them
+        into one boolean made a routine rotation read as a forgery.
+        """
 
 
 class NullSigner(Signer):
@@ -390,9 +397,14 @@ class NullSigner(Signer):
     def sign(self, digest: str) -> tuple[str, str]:
         return "", ""
 
-    def accepts(self, digest: str, signature: str, key_id: str) -> bool:
-        """Nothing. A verifier handed one reports *unverifiable*, not intact."""
-        return False
+    def accepts(self, digest: str, signature: str, key_id: str) -> bool | None:
+        """Nothing, and *nothing* is now sayable: this holds no key of any name.
+
+        It used to answer ``False``, which said "that signature is wrong" about
+        a signature it had not looked at. A verifier handed one reports
+        *unverifiable*, which is what it always meant to say.
+        """
+        return None
 
 
 class AuditStore(ABC):
