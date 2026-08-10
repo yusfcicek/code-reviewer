@@ -51,6 +51,15 @@ repository does about it today. A capability with no gap produces no level.
 | C-29 | Comparing one measurement against another | — | Level 21's own non-goal. Nothing stored a baseline, so 'is this better than last week' had no answer | 25 |
 | C-30 | A suggestion that can touch more than one place | — | Level 22's own non-goal. One contiguous range, so a fix needing an import was not expressible | 26 |
 | C-31 | Recipes for the rules that are mechanical, measured | — | Level 22's own non-goal. Three recipes of thirty-nine rules, and nothing counted them | 26 |
+| C-32 | A retrieval tier measured without grading a model | — | Level 23's own non-goal. Unmeasured, and its complete absence went unnoticed for a level | 27 |
+| C-33 | Relevance as a number a floor can be applied to | — | Level 23's plan described a floor the port could not express, and dropped it | 27 |
+| C-34 | Documentation resolution beyond one language | — | Level 23's own non-goal. A symbol in any other language resolved to nothing, silently | 27 |
+
+**C-32 to C-34 come from Level 23's own non-goals and its plan**, and four
+levels in a row have now been sourced this way. The inventory that produced
+levels 12 to 23 is closed; what has replaced it is each level's own honest list
+of what it did not do, which turns out to be the better source — it is written
+by somebody who had just looked.
 
 **C-30 and C-31 come from Level 22's own non-goals**, and the pattern is now
 three for three: a level that names its limits honestly leaves a later level a

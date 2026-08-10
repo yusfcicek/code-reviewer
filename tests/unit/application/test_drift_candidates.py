@@ -7,7 +7,7 @@ underneath it fails.
 """
 
 from code_reviewer.application.drift_service import DriftService
-from code_reviewer.application.ports import FileChange
+from code_reviewer.application.ports import CodeRetriever, FileChange
 from code_reviewer.domain.drift import DriftCandidate, DriftVerdict
 from code_reviewer.domain.retrieval import CodeChunk
 from code_reviewer.domain.severity import Severity
@@ -15,8 +15,14 @@ from code_reviewer.domain.severity import Severity
 SECTION = "## Suppression\n\nA directive silences a rule, and the reason is what the next person reads.\n"
 
 
-class _Retriever:
-    """Returns what it was given, and remembers what it was asked."""
+class _Retriever(CodeRetriever):
+    """Returns what it was given, and remembers what it was asked.
+
+    Subclasses the port rather than duck-typing it, so it inherits the default
+    `scored` — a fake that does not implement the port is a fake that cannot
+    tell you anything about the port, which is how Level 23's tests passed
+    while the tier returned nothing.
+    """
 
     def __init__(self, chunks=None, error=None):
         self._chunks = chunks or []
@@ -222,3 +228,64 @@ def test_a_candidate_carries_its_location_and_its_text():
 
     assert candidate.path == "docs/guide.md"
     assert candidate.text == SECTION
+
+
+class TestTheRelevanceFloor:
+    """Level 27, step 2 — the floor Level 23's plan described and could not build.
+
+    The port had no score, so the floor was dropped from the plan; then the
+    tier returned nothing at all for a whole level and nothing detected it. A
+    floor is not only a filter — it is a number somebody can look at.
+    """
+
+    class _Scored(_Retriever):
+        """A retriever that scores, so the floor can apply."""
+
+        def __init__(self, pairs):
+            super().__init__([chunk for chunk, _ in pairs])
+            self._pairs = pairs
+
+        def scored(self, query, limit=5, exclude_path=""):
+            from code_reviewer.domain.retrieval import ScoredChunk
+
+            self.queries.append((query, limit))
+            return [ScoredChunk(chunk=chunk, score=score) for chunk, score in self._pairs][:limit]
+
+    def test_a_candidate_below_the_floor_never_reaches_the_model(self):
+        """AC-3."""
+        judge = _Judge()
+        retriever = self._Scored([(_chunk(line=1, name="A"), 0.9), (_chunk(line=9, name="B"), 0.001)])
+
+        DriftService(retriever, judge, floor=0.01).review([_change()])
+
+        assert [candidate.heading for candidate in judge.asked] == ["A"]
+
+    def test_the_number_the_floor_dropped_is_reported(self):
+        """AC-4, on the rule Level 23 set about silent truncation."""
+        retriever = self._Scored([(_chunk(line=1, name="A"), 0.9), (_chunk(line=9, name="B"), 0.001)])
+
+        outcome = DriftService(retriever, _Judge(), floor=0.01).review([_change()])
+
+        assert outcome.below_floor == 1
+
+    def test_nothing_below_the_floor_is_reported_as_nothing(self):
+        retriever = self._Scored([(_chunk(line=1, name="A"), 0.9)])
+
+        assert DriftService(retriever, _Judge(), floor=0.01).review([_change()]).below_floor == 0
+
+    def test_an_unscored_retriever_reports_the_floor_as_not_applied(self):
+        """AC-5. The old behaviour, now visible instead of implied."""
+        outcome = DriftService(_Retriever([_chunk()]), _Judge(), floor=0.5).review([_change()])
+
+        assert outcome.floor_applied is False
+        assert outcome.findings
+
+    def test_a_scored_retriever_reports_the_floor_as_applied(self):
+        retriever = self._Scored([(_chunk(line=1, name="A"), 0.9)])
+
+        assert DriftService(retriever, _Judge(), floor=0.01).review([_change()]).floor_applied is True
+
+    def test_the_default_floor_is_a_stated_constant(self):
+        from code_reviewer.application.drift_service import DEFAULT_RELEVANCE_FLOOR
+
+        assert DEFAULT_RELEVANCE_FLOOR > 0

@@ -30,6 +30,8 @@ from code_reviewer.domain.documentation import (
     claims_in,
     docstring_defects,
     documentation_defects,
+    documentation_suggestion,
+    rename_in,
     scope_from_diff,
 )
 from code_reviewer.domain.finding import Finding, FindingCategory
@@ -112,6 +114,10 @@ class DocumentationOutcome:
     #: outcome rather than only in a log, because a silence nobody can see is
     #: indistinguishable from a clean result.
     degraded: str = ""
+    #: Edits offered for the findings that have one. Only ever a rename
+    #: substitution: the diff knows both names, so it is arithmetic rather than
+    #: a sentence anybody has to review (Level 27).
+    suggestions: list = field(default_factory=list)
 
 
 class DocumentationService:
@@ -140,7 +146,7 @@ class DocumentationService:
 
         findings = self._document_findings(scope, edited)
         findings.extend(self._docstring_findings(changes, sources))
-        return DocumentationOutcome(findings=findings)
+        return DocumentationOutcome(findings=findings, suggestions=self._suggestions(changes, findings))
 
     # -- internals ----------------------------------------------------------
 
@@ -151,6 +157,34 @@ class DocumentationService:
             if _suffix(change.path) in SOURCE_SUFFIXES:
                 scope = scope.merged_with(scope_from_diff(change.diff))
         return scope
+
+    def _suggestions(self, changes: Sequence[FileChange], findings: Sequence[Finding]) -> list:
+        """A substitution for each dead reference a rename explains.
+
+        One rename per review at most: `rename_in` refuses an ambiguous diff,
+        because which old name became which new one is not in the diff and
+        guessing renames the wrong thing.
+        """
+        renames = [rename_in(change.diff) for change in changes if _suffix(change.path) in SOURCE_SUFFIXES]
+        found = [rename for rename in renames if rename is not None]
+        if len(found) != 1:
+            return []
+
+        rename = found[0]
+        texts = dict(self._documents)
+        offered = []
+        for finding in findings:
+            if finding.rule_id != f"{NAMESPACE}.DEAD_REFERENCE":
+                continue
+            text = texts.get(finding.file_path)
+            if not text:
+                continue
+            suggestion = documentation_suggestion(
+                path=finding.file_path, text=text, line=finding.line_number, rename=rename
+            )
+            if suggestion is not None:
+                offered.append(suggestion)
+        return offered
 
     def _document_findings(self, scope: ChangeScope, edited: set[str]) -> list[Finding]:
         findings: list[Finding] = []

@@ -53,6 +53,14 @@ DEFAULT_DATASET = "evaluation"
 #: to break, so the point estimate is 1.00 and twenty-four cases support 0.86.
 DEFAULT_NARRATION_FLOOR = 0.85
 
+#: The floor the shipped retrieval corpus holds, on the lower bound. Five cases
+#: at 1.00 support 0.57; the floor says 0.55 and not a decimal more.
+DEFAULT_RETRIEVAL_FLOOR = 0.55
+
+#: How deep the measurement looks — the drift tier's own per-file limit.
+#: Measuring at a depth the tier never uses measures something else.
+DEFAULT_RETRIEVAL_LIMIT = 3
+
 EXIT_OK = 0
 EXIT_BELOW_THRESHOLD = 1
 EXIT_CANNOT_MEASURE = 2
@@ -126,6 +134,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--retrieval",
+        action="store_true",
+        help=(
+            "Grade the drift tier's retrieval: whether the document section a "
+            "reader says relates to a change comes back, and at what rank. "
+            "Deterministic — it measures what reached the model, never whether "
+            "the model was right."
+        ),
+    )
+    parser.add_argument(
+        "--min-retrieval",
+        type=_floor,
+        default=_floor(_env("EVALUATION_MIN_RETRIEVAL", str(DEFAULT_RETRIEVAL_FLOOR))),
+        help="Minimum acceptable recall, on the interval's lower bound.",
+    )
+    parser.add_argument(
         "--write-baseline",
         default="",
         metavar="PATH",
@@ -175,6 +199,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _grade_narration(args)
     if args.documentation:
         return _grade_documentation(args)
+    if args.retrieval:
+        return _grade_retrieval(args)
 
     threshold = EvaluationThreshold(
         min_precision=args.min_precision,
@@ -257,6 +283,49 @@ def _grade_narration(args) -> int:
     # exit code and the rendered verdict were reading two different numbers,
     # which is how a report can say BELOW THE FLOOR and exit zero.
     return EXIT_OK if report.score_interval.lower >= args.min_narration else EXIT_BELOW_THRESHOLD
+
+
+def _grade_retrieval(args) -> int:
+    """Grades the drift tier's retrieval. Same three exit codes.
+
+    The corpus carries its own documents, so each case builds its own index —
+    which is also what makes the cases independent, and therefore what makes
+    the interval over cases honest.
+    """
+    from code_reviewer.application.retrieval_recall import measure_recall, render_recall_report
+    from code_reviewer.application.retrieval_service import HybridRetriever
+    from code_reviewer.infrastructure.evaluation.retrieval_dataset import RetrievalCorpus
+    from code_reviewer.infrastructure.retrieval.chunking import chunk_markdown
+    from code_reviewer.infrastructure.retrieval.embedding import HashingEmbedding
+    from code_reviewer.infrastructure.retrieval.lexical import BM25Index
+    from code_reviewer.infrastructure.retrieval.vector_index import InMemoryVectorIndex
+
+    def build(documents):
+        retriever = HybridRetriever(
+            embedding=HashingEmbedding(), lexical=BM25Index(), vectors=InMemoryVectorIndex()
+        )
+        retriever.index([chunk for path, text in documents for chunk in chunk_markdown(path, text)])
+        return retriever
+
+    try:
+        cases = RetrievalCorpus(args.dataset).cases()
+    except ConfigurationError as error:
+        print(f"Retrieval evaluation could not run: {error}", file=sys.stderr)  # stdout: the output
+        return EXIT_CANNOT_MEASURE
+
+    report = measure_recall(cases, build, limit=DEFAULT_RETRIEVAL_LIMIT)
+
+    try:
+        _emit(render_recall_report(report, args.min_retrieval), args.markdown)
+    except OSError as error:
+        print(  # stdout: the program's output, not a diagnostic
+            f"Retrieval evaluation ran but could not be written: {error}", file=sys.stderr
+        )
+        return EXIT_CANNOT_MEASURE
+
+    if report.errors or not report.results:
+        return EXIT_CANNOT_MEASURE
+    return EXIT_OK if report.interval.lower >= args.min_retrieval else EXIT_BELOW_THRESHOLD
 
 
 def _grade_documentation(args) -> int:

@@ -7,6 +7,51 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.21.0] — 2026-08-10
+
+Level 27 — measuring the half that was never measured. Recorded in
+[`docs/roadmap/level-27/spec.md`](docs/roadmap/level-27/spec.md) and
+[ADR 0029](docs/adr/0029-measure-the-half-that-is-measurable.md).
+
+Level 23 declared the retrieved tier unmeasurable because its answer comes from
+a model. That is true of the judgement and was taken to be true of the whole
+tier — and the tier then returned nothing at all for a level, with nothing to
+notice.
+
+### Added
+
+- **A scored query on the retrieval port.** The default marks results
+  *unscored*, so a floor over them reports itself as NOT APPLIED rather than
+  passing everything. `NaN` rather than a sentinel, so a floor cannot
+  accidentally pass or fail it.
+- **A relevance floor on the drift tier**, with the number it dropped reported.
+- **`evaluate --retrieval`.** Five authored cases, each carrying its own
+  documents and the argument for why they relate. Recall `1.00 [0.57, 1.00]`
+  over 5 at the tier's own limit of three, floored at 0.55, with the related
+  section first 60 % of the time. What is *not* measured — whether the model was
+  right — is printed in the report.
+- **Go, JavaScript, TypeScript and Java in the symbol index.** Declarations, not
+  programs; `COVERED_LANGUAGES` states the scope. Python keeps its AST path and
+  therefore its parameter names.
+- **A rename suggestion for documentation.** The diff knows both names, so the
+  substitution is arithmetic. Ambiguous renames yield nothing; prose is still
+  never suggested.
+
+### Notes
+
+**`DOCS` still blocks nothing, and now there is a number for why.** Six graded
+findings support a lower bound of 0.61; a blocking gate wants 0.95, which on a
+lower bound needs about a hundred. A test records the arithmetic.
+
+### Fixed
+
+- The SAST table's `eval\s*\(` matched `_grade_retrieval(args)` and reported a
+  CRITICAL command injection in this repository's own `evaluate.py`. `eval` and
+  `exec` now require a word boundary — found by the dogfooding gate, which is
+  what it is for.
+
+---
+
 ## [2.20.1] — 2026-08-10
 
 The self-review of Level 26, and its four findings closed. Recorded in

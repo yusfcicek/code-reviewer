@@ -238,12 +238,12 @@ class TestNoPrints(unittest.TestCase):
         # Four entry points, and only entry points: `__main__` prints the
         # review under `--dry-run`, `audit` prints two outcomes and the four
         # reasons it could not reach one, `evaluate` prints its three reports,
-        # a baseline comparison, the reasons a measurement could not be
-        # produced and the ways a live run is incomplete, and `serve` prints
+        # a baseline comparison, its retrieval measurement, the reasons a
+        # measurement could not be produced and the ways a live run is incomplete, and `serve` prints
         # the one reason it refuses to start. Everything below them logs.
         self.assertEqual(
             marked,
-            ["__main__.py"] + ["audit.py"] * 6 + ["evaluate.py"] * 12 + ["serve.py"],
+            ["__main__.py"] + ["audit.py"] * 6 + ["evaluate.py"] * 14 + ["serve.py"],
             marked,
         )
 

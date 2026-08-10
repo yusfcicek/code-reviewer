@@ -19,6 +19,7 @@ import logging
 
 from code_reviewer.domain.retrieval import (
     CodeChunk,
+    ScoredChunk,
     Vector,
     maximal_marginal_relevance,
     reciprocal_rank_fusion,
@@ -87,6 +88,23 @@ class HybridRetriever(CodeRetriever):
                 known[scored.chunk] = vector
 
         return maximal_marginal_relevance(fused, known, limit=limit, relevance_weight=self._relevance_weight)
+
+    def scored(self, query: str, limit: int = 5, exclude_path: str = "") -> list[ScoredChunk]:
+        """The same ranking, with the fused score this already computes.
+
+        Two methods, one ranking: the chunks and their order match
+        :meth:`related` exactly. A scored query that reordered its results would
+        make a floor drop a different chunk from the one it reported dropping.
+        """
+        chosen = self.related(query, limit=limit, exclude_path=exclude_path)
+        if not chosen:
+            return []
+
+        fused = reciprocal_rank_fusion(
+            [self._lexical_candidates(query, exclude_path), self._dense_candidates(query, exclude_path)]
+        )
+        by_chunk = {scored.chunk: scored.score for scored in fused}
+        return [ScoredChunk(chunk=chunk, score=by_chunk.get(chunk, 0.0)) for chunk in chosen]
 
     # -- internals ----------------------------------------------------------
 

@@ -1,0 +1,26 @@
+name: forgetting
+because: >-
+  The change alters how old entries are dropped, which is what the section
+  describes.
+expect:
+  path: docs/memory.md
+  heading: Forgetting
+diff: |
+  @@ -30,3 +30,4 @@
+   def retain(recollections, today, limit):
+  -    return sorted(recollections, key=lambda r: r.last_seen)[:limit]
+  +    ranked = sorted(recollections, key=lambda r: salience(r, today), reverse=True)
+  +    return ranked[:limit]
+
+documents:
+  docs/memory.md: |
+    # Project memory
+
+    ## What is remembered between runs
+
+    Only identifiers: a rule, a file, how often it came back, when it was last
+    seen. Never the code itself, so a history that leaks is a history of names.
+
+    ## Forgetting
+
+    Old entries fall away by age and by salience.
