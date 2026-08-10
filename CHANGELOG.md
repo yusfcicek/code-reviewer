@@ -7,6 +7,44 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.23.0] — 2026-08-11
+
+Level 29 — does the prompt ask for what the checks enforce? Recorded in
+[`docs/roadmap/level-29/spec.md`](docs/roadmap/level-29/spec.md) and
+[ADR 0031](docs/adr/0031-the-prompt-and-its-checks-are-one-artefact.md).
+
+### Added
+
+- **A fifth harness: `ai-code-review-eval --alignment`.** It compares the
+  shipped prompt against the checks over its output — no model, no dataset, no
+  network. Exit 0 aligned, 1 a gap, 2 the two texts disagree about what exists.
+- **Each narration check declares the phrases the prompt must contain** for
+  grading against it to be fair, beside the check.
+- **Each heading the output format demands is graded or declined with a
+  reason**, in the shape `fix_recipes.DECLINED` established.
+
+### Fixed
+
+- **Three of the five narration checks graded rules the prompt never stated.**
+  `citations_are_grounded`, `the_prose_claims_no_verdict` and
+  `severity_claims_are_backed` had nothing behind them: `cite`, `citation`,
+  `path:line`, `verdict` and `approved` appeared nowhere in the template. The
+  prompt now states what is graded.
+- **Two of the seven demanded headings were graded by nothing**, so a review
+  dropping the whole Refactoring Roadmap passed every check. Both now carry a
+  written reason they are ungraded.
+
+### Notes
+
+- **No interval and no floor on this one**, deliberately. Every other
+  measurement here is a sample; this compares two texts that ship together, and
+  a rate over it would be a number pretending to be a measurement.
+- **What needs a served model is printed on every run**: whether the model obeys
+  an instruction that is present, and whether a recorded review still describes
+  what the current prompt produces. Neither was approximated.
+
+---
+
 ## [2.22.1] — 2026-08-11
 
 The self-review of Level 28, and the seven findings it closed. Every one is a

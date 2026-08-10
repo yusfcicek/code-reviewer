@@ -38,6 +38,7 @@ nobody has taken turns this directory into a wish list.
 | [0028](0028-a-suggestion-is-a-set-of-edits.md) | A suggestion is a set of edits | Accepted |
 | [0029](0029-measure-the-half-that-is-measurable.md) | Measure the half that is measurable | Accepted |
 | [0030](0030-a-floor-is-earned.md) | A floor is earned | Accepted |
+| [0031](0031-the-prompt-and-its-checks-are-one-artefact.md) | The prompt and the checks over its output are one artefact | Accepted |
 
 ## Adding one
 

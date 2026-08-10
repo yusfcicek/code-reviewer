@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.22.1.** Rebuilt from an imported prototype across twenty-eight
+> **Status: 2.23.0.** Rebuilt from an imported prototype across twenty-nine
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2516 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2559 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -501,9 +501,31 @@ each retrieval, each memory access.
 - **One documentation edit is offered: a rename.** The diff knows both names, so
   it is a substitution rather than a sentence anybody has to review. Prose is
   still never suggested.
-- **`DOCS` still blocks nothing, and there is a number for why**: six graded
-  findings support a lower bound of 0.61, and a blocking gate needs about a
-  hundred. A test records the arithmetic instead of a preference.
+- **`DOCS` still blocks nothing, and there is a number for why**: nineteen
+  graded findings support a lower bound of 0.83, and a blocking gate needs
+  seventy-three. A test records the arithmetic instead of a preference.
+
+### ✍️ 23. Does the prompt ask for what the checks enforce?
+- **Five checks graded the reviewer's prose to 1.00 for eight levels, and three
+  of them enforced rules the prompt never stated.** `cite`, `citation`,
+  `path:line`, `verdict` and `approved` appeared nowhere in the shipped
+  template. A check with no instruction behind it grades the model on a rule it
+  was never given, and when the score falls the fix is looked for in a prompt
+  that has nothing to fix.
+- **The reverse direction was unmeasured too.** The output format demands seven
+  headings and five were checked, so a review dropping the whole Refactoring
+  Roadmap passed everything. Each demanded heading is now graded or carries a
+  written reason it is not.
+- **Two texts and a substring search.** Anything cleverer would put an
+  unmeasured judgement inside a measurement, which is why Level 21 refused an
+  LLM judge in the first place.
+- **No interval and no floor**, and that is a decision rather than an oversight:
+  this is not a sample. "Three of five checks are unbacked" is a list of three
+  things to write
+  ([ADR 0031](docs/adr/0031-the-prompt-and-its-checks-are-one-artefact.md)).
+- **What needs a served model is printed on every run**: whether the model
+  *obeys* an instruction that is present, and whether a recorded review still
+  describes what the current prompt produces. Neither is guessed at.
 
 ---
 
@@ -838,11 +860,11 @@ findings, all of them correct, support 0.84 and no more. The loader refuses anyt
 recognise — an unknown key, a missing line, an unparseable severity — because a
 dataset is ground truth and a key nobody reads is a claim nobody checks.
 
-CI runs exactly these eight checks — `.github/workflows/ci.yml` on GitHub and
+CI runs exactly these nine checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-2516 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+2559 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no

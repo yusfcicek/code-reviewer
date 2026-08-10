@@ -231,6 +231,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--alignment",
+        action="store_true",
+        help=(
+            "Grade the prompt against the checks over its output instead of "
+            "grading either: whether every narration check has an instruction "
+            "behind it, and whether every heading the output format demands is "
+            "graded by something. Two texts, no model."
+        ),
+    )
+    parser.add_argument(
         "--markdown",
         type=str,
         default="-",
@@ -270,6 +280,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _grade_documentation(args)
     if args.retrieval:
         return _grade_retrieval(args)
+    if args.alignment:
+        return _grade_alignment(args)
 
     threshold = EvaluationThreshold(
         min_precision=args.min_precision,
@@ -397,6 +409,52 @@ def _grade_retrieval(args) -> int:
     if report.first_rank_interval.lower < DEFAULT_FIRST_PLACE_FLOOR:
         return EXIT_BELOW_THRESHOLD
     return EXIT_OK if report.interval.lower >= args.min_retrieval else EXIT_BELOW_THRESHOLD
+
+
+def _grade_alignment(args) -> int:
+    """Compares the shipped prompt against the checks over its output.
+
+    Same three exit codes, and the middle one means something slightly
+    different: not "the score is too low" but "a check grades a rule the prompt
+    never states, or a heading it demands is graded by nothing". Both are
+    defects with an exact answer, so there is no floor to pass (Level 29,
+    contract C-5).
+
+    The prompt is read through the same accessor `prompt_fingerprint` uses, so
+    the text measured is the text that runs.
+    """
+    from code_reviewer.application.alignment_report import render_alignment_report
+    from code_reviewer.domain.alignment import alignment
+    from code_reviewer.domain.narration import EXPECTATIONS, REQUIRED_SECTIONS, UNCHECKED_SECTIONS
+
+    try:
+        from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+
+        prompt = ReviewAgent.SYSTEM_TEMPLATE
+    except Exception as error:  # pragma: no cover - an unimportable agent is a broken install
+        print(f"Alignment could not run: {error}", file=sys.stderr)  # stdout: the program's output
+        return EXIT_CANNOT_MEASURE
+
+    try:
+        report = alignment(
+            prompt,
+            EXPECTATIONS,
+            checked=tuple(REQUIRED_SECTIONS),
+            declined=dict(UNCHECKED_SECTIONS),
+        )
+    except ValueError as error:
+        # A declined heading with no reason, or one the prompt stopped
+        # demanding. The measurement could not be taken rather than failed.
+        print(f"Alignment could not run: {error}", file=sys.stderr)  # stdout: the program's output
+        return EXIT_CANNOT_MEASURE
+
+    try:
+        _emit(render_alignment_report(report), args.markdown)
+    except OSError as error:
+        print(f"Could not write the report: {error}", file=sys.stderr)  # stdout: the program's output
+        return EXIT_CANNOT_MEASURE
+
+    return EXIT_OK if report.is_aligned else EXIT_BELOW_THRESHOLD
 
 
 def _grade_documentation(args) -> int:
