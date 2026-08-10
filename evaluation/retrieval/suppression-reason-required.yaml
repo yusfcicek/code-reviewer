@@ -1,0 +1,30 @@
+name: suppression-reason-required
+because: >-
+  The section explains that a silenced rule needs a written reason. The
+  change adds exactly that requirement and never uses the word 'suppression'
+  in the diff.
+expect:
+  path: docs/guide.md
+  heading: Silencing a rule
+diff: |
+  @@ -12,6 +12,9 @@
+       def apply(self, directives):
+  -        return [d for d in directives]
+  +        for directive in directives:
+  +            if not directive.reason:
+  +                raise ValueError("a rule quieted with no reason recorded is a rule nobody can audit")
+  +        return list(directives)
+
+documents:
+  docs/guide.md: |
+    # Guide
+
+    ## Silencing a rule
+
+    A directive next to a line quiets one rule there, and the written reason is
+    what the next person reads instead of re-deriving the judgement. Nothing is
+    quieted without one being recorded.
+
+    ## Retrieval
+
+    Chunks are scored twice and fused by rank.

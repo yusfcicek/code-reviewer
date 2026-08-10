@@ -1,0 +1,27 @@
+name: memory-keeps-identifiers
+because: >-
+  The section says only identifiers are kept. The change strips the one
+  field that carried source text, and names no concept the section uses.
+expect:
+  path: docs/memory.md
+  heading: What is remembered between runs
+diff: |
+  @@ -22,7 +22,6 @@
+       def observe(self, finding):
+           self._seen.append(
+  -            Recollection(rule_id=finding.rule_id, evidence=finding.evidence, path=finding.file_path)
+  +            Recollection(rule_id=finding.rule_id, path=finding.file_path)
+           )
+
+documents:
+  docs/memory.md: |
+    # Project memory
+
+    ## What is remembered between runs
+
+    Only identifiers: a rule, a file, how often it came back, when it was last
+    seen. Never the code itself, so a history that leaks is a history of names.
+
+    ## Forgetting
+
+    Old entries fall away by age and by salience.

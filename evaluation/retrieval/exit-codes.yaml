@@ -1,0 +1,26 @@
+name: exit-codes
+because: >-
+  The change adds a third exit code and the section is the one that
+  enumerates them.
+expect:
+  path: docs/gate.md
+  heading: Exit codes
+diff: |
+  @@ -3,4 +3,5 @@
+   EXIT_OK = 0
+   EXIT_BELOW_THRESHOLD = 1
+  +EXIT_CANNOT_MEASURE = 2
+
+documents:
+  docs/gate.md: |
+    # The gate
+
+    ## How a merge is stopped
+
+    Findings decide. The prose a language model produces is advice for a reader and
+    never an input to the decision, so a review that reads badly cannot fail a
+    build and a review that reads well cannot pass one.
+
+    ## Exit codes
+
+    Zero, one and two mean three different things.

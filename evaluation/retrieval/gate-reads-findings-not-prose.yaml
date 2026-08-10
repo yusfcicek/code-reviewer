@@ -1,0 +1,28 @@
+name: gate-reads-findings-not-prose
+because: >-
+  The section says the model's prose is never an input to the decision. The
+  change removes the last place the prose was read, and the diff says
+  nothing about prose.
+expect:
+  path: docs/gate.md
+  heading: How a merge is stopped
+diff: |
+  @@ -40,8 +40,5 @@
+       def evaluate(self, review_markdown, findings=None):
+  -        if "CRITICAL" in review_markdown.upper():
+  -            return GateEvaluation(result=ReviewGateResult.FAIL)
+           return self._from_findings(findings)
+
+documents:
+  docs/gate.md: |
+    # The gate
+
+    ## How a merge is stopped
+
+    Findings decide. The prose a language model produces is advice for a reader and
+    never an input to the decision, so a review that reads badly cannot fail a
+    build and a review that reads well cannot pass one.
+
+    ## Exit codes
+
+    Zero, one and two mean three different things.
