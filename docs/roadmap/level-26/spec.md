@@ -95,27 +95,33 @@ edits are refused at construction, not resolved by ordering.
 Applying from the top invalidates every later line number. This is arithmetic
 and it is a place to be wrong once, so it is done in one place and tested.
 
-### C-4 — One file
+### C-4 — One note per edit, each saying which part it is
+A `suggestion` block replaces lines *around the note's own line* and must
+include it, so two disjoint edits cannot share a note. Each edit is posted on
+its own line and names its position in the whole — a reader who applies one must
+be able to see there is another.
+
+### C-5 — One file
 The suggestion names one path. A change spanning files is not offered.
 
-### C-5 — An added import goes where imports go
+### C-6 — An added import goes where imports go
 A recipe that needs an import inserts it after the last existing import, or at
 the top of the file after any module docstring. It never inserts one that is
 already there.
 
-### C-6 — A recipe still returns nothing when it does not fit
+### C-7 — A recipe still returns nothing when it does not fit
 Unchanged from Level 22, and now over a larger set: absent pattern, wrong line,
 already-correct code, a shape the recipe cannot read.
 
-### C-7 — Coverage is reported
+### C-8 — Coverage is reported
 How many emittable rule ids have a recipe, which do not, and — for the ones
 deliberately declined — the reason. Named rather than counted by hand.
 
-### C-8 — The bound is on the whole suggestion
+### C-9 — The bound is on the whole suggestion
 `MAX_SUGGESTION_LINES` applies to the total replaced across every edit, not per
 edit. Otherwise five edits of twelve lines is a sixty-line button.
 
-### C-9 — The verdict is untouched
+### C-10 — The verdict is untouched
 A finding with a suggestion blocks exactly as it did without one.
 
 ## Acceptance criteria

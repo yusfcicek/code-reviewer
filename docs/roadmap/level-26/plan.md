@@ -93,9 +93,12 @@ that refusal rather than the code quietly reversing it.
 *Tests* — `tests/unit/application/test_report.py` (extended),
 `tests/unit/infrastructure/test_gitlab_forge.py` (extended)
 
-- GitLab's suggestion block covers one contiguous range, so a two-edit
-  suggestion is two blocks in one note. A reader applies both or neither, which
-  is the honest rendering of "these go together".
+- **Corrected while building it.** The plan said "two blocks in one note", and
+  that is not what the platform does: a `suggestion:-a+b` block replaces lines
+  *around the note's own line* and must include it, so two disjoint edits cannot
+  both be blocks in one note. Each edit is its own note on its own line, and
+  each says which part of the whole it is — `1 of 2` — so a reader knows there
+  is another one to apply.
 - The marker still keys on the location, so a second run edits rather than adds.
 
 *Change* — `render_suggestion`, the forge adapter.
