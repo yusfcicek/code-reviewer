@@ -1,5 +1,7 @@
 """Steps 1–3 — who made a claim, what a run was, and the one invariant."""
 
+from typing import ClassVar
+
 import pytest
 
 from code_reviewer.domain.provenance import (
@@ -226,3 +228,156 @@ def test_a_review_that_did_not_complete_still_produces_a_record():
 
 def test_a_record_is_a_value():
     assert _record() == _record()
+
+
+class TestTheRecordHoldsNoSourceText:
+    """Level 30, C-8 — the premise under the refusal to encrypt.
+
+    Level 24 declined to encrypt the record: *"it holds identifiers only, so
+    confidentiality is the store's problem and not the format's."* That is the
+    right answer while it is true, and until now it was true by habit. Five
+    levels have said "identifiers, never content" and nothing checked it on the
+    record itself.
+
+    So the refusal gets a test. Every field a `DecisionRecord` can carry is a
+    verdict, an identifier, a count, a timestamp or a sentence somebody typed
+    into a suppression — and none of them is a line of somebody's source.
+    """
+
+    #: What a field may hold. A new field of any other shape is the question
+    #: this test exists to force somebody to answer.
+    ALLOWED: ClassVar[dict[str, str]] = {
+        "verdict": "an enumerated word",
+        "exit_code": "a number",
+        "identity": "versions, a model name, a fingerprint",
+        "project": "an identifier",
+        "merge_request": "an identifier",
+        "trace_id": "an identifier",
+        "findings": "rule ids, paths, line numbers, producers",
+        "blocking": "the same",
+        "suppressions": "a rule id, a location, and a reason a person typed",
+        "agent_costs": "names and token counts",
+        "suggestions": "rule ids, paths, line counts",
+        "files_considered": "a count",
+        "failure_reason": "why a review could not complete",
+        "recorded_at": "a timestamp",
+        "completed": "a flag",
+        "warnings": "what the run could not do",
+    }
+
+    @staticmethod
+    def _full_record():
+        """Every field populated, so nothing escapes by being empty."""
+        from code_reviewer.domain.provenance import (
+            AgentCost,
+            DecisionRecord,
+            Producer,
+            ProducerKind,
+            Provenance,
+            RunIdentity,
+            SuggestionRecord,
+            SuppressionRecord,
+        )
+
+        analyzer = Producer(name="sast", kind=ProducerKind.ANALYZER)
+        claim = Provenance(
+            producer=analyzer,
+            rule_id="SAST.SQL_INJECTION",
+            location="app.py:12",
+            severity="critical",
+            evidence=("app.py:12",),
+        )
+        return DecisionRecord(
+            verdict="fail",
+            exit_code=1,
+            identity=RunIdentity(package_version="2.24.0", policy_version="1.0"),
+            project="1",
+            merge_request="10",
+            trace_id="0123456789abcdef",
+            findings=(claim,),
+            blocking=(claim,),
+            suppressions=(
+                SuppressionRecord(
+                    rule_id="SAST.WEAK_CRYPTO",
+                    location="app.py:3",
+                    reason="md5 is used as a cache key, not for security",
+                ),
+            ),
+            agent_costs=(
+                AgentCost(
+                    agent="security", runs=1, failures=0, tool_calls=2, tokens_allowed=800, duration_ms=90
+                ),
+            ),
+            suggestions=(
+                SuggestionRecord(rule_id="QUALITY.BARE_EXCEPT", location="app.py:4", recipe="bare-except"),
+            ),
+            files_considered=3,
+            failure_reason="",
+            recorded_at="2026-08-11T00:00:00Z",
+            warnings=("the retriever was unavailable",),
+        )
+
+    def test_every_field_is_accounted_for(self):
+        """A field added without a line above is a field nobody decided about.
+
+        The whole encryption refusal rests on knowing what is in here, so
+        growing the record silently is how the refusal stops being true.
+        """
+        from dataclasses import fields
+
+        from code_reviewer.domain.provenance import DecisionRecord
+
+        assert {field.name for field in fields(DecisionRecord)} == set(self.ALLOWED)
+
+    def test_nothing_a_record_can_hold_spans_more_than_one_line(self):
+        """The property that separates an identifier from a quotation.
+
+        A rule id, a path, a producer, a fingerprint, a reason somebody typed:
+        all of them fit on a line. A diff, a function body, a paragraph of
+        somebody's file: none of them do. Asserted over a record built with
+        every field populated, through the serialisation the sink actually
+        writes, because that is the thing that would reach a store.
+        """
+        from code_reviewer.infrastructure.governance.json_sink import to_json
+
+        def strings(value):
+            if isinstance(value, str):
+                yield value
+            elif isinstance(value, dict):
+                for item in value.values():
+                    yield from strings(item)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    yield from strings(item)
+
+        for text in strings(to_json(self._full_record())):
+            assert "\n" not in text, text
+
+    def test_the_evidence_a_finding_cites_is_identifiers(self):
+        """`Provenance.evidence` says "identifiers, never the content they
+        point at" and nothing enforced it. A chunk citation is an identifier; a
+        chunk is not."""
+        from code_reviewer.domain.provenance import Producer, ProducerKind, Provenance
+
+        cited = Provenance(
+            producer=Producer(name="retrieval", kind=ProducerKind.ANALYZER),
+            rule_id="DOCS.DEAD_REFERENCE",
+            location="README.md:12",
+            severity="low",
+            evidence=("README.md#Guide", "chunk-3"),
+        )
+
+        for item in cited.evidence:
+            assert "\n" not in item
+            assert len(item) <= 200
+
+    def test_a_suppression_reason_is_the_only_free_text_and_a_person_wrote_it(self):
+        """The one field somebody types. It is a reason for silencing a rule,
+        not a quotation from the file — and it is in the record because a
+        governance record that omits what was silenced can be gamed by
+        silencing things."""
+        from dataclasses import fields
+
+        from code_reviewer.domain.provenance import SuppressionRecord
+
+        assert {field.name for field in fields(SuppressionRecord)} == {"rule_id", "location", "reason"}

@@ -292,9 +292,24 @@ class FileAuditStore(AuditStore):
         return any(seal.is_signed for seal, _ in read_store(self._path))
 
     def is_verifiable(self, signer: Signer) -> tuple[bool, str]:
-        verdict = verify_store(self._path, signer if signer.is_signing else None)
+        """Whether this store can be rewritten without laundering something.
+
+        A tamper is the obvious no. So is a signature this signer cannot check
+        at all, which is what a rotated-away key produces: re-sealing those
+        records under the current key would destroy the only record of which
+        key attested to them, and it would do it with the tool built to detect
+        exactly that (Level 30, found by the store conformance suite).
+
+        An **unsigned** store is not in that position. Nothing attests to it,
+        so nothing is destroyed by rewriting it, and refusing would make
+        erasure impossible for every deployment that has no key — which is the
+        common one.
+        """
+        verdict = verify_store(self._path, signer if signer.key_ids else None)
         if verdict.status is ChainStatus.TAMPERED:
             return False, f"record {verdict.position}: {verdict.reason}"
+        if verdict.status is ChainStatus.UNVERIFIABLE and verdict.signed:
+            return False, verdict.reason
         return True, ""
 
     def replace(self, payloads: "Sequence[Mapping[str, Any]]", signer: Signer) -> None:
