@@ -122,6 +122,25 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--write-baseline",
+        default="",
+        metavar="PATH",
+        help=(
+            "With --narration: store this run as a baseline, keyed by the model "
+            "and prompt fingerprint that produced it."
+        ),
+    )
+    parser.add_argument(
+        "--compare-baseline",
+        default="",
+        metavar="PATH",
+        help=(
+            "With --narration: report what moved since a stored baseline, per "
+            "check. Two runs over different cases are refused rather than "
+            "differenced."
+        ),
+    )
+    parser.add_argument(
         "--documentation",
         action="store_true",
         help=(
@@ -212,6 +231,8 @@ def _grade_narration(args) -> int:
     else:
         report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
 
+    _baselines(report, args)
+
     try:
         _emit(render_narration_report(report, args.min_narration), args.markdown)
         if args.json_path:
@@ -260,6 +281,46 @@ def _grade_documentation(args) -> int:
     if report.has_errors:
         return EXIT_CANNOT_MEASURE
     return EXIT_OK if threshold.is_met(report) else EXIT_BELOW_THRESHOLD
+
+
+def _baselines(report, args) -> None:
+    """Stores this run, compares it with a stored one, or neither.
+
+    Never changes the exit code. A delta is something to read, not a gate: what
+    counts as an acceptable movement is a judgement, and encoding one here
+    would be inventing a policy nobody stated.
+    """
+    from code_reviewer.application.baselines import (
+        baseline_from,
+        compare,
+        read_baseline,
+        render_comparison,
+        write_baseline,
+    )
+    from code_reviewer.infrastructure.governance.identity import prompt_fingerprint
+
+    if not (args.write_baseline or args.compare_baseline):
+        return
+
+    model = os.environ.get("VLLM_MODEL_NAME", "")
+    fingerprint = prompt_fingerprint()
+
+    if args.compare_baseline:
+        stored = read_baseline(args.compare_baseline)
+        if stored is None:
+            print(  # stdout: the program's output, not a diagnostic
+                f"Nothing to compare against at '{args.compare_baseline}'.", file=sys.stderr
+            )
+        else:
+            print(render_comparison(compare(stored, report, model, fingerprint)))  # stdout: the output
+
+    if args.write_baseline:
+        from datetime import UTC, datetime
+
+        write_baseline(
+            args.write_baseline,
+            baseline_from(report, model, fingerprint, datetime.now(UTC).isoformat()),
+        )
 
 
 def _live_narration(cases, args):
