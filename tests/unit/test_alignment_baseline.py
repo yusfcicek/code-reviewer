@@ -68,10 +68,11 @@ def test_the_measurement_can_fail(report):
     stripped = ReviewAgent.SYSTEM_TEMPLATE
     for expectation in EXPECTATIONS:
         for phrase in expectation.phrases:
-            # Case-insensitively, because the match is: the prompt writes
-            # "Name every CRITICAL finding" at the start of a bullet and the
-            # expectation is written in lower case.
-            stripped = re.sub(re.escape(phrase), "", stripped, flags=re.I)
+            # Case-insensitively and across line breaks, for the two reasons
+            # the search itself is: the prompt capitalises the first word of a
+            # bullet, and it wraps its paragraphs (self-review 29, S-04).
+            pattern = r"\s+".join(re.escape(word) for word in phrase.split())
+            stripped = re.sub(pattern, "", stripped, flags=re.I)
 
     broken = alignment(
         stripped, EXPECTATIONS, checked=tuple(REQUIRED_SECTIONS), declined=dict(UNCHECKED_SECTIONS)
@@ -92,3 +93,24 @@ def test_the_declined_headings_are_still_demanded_by_the_prompt(report):
     outlived its subject. `alignment` refuses one, and this is where that
     refusal would be seen."""
     assert set(UNCHECKED_SECTIONS) <= set(report.demanded)
+
+
+def test_the_output_format_alone_backs_only_the_check_about_the_output_format():
+    """Self-review 29, S-02.
+
+    `severe_findings_are_mentioned` declared itself satisfied by the string
+    `Vulnerabilities Found` — a field label in the output format, which states
+    none of the rule about naming every critical finding. So the check was
+    reported as backed for eight levels' worth of prompt that never asked for
+    it, and Level 29's own first run listed it under "checks the prompt backs".
+
+    Stated as a property rather than as a fix to one expectation: an
+    instruction is a sentence telling the model what to do, and the output
+    format is a shape. The only check the shape may back is the one about the
+    shape.
+    """
+    format_only = ReviewAgent.SYSTEM_TEMPLATE[ReviewAgent.SYSTEM_TEMPLATE.index("OUTPUT FORMAT") :]
+
+    backed = [expectation.check for expectation in EXPECTATIONS if expectation.met_by(format_only)]
+
+    assert backed == ["required_sections_are_present"]

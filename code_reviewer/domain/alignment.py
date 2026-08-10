@@ -49,6 +49,21 @@ _DECORATION = re.compile(r"[^\w\s&'/-]+")
 _PLACEHOLDER = re.compile(r"\[[^\]]*\]")
 
 
+def _flatten(text: str) -> str:
+    """One lower-case line, so a wrapped instruction is still one instruction.
+
+    A prompt is wrapped text, and Level 29's own added sentence put
+    `Name every CRITICAL` at the end of one line and `finding` at the start of
+    the next — where a plain substring search reported the rule as absent. A
+    gate that fails because somebody reflowed a paragraph is a gate that gets
+    switched off (self-review 29, S-04).
+
+    Word order and word boundaries survive: this joins lines, it does not make
+    a bag of words.
+    """
+    return " ".join(text.lower().split())
+
+
 class Match(Enum):
     """How many of an expectation's phrases the prompt must contain."""
 
@@ -86,7 +101,8 @@ class Expectation:
         empty as soon as one phrase is there — the others are alternatives
         rather than omissions.
         """
-        missing = tuple(phrase for phrase in self.phrases if phrase.lower() not in prompt.lower())
+        flattened = _flatten(prompt)
+        missing = tuple(phrase for phrase in self.phrases if _flatten(phrase) not in flattened)
         if self.match is Match.ANY and len(missing) < len(self.phrases):
             return ()
         return missing

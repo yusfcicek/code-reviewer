@@ -350,8 +350,13 @@ EXPECTATIONS = (
     ),
     Expectation(
         check="severe_findings_are_mentioned",
-        phrases=("name every CRITICAL finding", "Vulnerabilities Found"),
-        match=Match.ANY,
+        # `Vulnerabilities Found` used to stand here as an alternative, and it
+        # is a *field label* in the output format rather than an instruction:
+        # it states none of the rule, so the check reported itself backed by a
+        # prompt that never asked for anything (self-review 29, S-02). An
+        # instruction is a sentence telling the model what to do; a shape is a
+        # shape.
+        phrases=("name every CRITICAL finding",),
     ),
     Expectation(
         check="required_sections_are_present",

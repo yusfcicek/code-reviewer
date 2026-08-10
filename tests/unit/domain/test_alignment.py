@@ -225,3 +225,34 @@ class TestANameInTheCodeThatThePromptDoesNotDemand:
     def test_a_decline_with_no_reason_is_still_refused(self):
         with pytest.raises(ValueError, match="reason"):
             alignment(PROMPT, self.EXPECTATIONS, checked=(), declined={"Code Quality": "  "})
+
+
+class TestAnInstructionThatWrapsAcrossLines:
+    """Self-review 29, S-04.
+
+    A prompt is wrapped text. The instruction added by Level 29 reads
+
+        ... leaving a CRITICAL unmentioned hides it. Name every CRITICAL
+        finding you were given, by its title or by its location.
+
+    and the phrase `name every CRITICAL finding` spans the break, so a plain
+    substring search said the prompt never asked for it. The measurement would
+    then report a gap for a prompt somebody merely reflowed — a false alarm in
+    a gate, which is how gates get switched off.
+    """
+
+    WRAPPED = "You are a reviewer.\n\nName every CRITICAL\nfinding you were given, by its title.\n"
+
+    def test_the_phrase_is_found_across_the_break(self):
+        assert Expectation(check="mentions", phrases=("name every CRITICAL finding",)).met_by(self.WRAPPED)
+
+    def test_indentation_after_the_break_does_not_hide_it(self):
+        indented = "Name every CRITICAL\n          finding you were given.\n"
+
+        assert Expectation(check="mentions", phrases=("name every CRITICAL finding",)).met_by(indented)
+
+    def test_a_phrase_that_is_genuinely_absent_is_still_absent(self):
+        """The normalisation must not turn the search into a word bag."""
+        expectation = Expectation(check="mentions", phrases=("name every CRITICAL finding",))
+
+        assert not expectation.met_by("CRITICAL findings are named by every reviewer.")
