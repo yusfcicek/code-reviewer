@@ -7,6 +7,61 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.18.0] — 2026-08-10
+
+Level 24 — a record somebody else can check. Recorded in
+[`docs/roadmap/level-24/spec.md`](docs/roadmap/level-24/spec.md) and
+[ADR 0026](docs/adr/0026-detection-rather-than-prevention.md).
+
+Level 20 wrote the decision record and refused three things in the same
+document. Each refusal was right about the thing it named and wrong about the
+thing beside it: a record that cannot hold a key can still be **signable**, a
+control mapping is not an **obligation**, and a deletion mechanism is not a
+**retention policy**.
+
+**What this buys, stated plainly:** an operator holding the key *and* the store
+can forge anything. What a chain and a signature buy is that the cheap tampers —
+edit one line, delete one line, swap two — stop being invisible. Those are the
+tampers an ordinary mistake and an ordinary insider produce.
+
+### Added
+
+- **A sealed store.** Each record names the digest of the one before it, so a
+  deleted or reordered line is detectable without trusting the file's length.
+  `--audit-path` writes one now.
+- **Signing with a key this repository never produces.** No generated key, no
+  bundled key, no fallback to something weaker: `REVIEW_AUDIT_KEY` or nothing is
+  signed. A key that is present but too short produces no signer, and neither
+  case stops the process.
+- **A verifier that answers with a position.** `ai-code-review-audit verify`
+  reports the first failing record and whether the *digest* disagreed (the line
+  was edited) or the *link* did (one was removed, inserted or moved).
+- **Three states, not two.** `unverifiable` — unsigned, partly signed, or signed
+  with no key available — is distinguished from `tampered`. Conflating them is
+  how a verifier gets turned off before it ever sees a real tamper.
+- **A control mapping as data.** NIST SP 800-53 Rev. 5 ships as a replaceable
+  YAML file naming its publisher and revision. The rendering says what a run is
+  *evidence of*; a test asserts it never says "compliant" or "certified", and
+  controls with **no** evidence are listed rather than omitted.
+- **Erasure and redaction.** `audit erase` and `audit redact` rewrite and
+  re-sign the chain so the store still verifies, leaving a **tombstone** at each
+  removed position with the time and the policy. A store that did not verify
+  beforehand is refused: rewriting it would re-seal somebody else's alteration.
+
+### Changed
+
+- `NullSigner` lives beside the `Signer` port, the way `NullTracer` sits beside
+  `Tracer`.
+
+### Notes
+
+Nothing in this level can fail a review. A signer that raises writes the record
+unsigned; a store that cannot be written loses the record and logs it. And
+nothing erases by itself — a test parses the review path and asserts it does not
+import the erasure module at all.
+
+---
+
 ## [2.17.1] — 2026-08-10
 
 The self-review of Level 23, and its six findings closed. Recorded in

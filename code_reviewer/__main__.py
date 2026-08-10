@@ -30,7 +30,8 @@ from code_reviewer.infrastructure.config.loader import load_policy
 from code_reviewer.infrastructure.documentation.workspace import build_symbol_index, collect_documents
 from code_reviewer.infrastructure.forge.gitlab_forge import GitLabForge
 from code_reviewer.infrastructure.governance.identity import build_run_identity
-from code_reviewer.infrastructure.governance.json_sink import JsonAuditSink
+from code_reviewer.infrastructure.governance.sealed_sink import SealedAuditSink
+from code_reviewer.infrastructure.governance.signing import signer_from_environment
 from code_reviewer.infrastructure.llm.drift_judge import ModelDriftJudge
 from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
 from code_reviewer.infrastructure.llm.specialist_agent import SpecialistAgent
@@ -352,8 +353,16 @@ def _build_recorder(args, policy) -> DecisionRecorder | None:
     if not path:
         return None
 
-    logger.info("Recording the decision", extra={"fields": {"path": path}})
-    return DecisionRecorder(JsonAuditSink(path), build_run_identity(policy))
+    signer = signer_from_environment()
+    logger.info(
+        "Recording the decision",
+        extra={"fields": {"path": path, "signed": signer.is_signing, "key_id": signer.key_id}},
+    )
+    # Sealed rather than plain since Level 24: each line names the digest of
+    # the one before it, so a deleted or reordered record is detectable without
+    # trusting the file's length. Unsigned when no key was supplied — the links
+    # are the cheaper guarantee and they cost no key at all.
+    return DecisionRecorder(SealedAuditSink(path, signer=signer), build_run_identity(policy))
 
 
 def _build_memory(args, workspace) -> ProjectMemory | None:

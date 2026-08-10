@@ -33,6 +33,7 @@ nobody has taken turns this directory into a wish list.
 | [0023](0023-the-prose-is-graded-by-code.md) | The prose is graded by code, not by a model | Accepted |
 | [0024](0024-propose-never-apply.md) | Propose, never apply | Accepted |
 | [0025](0025-two-tiers-and-the-weaker-one-is-a-separate-namespace.md) | Two tiers, and the weaker one is a separate namespace | Accepted |
+| [0026](0026-detection-rather-than-prevention.md) | Detection rather than prevention, and saying so | Accepted |
 
 ## Adding one
 

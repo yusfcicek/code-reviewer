@@ -43,6 +43,16 @@ repository does about it today. A capability with no gap produces no level.
 | C-21 | Grounded generation: an assistant's output checked against its input | S2, S3 | Level 12 graded the analyzers and said in its own non-goals that it did not grade the prose | 21 |
 | C-22 | An agent that acts, not only reports | S1, S3 | Level 13 left it deliberately: the agent reviews, it does not write the patch | 22 |
 | C-23 | Documentation checked against the code it describes | — | None. The roadmap has required it since Level 0 and nothing enforced it; three defects of this kind reached `development` | 23 |
+| C-24 | Integrity of the audit trail | — | Level 20's own non-goal. A record could be edited or deleted and nothing noticed | 24 |
+| C-25 | An evidence mapping an organisation can adopt | — | Level 20's own non-goal. An auditor was handed rule ids and left to derive the mapping from source | 24 |
+| C-26 | A lifecycle a retention policy can be written against | — | Level 20's own non-goal. No deletion path existed, so the honest answer to an erasure request was 'edit the file by hand' | 24 |
+
+**C-24 to C-26 come from Level 20's own non-goals.** Each refusal there was
+right about the thing it named and wrong about the thing beside it: a record
+that cannot hold a key can still be signable, a mapping is not an obligation,
+and a lifecycle mechanism is not a retention policy. Recording them as sourced
+from a role description would be inventing a provenance
+([ADR 0026](../adr/0026-detection-rather-than-prevention.md)).
 
 **C-23 has no role description behind it, and the table says so.** Its source
 is this project's own Level 0 working agreement — *documentation may never claim

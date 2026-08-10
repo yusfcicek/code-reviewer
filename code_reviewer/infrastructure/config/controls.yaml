@@ -1,0 +1,72 @@
+# What this system's findings are evidence of, in one named catalogue.
+#
+# Level 20 refused to build a compliance framework, and it was right about the
+# thing it named: an organisation's obligations are an organisation's, and
+# guessing at them here would be worse than silence. It was not right about the
+# mapping. An auditor asking "show me that changes are reviewed for injection
+# flaws" is otherwise handed rule ids and left to derive the answer from source,
+# once per organisation.
+#
+# So: one catalogue, publicly documented, versioned, and named — and this file
+# is DATA. Replace it with your own and pass --controls; nothing in the code
+# knows what is in here.
+#
+# THIS FILE CLAIMS COVERAGE, NEVER COMPLIANCE. That a finding exists under a
+# control means this system produced evidence relevant to it. Whether the
+# control is met, whether it is the right control, and whether the catalogue is
+# the one you are held to are all questions this repository cannot answer. A
+# test asserts the rendered output never says "compliant" or "certified".
+
+name: NIST SP 800-53
+version: Revision 5
+publisher: National Institute of Standards and Technology
+reference: https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final
+
+controls:
+  RA-5:
+    description: >-
+      Vulnerability monitoring and scanning — the system is scanned for
+      vulnerabilities and the results are analysed.
+    namespaces: [SAST, DEPENDENCY]
+
+  SA-11:
+    description: >-
+      Developer testing and evaluation — code analysis is performed on the
+      changes a developer proposes, and the findings are acted on.
+    namespaces: [SAST, QUALITY, PERFORMANCE]
+
+  SA-15:
+    description: >-
+      Development process, standards and tools — a defined review process runs
+      on every change, with its criteria written down rather than remembered.
+    namespaces: [QUALITY, SEMANTIC, PERFORMANCE]
+
+  SA-5:
+    description: >-
+      System documentation — documentation describing the system is obtained,
+      protected and kept consistent with what the system does.
+    namespaces: [DOCS, DRIFT]
+
+  CM-3:
+    description: >-
+      Configuration change control — proposed changes are reviewed and approved
+      or disapproved with explicit consideration of their impact.
+    namespaces: [SEMANTIC, DEPENDENCY]
+
+  SI-2:
+    description: >-
+      Flaw remediation — flaws are identified, reported and corrected, and
+      corrections are offered to the people who can apply them.
+    namespaces: [SAST, DEPENDENCY, QUALITY]
+
+  AC-6:
+    description: >-
+      Least privilege — a process is confined to the access it needs, and an
+      attempt to exceed that confinement is recorded.
+    namespaces: [SANDBOX]
+
+  AU-9:
+    description: >-
+      Protection of audit information — audit records are protected from
+      unauthorised modification, and modification is detectable.
+    namespaces: [SANDBOX]
