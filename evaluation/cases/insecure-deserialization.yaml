@@ -1,0 +1,13 @@
+# Added by Level 28. The rule had a recipe since Level 22 and no case: the
+# fixture pins that both forms are reported even though only one is fixable,
+# which is the distinction the recipe rests on.
+name: insecure-deserialization
+file: fixtures/insecure_deserialization.py
+scope: ["SAST.INSECURE_DESERIALIZATION"]
+expect:
+  - rule: SAST.INSECURE_DESERIALIZATION
+    line: 14
+    severity: high
+  - rule: SAST.INSECURE_DESERIALIZATION
+    line: 18
+    severity: high

@@ -66,6 +66,7 @@ statement and what this repository does today.
 | [25](level-25/spec.md) | A measurement that says how much it knows | ✅ Done |
 | [26](level-26/spec.md) | More of the fixes that are arithmetic | ✅ Done |
 | [27](level-27/spec.md) | Measuring the half that was never measured | ✅ Done |
+| [28](level-28/spec.md) | Earning the floors | ✅ Done |
 
 ### Why *this* order for 12–20
 

@@ -1,0 +1,60 @@
+name: retrieval-diversification
+because: >-
+  The change alters the trade between relevance and novelty, which is the
+  second half of what the section describes.
+expect:
+  path: docs/retrieval.md
+  heading: How chunks are ranked
+diff: |
+  @@ -30,2 +30,2 @@
+  -    relevance_weight: float = 0.7,
+  +    relevance_weight: float = 0.5,
+documents:
+  docs/retrieval.md: |
+    # Retrieval
+
+    ## How chunks are ranked
+
+    Scored twice and fused by rank, then diversified so three near-identical pieces
+    of evidence do not fill the budget.
+
+    ## What is indexed
+
+    Source and the configuration that changes how it behaves. Not images, not lock
+    files, nothing generated.
+
+    ## When it is unavailable
+
+    The prompt loses its context and the review continues.
+  docs/operations.md: |
+    # Operations
+    
+    ## Running the service
+    
+    A worker claims the oldest queued job and moves it to running. Nothing blocks
+    inside the store, because a worker that waits there cannot be told to stop.
+    
+    ## Configuration
+    
+    Every setting is read from the environment once at start-up and logged by name,
+    never by value.
+    
+    ## Deploying
+    
+    The chart applies a config map, a deployment and a horizontal autoscaler. A
+    rollout that cannot pull its image fails closed.
+    
+    ## Metrics
+    
+    Counts, durations and token use, exported for scraping. None of it says whether
+    a review was any good.
+    
+    ## Troubleshooting
+    
+    A run that produced no comment either found nothing to review or could not reach
+    the forge, and the exit code tells you which.
+    
+    ## Upgrading
+    
+    Read the changelog. Two entries have moved a floor, and a floor that moved is a
+    claim that changed.

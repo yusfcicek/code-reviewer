@@ -1,0 +1,31 @@
+# Added by Level 28. SIGNATURE_MISMATCH had one case and only on a plain
+# function; a qualified name resolves differently and was unmeasured.
+#
+# The case found a real gap and then a defect in itself, in that order. The gap:
+# a diff of a method declares the *bare* name, a document writes the *qualified*
+# one, and the scope check compared them as strings — so no method's signature
+# was ever checked. The defect in the case: its index first carried the
+# signature from *before* the change, and the index is the tree as it is now.
+name: signature-mismatch-on-a-method
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version, outcome]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: render.py
+    diff: |
+      @@ -1,2 +1,2 @@
+      -    def render(self, version):
+      +    def render(self, version, outcome):
+documents:
+  docs/api.md: |
+    # API
+
+    Call `Renderer.render(version)` to produce the body.
+expected:
+  - rule: DOCS.SIGNATURE_MISMATCH
+    line: 3

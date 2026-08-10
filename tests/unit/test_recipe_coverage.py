@@ -101,3 +101,49 @@ class TestTheRendering:
         coverage = recipe_coverage(("SAST.SQL_INJECTION", "MADE.UP_RULE"))
 
         assert "MADE.UP_RULE" in render_recipe_coverage(coverage)
+
+
+class TestTheEmittableSetIsWhatTheSuiteWrites:
+    """Level 28, step 1 — the list was built from the wrong enum.
+
+    Level 26 derived the SEMANTIC rules from `ChangeType`. The suite never uses
+    `ChangeType` as a rule id: it writes the literal `SEMANTIC.BREAKING_CHANGE`
+    and one namespaced `IntegrityIssue.issue_type`. So seven rules were claimed
+    as emittable that cannot be emitted, two that are emitted were absent, and
+    the coverage figure was computed over the wrong denominator.
+
+    Third time in this roadmap that something was written against a mental model
+    of its input rather than the input.
+    """
+
+    def test_the_rules_the_dataset_expects_are_all_emittable(self):
+        """The check that would have caught it: a corpus expecting a rule the
+        suite cannot emit, or a list omitting one it can."""
+        from code_reviewer.infrastructure.evaluation.dataset import FileSystemDataset
+
+        expected = {
+            expectation.rule_id
+            for fixture in FileSystemDataset("evaluation").cases()
+            for expectation in fixture.case.expected
+        }
+
+        assert expected <= set(emittable_rules()), expected - set(emittable_rules())
+
+    def test_the_literal_breaking_change_rule_is_listed(self):
+        assert "SEMANTIC.BREAKING_CHANGE" in emittable_rules()
+
+    def test_the_integrity_issue_rule_is_listed(self):
+        assert "SEMANTIC.UNREFERENCED_IN_FILE" in emittable_rules()
+
+    def test_no_change_type_is_claimed_as_a_rule(self):
+        """`SEMANTIC.REFACTOR` and its six siblings cannot be emitted, so
+        claiming them inflated the denominator and put seven phantom entries in
+        the declined table."""
+        from code_reviewer.infrastructure.analyzers.semantic import ChangeType
+
+        rules = set(emittable_rules())
+        for member in ChangeType:
+            phantom = f"SEMANTIC.{member.value.upper()}"
+            if phantom in ("SEMANTIC.BREAKING_CHANGE", "SEMANTIC.UNREFERENCED_IN_FILE"):
+                continue
+            assert phantom not in rules, phantom

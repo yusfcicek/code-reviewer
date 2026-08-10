@@ -321,16 +321,31 @@ class PerformanceAnalyzer:
         return max_depth
 
     def _is_recursive(self, func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-        """True when the function calls itself."""
+        """True when the function calls itself.
+
+        An *attribute* call whose name matches counts only on `self` or `cls`:
+        `self.read()` inside `def read` is recursion; `handle.read()` inside
+        `def read` is a different object's method that happens to share a name.
+
+        Found by Level 28: the new `bare_except` case reported a recursion risk
+        on `def read` because its body calls `handle.read()`. The same species as
+        the ``eval`` pattern that matched ``_grade_retrieval(`` — a name compared
+        without asking what it belongs to.
+        """
         func_name = func_node.name
 
         for node in ast.walk(func_node):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id == func_name:
-                    return True
-                elif isinstance(node.func, ast.Attribute):
-                    if node.func.attr == func_name:
-                        return True
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name) and node.func.id == func_name:
+                return True
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == func_name
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in ("self", "cls")
+            ):
+                return True
 
         return False
 

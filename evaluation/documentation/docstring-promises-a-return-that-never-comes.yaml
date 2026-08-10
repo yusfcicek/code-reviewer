@@ -1,0 +1,28 @@
+# The Returns half of DOCSTRING_DRIFT, which nothing exercised.
+name: docstring-promises-a-return-that-never-comes
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: writer.py
+    diff: |
+      @@ -1,1 +1,2 @@
+       x = 1
+      +y = 2
+sources:
+  writer.py: |
+    def write(path):
+        """Writes it.
+
+        Returns:
+            The number of bytes written.
+        """
+        print(path)
+expected:
+  - rule: DOCS.DOCSTRING_DRIFT
+    line: 1

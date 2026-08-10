@@ -54,6 +54,7 @@ repository does about it today. A capability with no gap produces no level.
 | C-32 | A retrieval tier measured without grading a model | — | Level 23's own non-goal. Unmeasured, and its complete absence went unnoticed for a level | 27 |
 | C-33 | Relevance as a number a floor can be applied to | — | Level 23's plan described a floor the port could not express, and dropped it | 27 |
 | C-34 | Documentation resolution beyond one language | — | Level 23's own non-goal. A symbol in any other language resolved to nothing, silently | 27 |
+| C-35 | Measurements strong enough to gate on | — | Level 25's non-goal read forwards. Sixteen levels of "a floor is earned" and not one had moved a floor up | 28 |
 
 **C-32 to C-34 come from Level 23's own non-goals and its plan**, and four
 levels in a row have now been sourced this way. The inventory that produced

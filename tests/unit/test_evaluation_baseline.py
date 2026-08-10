@@ -17,18 +17,23 @@ from code_reviewer.infrastructure.evaluation.dataset import FileSystemDataset
 #: interval, not to the point estimate** (Level 25, decision D-2), and that
 #: change is why the numbers here went down while the measurement did not.
 #:
-#: The suite still scores 1.00 across the board. It does so over **ten graded
-#: findings**, and ten of ten is consistent with a real rate of 0.72 — so 0.95
-#: on the lower bound is a claim this corpus cannot support, and asserting it
-#: would have been the overclaim Level 25 exists to remove.
+#: 0.80 since Level 28, which is the first time a floor in this repository has
+#: gone **up** by somebody writing cases rather than by somebody choosing a
+#: number. Ten graded findings supported 0.72; twenty support 0.84, and the
+#: floor takes 0.80 of it.
 #:
-#: Lowering a floor to make a build green is what the harness exists to
-#: prevent. This is the opposite: the floor now means something stricter than
-#: it did, and the only way to raise it is to write more cases. A later level
-#: that adds them earns the higher number.
-MIN_PRECISION = 0.70
-MIN_RECALL = 0.70
-MIN_F1 = 0.70
+#: The six cases that got it there each cover a rule that had none — including
+#: three that Level 26 had written a recipe or a written refusal for without
+#: anything measuring the rule underneath. Two of them found real false
+#: positives on their first run, and both were fixed rather than annotated
+#: away (Level 28, decision D-3).
+#:
+#: 0.90 needs thirty-five graded findings and 0.95 needs seventy-three. Those
+#: are a later level's work, and the numbers are here so nobody has to
+#: re-derive them.
+MIN_PRECISION = 0.80
+MIN_RECALL = 0.80
+MIN_F1 = 0.80
 
 #: Namespaces the dataset must exercise. A harness that grades only the SAST
 #: rules would report a healthy F1 while three analyzers went unmeasured.
@@ -46,7 +51,7 @@ def report(dataset):
 
 
 def test_the_shipped_dataset_loads(dataset):
-    assert len(dataset.cases()) >= 11
+    assert len(dataset.cases()) >= 17
 
 
 def test_every_fixture_on_disk_is_referenced_by_a_case(dataset):
@@ -113,3 +118,23 @@ def test_the_ungraded_count_is_small_enough_to_read(report):
     what the suite does and calling it a score."""
     graded = report.overall.true_positives + report.overall.false_positives
     assert report.ungraded_count <= graded
+
+
+def test_the_corpus_reaches_the_count_the_floor_needs(report):
+    """Level 28, AC-1. Sixteen graded observations support 0.80, and the floor
+    is a claim about the corpus rather than about the analyzers' ambition."""
+    graded = report.overall.true_positives + report.overall.false_positives
+
+    assert graded >= 16, f"{graded} graded findings will not carry a floor of {MIN_PRECISION}"
+
+
+def test_no_two_cases_grade_the_same_rule_on_the_same_line(dataset):
+    """AC-5. A duplicate is a number, and three self-reviews have found that a
+    bigger number is the easiest thing to fake."""
+    seen = set()
+    for fixture in dataset.cases():
+        for expectation in fixture.case.expected:
+            key = (fixture.case.file_path, expectation.rule_id, expectation.line_number)
+
+            assert key not in seen, key
+            seen.add(key)

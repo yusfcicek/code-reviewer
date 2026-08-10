@@ -9,8 +9,8 @@
 named two limits in its own non-goals: *"a rule with no recipe produces the
 advice it always did"*, and *"one finding, one file, one contiguous range"*.
 
-Measured before this level: the analyzers can emit **39 rule ids** and three had
-a recipe. So 8 % of findings got a button and the rest got a paragraph telling
+Measured before this level: the analyzers can emit **34 rule ids** — 39 as
+counted at the time, corrected by Level 28 — and three had a recipe. So 8 % of findings got a button and the rest got a paragraph telling
 somebody what to type — including rules where the edit is exactly as mechanical
 as the three that shipped.
 
@@ -52,8 +52,12 @@ Level 24 used for controls.
 
 ## Consequences
 
-**Six recipes of thirty-nine rules, 15 %, and the number is printed.** The
-thirty-three without one each say why. Most are declined because the fix is a
+**Six recipes of thirty-four rules, 18 %, and the number is printed.** The
+twenty-eight without one each say why.
+
+(Level 28 corrected the denominator: seven of the thirty-nine were `ChangeType`
+values the suite never uses as rule ids, and two rules it does emit were
+absent.) Most are declined because the fix is a
 *decision* — splitting a class, choosing an escaping, naming a confinement root
 — and a recipe that guesses a decision produces a button that breaks a build.
 
