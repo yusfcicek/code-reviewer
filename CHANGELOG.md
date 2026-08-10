@@ -7,6 +7,47 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.22.0] — 2026-08-11
+
+Level 28 — earning the floors. Recorded in
+[`docs/roadmap/level-28/spec.md`](docs/roadmap/level-28/spec.md) and
+[ADR 0030](docs/adr/0030-a-floor-is-earned.md).
+
+Sixteen levels of saying *a floor is earned by the level that measured it*, and
+not one of them had ever moved a floor up.
+
+### Changed
+
+- **Analyzer floor 0.70 → 0.80.** Ten graded findings became twenty; six new
+  cases, chosen from the coverage gap, three of them covering rules Level 26 had
+  written a recipe or a refusal for without anything measuring the rule.
+- **Documentation floor 0.60 → 0.80.** Six graded findings became eighteen, and
+  every `DOCS` rule now has at least three demonstrations.
+- **Retrieval floor 0.35 → 0.40.** Five cases became sixteen and recall fell from
+  a free 1.00 to a measured 0.69 — the only corpus of the four the code does not
+  ace, which is what makes it worth having.
+
+### Fixed
+
+- **`QUALITY.ERROR_HANDLING` demanded a `finally` beside a `with`** — the
+  construct that makes one unnecessary — and suggested code that does nothing.
+- **`PERFORMANCE.RECURSIVE_RISK` called `def read` recursive** because its body
+  calls `handle.read()`. An attribute call now counts only on `self` or `cls`.
+- **No method's documented signature had ever been checked.** A diff declares a
+  method's *bare* name and a document writes the *qualified* one; the scope
+  check compared them as strings.
+- **The emittable rule list was built from an enum the suite never reads.** Seven
+  rules were claimed that cannot be emitted and two that are emitted were absent;
+  the recipe coverage denominator was 39 rather than 34.
+
+### Notes
+
+`DOCS` still does not block. Eighteen findings support 0.82; a blocking gate
+wants 0.95, which needs seventy-three — one more level of authoring rather than
+an open question.
+
+---
+
 ## [2.21.1] — 2026-08-10
 
 The self-review of Level 27, and its three findings closed. Recorded in

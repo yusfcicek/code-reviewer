@@ -37,6 +37,7 @@ nobody has taken turns this directory into a wish list.
 | [0027](0027-a-score-that-states-its-own-uncertainty.md) | A score that states its own uncertainty | Accepted |
 | [0028](0028-a-suggestion-is-a-set-of-edits.md) | A suggestion is a set of edits | Accepted |
 | [0029](0029-measure-the-half-that-is-measurable.md) | Measure the half that is measurable | Accepted |
+| [0030](0030-a-floor-is-earned.md) | A floor is earned | Accepted |
 
 ## Adding one
 

@@ -160,20 +160,23 @@ def test_the_corpus_does_not_support_a_blocking_floor(report):
     this project's rule since Level 12 is that a floor is earned by the level
     that measured it. Level 27 measured, and the answer is still no:
 
-        6 graded findings, all correct -> lower bound 0.61
-       20                              -> 0.84
-       60                              -> 0.94
-      100                              -> 0.96
+        6 graded findings, all correct -> lower bound 0.61   (Level 23-27)
+       18                              -> 0.82   (Level 28, today)
+       35                              -> 0.90
+       73                              -> 0.95
 
-    A blocking gate wants at least the 0.95 the analyzers are held to on their
-    point estimate, and on a lower bound that needs about a hundred graded
-    findings. The corpus has six. So the severity stays where it is, and this
-    test is the record of why rather than a preference nobody wrote down.
+    Level 28 asked again with a corpus three times the size, and the answer is
+    still no — but it is now a much shorter no. Eighteen findings support 0.82;
+    a blocking gate wants the 0.95 the analyzers are held to, which needs
+    seventy-three. That is one more level of authoring rather than an open
+    question, and this test is the record of the number rather than a preference
+    nobody wrote down.
     """
     from code_reviewer.domain.confidence import wilson
 
     assert report.overall.precision_interval.lower < 0.95
-    assert wilson(100, 100).lower >= 0.95, "the target this corpus would have to reach"
+    assert report.overall.precision_interval.lower >= 0.80, "Level 28 earned this much"
+    assert wilson(73, 73).lower >= 0.95, "the count that would answer yes"
 
 
 def test_no_documentation_finding_is_above_the_warning_threshold():
