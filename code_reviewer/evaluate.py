@@ -64,8 +64,11 @@ DEFAULT_NARRATION_FLOOR = 0.85
 DEFAULT_RETRIEVAL_FLOOR = 0.35
 
 #: How often the related section must come back *first*. The figure a retriever
-#: can actually fail, so it is floored rather than only printed (S-03).
-DEFAULT_FIRST_PLACE_FLOOR = 0.4
+#: can actually fail, so it is floored rather than only printed (S-03) — and
+#: floored on the interval's **lower bound**, like every other floor here since
+#: Level 25 (self-review 28, S-05). Ten of sixteen cases is a share of 0.62 and
+#: a bound of 0.39; the floor takes 0.35 of it.
+DEFAULT_FIRST_PLACE_FLOOR = 0.35
 
 #: How deep the measurement looks — the drift tier's own per-file limit.
 #: Measuring at a depth the tier never uses measures something else.
@@ -335,7 +338,7 @@ def _grade_retrieval(args) -> int:
 
     if report.errors or not report.results:
         return EXIT_CANNOT_MEASURE
-    if report.first_rank_share < DEFAULT_FIRST_PLACE_FLOOR:
+    if report.first_rank_interval.lower < DEFAULT_FIRST_PLACE_FLOOR:
         return EXIT_BELOW_THRESHOLD
     return EXIT_OK if report.interval.lower >= args.min_retrieval else EXIT_BELOW_THRESHOLD
 
