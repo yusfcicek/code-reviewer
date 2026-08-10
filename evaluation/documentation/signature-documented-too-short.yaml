@@ -1,0 +1,25 @@
+# The other direction: the document names fewer arguments than the definition
+# has, which reads as a complete call and is not.
+name: signature-documented-too-short
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: app.py
+    diff: |
+      @@ -1,2 +1,2 @@
+      -def create_app(config):
+      +def create_app(config, worker):
+documents:
+  README.md: |
+    # Guide
+
+    Boot with `create_app(config)`.
+expected:
+  - rule: DOCS.SIGNATURE_MISMATCH
+    line: 3

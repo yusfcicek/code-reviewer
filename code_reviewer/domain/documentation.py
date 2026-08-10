@@ -375,6 +375,22 @@ class ChangeScope:
         """
         return self.removed | self.touched
 
+    def covers(self, subject: str) -> bool:
+        """Whether the change is responsible for this name, dotted or not.
+
+        A diff of a method yields the **bare** name — `def render(self, …)` is a
+        line that declares `render` — while a document names it **qualified**,
+        as `Renderer.render`. Comparing the two as strings missed every
+        signature a method ever had, which is what Level 28's new case found on
+        its first run.
+
+        The final segment is enough because resolution is the second half of
+        every rule: a document naming `SomethingElse.render` matches here and
+        then resolves to nothing, so the scope widening cannot produce a claim
+        the index does not back.
+        """
+        return subject in self.touched or subject.rsplit(".", 1)[-1] in self.touched
+
     def for_document(self, changed: bool) -> "ChangeScope":
         """The same scope, told whether *this* document was edited."""
         return ChangeScope(removed=self.removed, touched=self.touched, document_changed=changed)
@@ -487,7 +503,7 @@ def _symbol_defect(claim: DocumentClaim, index: SymbolIndex, scope: ChangeScope)
 
     if claim.kind is not ClaimKind.SIGNATURE:
         return None
-    if not (scope.document_changed or claim.subject in scope.touched):
+    if not (scope.document_changed or scope.covers(claim.subject)):
         return None
 
     defined = index.parameters_of(claim.subject)

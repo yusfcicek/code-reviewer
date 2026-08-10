@@ -1,0 +1,32 @@
+# The heading travels with the finding, and a document with several sections is
+# the shape a real README has.
+name: dead-reference-under-a-heading
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: app.py
+    diff: |
+      @@ -1,3 +1,1 @@
+      -class LegacyRenderer:
+      -    pass
+       x = 1
+documents:
+  README.md: |
+    # Title
+
+    ## Rendering
+
+    Use `LegacyRenderer` for the old format.
+
+    ## Something else
+
+    Nothing here.
+expected:
+  - rule: DOCS.DEAD_REFERENCE
+    line: 5

@@ -1,0 +1,30 @@
+# UNKNOWN_OPTION had one case for a flag and one for an environment name. This
+# is the shape where the same removed name appears twice in one document.
+name: removed-environment-name-in-two-places
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: settings.py
+    diff: |
+      @@ -1,3 +1,1 @@
+      -    mode = os.environ["REVIEW_LEGACY_MODE"]
+      -    other = os.environ["REVIEW_LEGACY_MODE"]
+       x = 1
+documents:
+  docs/config.md: |
+    # Configuration
+
+    Set `REVIEW_LEGACY_MODE` to opt in.
+
+    The default of `REVIEW_LEGACY_MODE` is off.
+expected:
+  - rule: DOCS.UNKNOWN_OPTION
+    line: 3
+  - rule: DOCS.UNKNOWN_OPTION
+    line: 5

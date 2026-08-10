@@ -1,0 +1,30 @@
+# The Raises half, and the one with the narrowest rule: it fires only when the
+# body raises nothing at all, because a function documenting its callee's error
+# is telling the truth.
+name: docstring-claims-an-exception-nothing-raises
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: reader.py
+    diff: |
+      @@ -1,1 +1,2 @@
+       x = 1
+      +y = 2
+sources:
+  reader.py: |
+    def read(path):
+        """Reads it.
+
+        Raises:
+            FileNotFoundError: when the path is absent.
+        """
+        return path
+expected:
+  - rule: DOCS.DOCSTRING_DRIFT
+    line: 1
