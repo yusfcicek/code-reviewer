@@ -52,8 +52,8 @@ Level 24 used for controls.
 
 ## Consequences
 
-**Seven recipes of thirty-nine rules, 18 %, and the number is printed.** The
-thirty-two without one each say why. Most are declined because the fix is a
+**Six recipes of thirty-nine rules, 15 %, and the number is printed.** The
+thirty-three without one each say why. Most are declined because the fix is a
 *decision* — splitting a class, choosing an escaping, naming a confinement root
 — and a recipe that guesses a decision produces a button that breaks a build.
 

@@ -252,19 +252,122 @@ class TestBareExcept:
         assert suggest(_finding("QUALITY.ERROR_HANDLING", 1), BARE_EXCEPT) is None
 
 
-class TestFileOperation:
-    def test_it_adds_the_mode(self):
-        """AC-12."""
-        assert 'open(path, "r")' in _applied(FILE_OPERATION, "SAST.INSECURE_FILE_OPERATION", 2)
+class TestFileOperationHasNoRecipe:
+    """Removed by the self-review. The rule fires on `chmod(...777)` and on
+    `open(..., "w")`; the recipe handled `open(path)` with no mode, which the
+    rule never reports, and its edit added `"r"` — the default, so it changed
+    nothing (S-02)."""
 
-    def test_it_declines_a_call_that_already_has_a_mode(self):
-        assert suggest(_finding("SAST.INSECURE_FILE_OPERATION", 2), 'x = open(path, "w")\n') is None
+    def test_the_rule_yields_no_suggestion(self):
+        assert suggest(_finding("SAST.INSECURE_FILE_OPERATION", 2), FILE_OPERATION) is None
 
-    def test_it_declines_anything_more_complex(self):
-        """Keyword arguments, more than one positional: the recipe cannot read
-        the shape, so it says nothing."""
-        for line in ("x = open(path, encoding='utf-8')\n", "x = open(a, b, c)\n"):
-            assert suggest(_finding("SAST.INSECURE_FILE_OPERATION", 1), line) is None, line
+    def test_it_is_declined_with_a_reason_rather_than_forgotten(self):
+        from code_reviewer.domain.fix_recipes import DECLINED
 
-    def test_it_declines_a_line_without_open(self):
-        assert suggest(_finding("SAST.INSECURE_FILE_OPERATION", 1), "x = 1\n") is None
+        assert "patterns" in DECLINED["SAST.INSECURE_FILE_OPERATION"]
+
+
+# -- self-review 26: what the recipes were doing to real lines ---------------
+
+
+class TestTheExceptRecipeKeepsTheBody:
+    """Self-review S-01 — the guard that looked at the wrong lines.
+
+    `except: raise` became `except Exception:` and the `raise` was gone: a
+    handler that re-raised now swallows the exception, which is the opposite of
+    a fix and invisible in a one-line diff. The guard for exactly this looked at
+    the *following* lines, and the single-line form has none.
+    """
+
+    def test_a_single_line_re_raise_is_declined(self):
+        source = "def r(p):\n    try:\n        return open(p)\n    except: raise\n"
+
+        assert suggest(_finding("QUALITY.ERROR_HANDLING", 4), source) is None
+
+    def test_any_single_line_body_is_declined(self):
+        """Not just `raise`: the replacement discarded whatever else was on the
+        line, so every single-line body was a deletion."""
+        for body in ("raise", "pass", "return None", "log.warning('x')"):
+            source = f"def r(p):\n    try:\n        return 1\n    except: {body}\n"
+
+            assert suggest(_finding("QUALITY.ERROR_HANDLING", 4), source) is None, body
+
+    def test_the_ordinary_multi_line_form_still_fires(self):
+        source = "def r(p):\n    try:\n        return 1\n    except:\n        return None\n"
+
+        assert "except Exception:" in suggest(_finding("QUALITY.ERROR_HANDLING", 4), source).applied_to(
+            source
+        )
+
+    def test_a_multi_line_re_raise_is_still_declined(self):
+        source = "def r(p):\n    try:\n        return 1\n    except:\n        raise\n"
+
+        assert suggest(_finding("QUALITY.ERROR_HANDLING", 4), source) is None
+
+
+class TestTheHttpRecipeFixesEveryUrlOrNone:
+    """Self-review S-03 — the first of two.
+
+    `re.search` found one. A reviewer clicked, saw a green diff, and had half a
+    fix — and the half that remained was the one nobody would look at again,
+    because the finding was now closed.
+    """
+
+    def test_two_urls_on_one_line_are_both_upgraded(self):
+        source = 'PAIR = ("http://a.example", "http://b.example")\n'
+
+        applied = suggest(_finding("SAST.INSECURE_HTTP", 1), source).applied_to(source)
+
+        assert applied.count("https://") == 2
+        assert "http://" not in applied.replace("https://", "")
+
+    def test_a_line_mixing_an_upgradable_and_a_loopback_url_is_declined(self):
+        """Half a line is the thing this finding is about. Declining is the
+        honest answer when one part cannot be touched."""
+        source = 'PAIR = ("http://a.example", "http://localhost:8080")\n'
+
+        assert suggest(_finding("SAST.INSECURE_HTTP", 1), source) is None
+
+    def test_one_url_still_works(self):
+        source = 'URL = "http://a.example"\n'
+
+        assert "https://a.example" in suggest(_finding("SAST.INSECURE_HTTP", 1), source).applied_to(source)
+
+
+class TestTheRandomRecipeIgnoresComments:
+    """Self-review S-04 — a comment is not code.
+
+    The rule fires on a comment too: its pattern is `random\\.\\w+\\s*\\(` with no
+    notion of context, so the finding is not wrong to exist. The recipe was
+    wrong to act on it — rewriting a sentence somebody wrote and adding an
+    import nothing uses is noise with provenance.
+    """
+
+    def test_a_call_inside_a_comment_is_declined(self):
+        source = "import random\n# random.random() is not good enough here\nx = 1\n"
+
+        assert suggest(_finding("SAST.INSECURE_RANDOM", 2), source) is None
+
+    def test_a_trailing_comment_after_real_code_still_fires(self):
+        source = "import random\n\n\ndef t():\n    return random.random()  # seeded elsewhere\n"
+
+        assert suggest(_finding("SAST.INSECURE_RANDOM", 5), source) is not None
+
+    def test_a_call_inside_a_string_is_declined(self):
+        source = 'import random\nDOC = "call random.random() for this"\n'
+
+        assert suggest(_finding("SAST.INSECURE_RANDOM", 2), source) is None
+
+
+def test_the_file_operation_rule_has_no_recipe():
+    """Self-review S-02 — a recipe that answered a question its rule never asks.
+
+    `SAST.INSECURE_FILE_OPERATION` fires on `chmod(…777)` and on
+    `open(…, "w")`. The recipe handled `open(path)` with no mode, which the rule
+    never reports, and added `"r"`, which is the default and changes nothing.
+    Removed, and declined on the record with that reason.
+    """
+    from code_reviewer.domain.fix_recipes import DECLINED, RECIPES
+
+    assert "SAST.INSECURE_FILE_OPERATION" not in RECIPES
+    assert "never reports" in DECLINED["SAST.INSECURE_FILE_OPERATION"]
