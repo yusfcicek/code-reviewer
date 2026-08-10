@@ -155,6 +155,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-documentation",
+        action="store_true",
+        help=(
+            "Do not check the repository's documentation against this change. "
+            "Nothing it reports can block a merge; the flag turns off the "
+            "report section and the model calls behind its second tier."
+        ),
+    )
+    parser.add_argument(
         "--single-agent",
         action="store_true",
         help=(

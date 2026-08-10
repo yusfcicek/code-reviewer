@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.16.1.** Rebuilt from an imported prototype across twenty levels
-> of work. 59 defects were found and recorded and all 59 are now fixed — the
-> last deferred one closed in Level 7. 1846 tests at 94 % coverage; lint,
+> **Status: 2.17.0.** Rebuilt from an imported prototype across twenty-three
+> levels of work. 59 defects were found and recorded and all 59 are now fixed —
+> the last deferred one closed in Level 7. 2037 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -311,7 +311,7 @@ each retrieval, each memory access.
 
 ### 🔬 17. Measured narration
 - The analyzers have had a scoreboard since Level 12. The **model's prose** now
-  has one: fourteen recorded reviews, five checks each, graded offline.
+  has one: fifteen recorded reviews, five checks each, graded offline.
 - **A citation that does not exist is the headline defect.** Every `path:line`
   in the prose must name the file under review and a line that exists in it —
   the failure mode a language model actually has.
@@ -357,6 +357,37 @@ each retrieval, each memory access.
   Without it nothing is written, and a sink that cannot write is a warning:
   recording a verdict may not cost one
   ([ADR 0022](docs/adr/0022-a-verdict-that-can-be-audited.md)).
+
+### 📄 19. Documentation that cannot quietly lie
+- A language model reading a repository **believes the README before it believes
+  the module.** So a stale sentence is not a cosmetic defect: it is a wrong
+  answer served with confidence to every future reader, including the agent
+  reviewing the next merge request.
+- **`DOCS.*` — what the change proves.** A document naming a symbol the change
+  removed, a documented signature the code does not have, an option or
+  environment variable the change deleted, a fenced Python example that does not
+  parse, a docstring whose `Args`, `Raises` or `Returns` section its own function
+  contradicts.
+- **`DRIFT.*` — what no name match reaches.** Documents join the retrieval
+  corpus; the changed diff is the query; a model is asked one narrow question
+  about each retrieved section and answers with one of three words. This is the
+  tier that finds the paragraph describing behaviour the change altered *without
+  naming a single symbol*.
+- **Scoped to the diff, not to the repository.** The first implementation
+  resolved every backtick against the tree and reported twenty-five findings in
+  this README, nearly all wrong — `hashlib.md5` is a library call, `ConfigMap` is
+  a Kubernetes noun, `--cov` is pytest's flag. In text none of those differs from
+  a symbol this project lost; in a diff it does.
+- **The tiers never mix.** Two report blocks, the second labelled unverified, and
+  two namespaces in the attribution table. `DRIFT` is registered as an agent,
+  which is the *entire* implementation of "a retrieved candidate cannot block":
+  ADR 0022 already refuses a blocking verdict that cites one
+  ([ADR 0025](docs/adr/0025-two-tiers-and-the-weaker-one-is-a-separate-namespace.md)).
+- **Nothing here blocks a merge**, in this release: the rules are newly measured,
+  and a floor is earned by the level that measured one.
+- Thirteen graded cases at precision/recall/F1 1.00, seven of which expect
+  nothing. `ai-code-review-eval --documentation` runs them;
+  `--no-documentation` turns the check off.
 
 ---
 

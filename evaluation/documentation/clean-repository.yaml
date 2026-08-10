@@ -1,0 +1,39 @@
+# Everything correct. The case that catches a rule becoming enthusiastic.
+name: clean-repository
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: app.py
+    diff: |
+      @@ -1,2 +1,2 @@
+      -def create_app(config):
+      +def create_app(config, worker):
+documents:
+  README.md: |
+    # Guide
+
+    Call `create_app(config, worker)` and pass `--strict`.
+    Reads `CI_PROJECT_ID`. See `Renderer.render(version)`.
+
+    ```python
+    value = 1
+    ```
+sources:
+  app.py: |
+    def create_app(config, worker):
+        """Builds it.
+
+        Args:
+            config: the settings.
+            worker: the pool.
+
+        Returns:
+            The application.
+        """
+        return config, worker
+expected: []

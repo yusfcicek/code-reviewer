@@ -61,6 +61,7 @@ statement and what this repository does today.
 | [20](level-20/spec.md) | Governance, explainability & compliance | ✅ Done |
 | [21](level-21/spec.md) | Grading the reviewer's prose | ✅ Done |
 | [22](level-22/spec.md) | A fix you can apply, and never one we applied | ✅ Done |
+| [23](level-23/spec.md) | Documentation that cannot quietly lie | ✅ Done |
 
 ### Why *this* order for 12–20
 

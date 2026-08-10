@@ -17,6 +17,7 @@ contains it; with an overlap it is whole in one of them.
 
 import ast
 import logging
+import re
 
 from code_reviewer.domain.retrieval import CodeChunk
 
@@ -141,3 +142,88 @@ def _windows(path: str, source: str, window: int, overlap: int) -> list[CodeChun
             break
 
     return chunks
+
+
+#: Lines above which a section is split. A chapter-sized section is one chunk
+#: that wins every query and spends the whole prompt budget by itself.
+MAX_SECTION_LINES = 80
+
+#: An ATX heading, outside a fence.
+_MARKDOWN_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(?P<title>.+?)\s*#*\s*$")
+
+#: A fence. A `#` inside one is a shell comment, not a section.
+_MARKDOWN_FENCE = re.compile(r"^\s*```")
+
+
+def chunk_markdown(path: str, text: str, max_lines: int = MAX_SECTION_LINES) -> list[CodeChunk]:
+    """Every retrievable section of one document, in document order.
+
+    The sibling of :func:`chunk_source`, and for the same reason. A whole
+    document retrieved to answer a question about one paragraph is a thousand
+    lines of prompt for six lines of evidence; an arbitrary line window cuts a
+    section in half, and half a section explains nothing.
+
+    A section is a heading and everything under it until the next heading. The
+    heading travels *with* the body because it is the section's subject — a
+    retriever that returns the paragraph without "## Suppression" above it has
+    returned an anonymous paragraph.
+
+    Never raises. Prose before the first heading is kept as its own chunk, and
+    a document with no heading at all is one chunk rather than none.
+    """
+    if not text.strip():
+        return []
+
+    chunks: list[CodeChunk] = []
+    heading = ""
+    start = 1
+    body: list[str] = []
+    fenced = False
+
+    def flush() -> None:
+        if any(line.strip() for line in body):
+            chunks.extend(_section_chunks(path, heading, start, body, max_lines))
+
+    for number, line in enumerate(text.splitlines(), start=1):
+        if _MARKDOWN_FENCE.match(line):
+            fenced = not fenced
+        title = None if fenced else _MARKDOWN_HEADING.match(line)
+        if title is None:
+            body.append(line)
+            continue
+
+        flush()
+        heading, start, body = title.group("title"), number, [line]
+
+    flush()
+    return chunks
+
+
+def _section_chunks(path: str, heading: str, start: int, body: list[str], max_lines: int) -> list[CodeChunk]:
+    """One section, split if it is long enough to dominate a result set."""
+    if len(body) <= max_lines:
+        return [
+            CodeChunk(
+                path=path,
+                start_line=start,
+                end_line=start + len(body) - 1,
+                text="\n".join(body),
+                name=heading,
+            )
+        ]
+
+    pieces: list[CodeChunk] = []
+    for offset in range(0, len(body), max_lines):
+        window = body[offset : offset + max_lines]
+        if not any(line.strip() for line in window):
+            continue
+        pieces.append(
+            CodeChunk(
+                path=path,
+                start_line=start + offset,
+                end_line=start + offset + len(window) - 1,
+                text="\n".join(window),
+                name=heading,
+            )
+        )
+    return pieces

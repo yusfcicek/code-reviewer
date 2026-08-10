@@ -42,6 +42,13 @@ repository does about it today. A capability with no gap produces no level.
 | C-20 | Model/prompt versioning and cost accounting | S2 | Token counting exists; nothing pins a version to an output | 20 |
 | C-21 | Grounded generation: an assistant's output checked against its input | S2, S3 | Level 12 graded the analyzers and said in its own non-goals that it did not grade the prose | 21 |
 | C-22 | An agent that acts, not only reports | S1, S3 | Level 13 left it deliberately: the agent reviews, it does not write the patch | 22 |
+| C-23 | Documentation checked against the code it describes | — | None. The roadmap has required it since Level 0 and nothing enforced it; three defects of this kind reached `development` | 23 |
+
+**C-23 has no role description behind it, and the table says so.** Its source
+is this project's own Level 0 working agreement — *documentation may never claim
+behaviour the code does not have* — and the three documentation-overstates-code
+defects the self-review of levels 12–20 found. Recording a source that does not
+exist would be the exact defect the capability describes.
 
 ## What is deliberately out of scope
 
