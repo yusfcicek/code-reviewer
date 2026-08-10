@@ -28,9 +28,18 @@ from code_reviewer.infrastructure.retrieval.lexical import BM25Index
 from code_reviewer.infrastructure.retrieval.vector_index import InMemoryVectorIndex
 
 #: The floor committed to CI, on the interval's lower bound (Level 25's rule).
-#: Five cases at 1.00 support 0.57, so the floor is 0.55 — what the corpus
-#: carries and not a decimal more. A later level that writes cases earns more.
-MIN_RECALL = 0.55
+#:
+#: 0.35, and the number went **down** because the corpus got harder rather than
+#: because the retriever got worse. Every case first carried three sections and
+#: the measurement asked for three, so every section was always returned and
+#: recall was 1.00 by construction — a measurement that could not fail, which is
+#: the defect this level exists to close (self-review 27, S-01). With a haystack
+#: of ten sections the retriever misses one case of five.
+MIN_RECALL = 0.35
+
+#: How often the related section must come back first. The figure a retriever
+#: can actually fail (S-03).
+MIN_FIRST_PLACE = 0.4
 
 #: How deep the measurement looks. The tier's own per-file limit, because
 #: measuring at a depth the tier never uses measures something else.
@@ -87,13 +96,43 @@ class TestTheMeasurement:
     def test_it_holds_the_committed_floor(self, report):
         assert report.interval.lower >= MIN_RECALL
 
+    def test_it_holds_the_first_place_floor(self, report):
+        assert report.first_rank_share >= MIN_FIRST_PLACE
+
+    def test_the_measurement_can_fail(self, cases):
+        """Self-review S-01, as a property rather than a hope.
+
+        Every case must hide its answer among more sections than the measurement
+        asks for. Otherwise recall is arithmetic: a retriever that ranked at
+        random, or returned its input unchanged, would score exactly the same.
+        """
+        from code_reviewer.infrastructure.retrieval.chunking import chunk_markdown
+
+        for case in cases:
+            sections = sum(len(chunk_markdown(path, text)) for path, text in case.documents)
+
+            assert sections > LIMIT, f"{case.name} hides its answer among {sections} of {LIMIT}"
+
+    def test_the_shipped_corpus_actually_misses_something(self, report):
+        """A corpus nothing fails is a corpus that proves nothing. One miss of
+        five is evidence the question is real."""
+        assert report.missed
+
     def test_the_interval_is_over_cases(self, report, cases):
         assert report.interval.total == len(cases)
 
     def test_the_rank_is_recorded_not_just_the_hit(self, report):
         """AC-8. 'In the top three' and 'first' are different facts about a
-        tier whose per-file limit is three."""
-        assert all(result.rank > 0 for result in report.results)
+        tier whose per-file limit is three.
+
+        Asserted over the cases that were found, because since the haystack
+        landed the corpus contains a case that is not — which is the point of
+        the haystack."""
+        found = [result for result in report.results if result.found]
+
+        assert found
+        assert all(result.rank > 0 for result in found)
+        assert len({result.rank for result in found}) > 1, "every hit at the same rank measures little"
 
     def test_a_case_that_misses_is_named(self):
         """AC-9. Averaged away, a miss is invisible."""

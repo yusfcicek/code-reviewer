@@ -708,25 +708,74 @@ class Rename:
             raise ValueError("A rename to the same name is not a rename.")
 
 
+#: What kind of thing a line declares. A rename is two declarations of the
+#: **same** kind: a function that became a function, a flag that became a flag.
+#:
+#: Counting names without their kinds called a deletion plus an unrelated
+#: addition a rename — `start_app` "became" `MAX_RETRIES` — and offered a
+#: one-click button substituting the wrong word into somebody's README
+#: (self-review 27, S-02).
+_KINDS: Mapping[str, str] = {
+    "def": "function",
+    "async def": "function",
+    "class": "class",
+}
+
+
+def _declarations_on(line: str) -> set[tuple[str, str]]:
+    """Every ``(kind, name)`` a single line of source declares."""
+    found: set[tuple[str, str]] = set()
+
+    definition = _DEFINES.match(line)
+    if definition is not None:
+        name = definition.group("name")
+        if name:
+            keyword = line.strip().split()[0]
+            found.add((_KINDS.get(keyword, "function"), name))
+        elif definition.group("constant"):
+            found.add(("constant", definition.group("constant")))
+
+    for match in _QUOTED.finditer(line):
+        value = match.group("value")
+        found.add(("option" if value.startswith("--") else "environment", value))
+
+    return found
+
+
 def rename_in(diff: str) -> Rename | None:
     """The rename a diff performed, or ``None``.
 
-    Exactly one name removed and exactly one added. Two of each is ambiguous —
-    which old name became which new one is not in the diff — and guessing is how
-    a suggestion renames the wrong thing (Level 27, AC-13).
+    Exactly one declaration removed and exactly one added, **of the same kind**.
+    Two of each is ambiguous — which old name became which new one is not in the
+    diff — and two of different kinds is not a rename at all: a function deleted
+    beside a constant added is two changes, and substituting one for the other in
+    a document is a wrong edit offered as a button (self-review 27, S-02).
 
     This is the whole of what makes a documentation edit offerable. The diff
     already knows both names, so the substitution is arithmetic rather than a
     sentence somebody has to review. Level 23 refused to suggest prose and that
     refusal stands; this is not prose.
     """
-    scope = scope_from_diff(diff)
-    added = scope.touched - scope.removed
-    if len(scope.removed) != 1 or len(added) != 1:
+    removed: set[tuple[str, str]] = set()
+    added: set[tuple[str, str]] = set()
+
+    for line in diff.splitlines():
+        if line.startswith(("---", "+++", "@@")):
+            continue
+        if line.startswith("-"):
+            removed |= _declarations_on(line[1:])
+        elif line.startswith("+"):
+            added |= _declarations_on(line[1:])
+
+    gone = removed - added
+    fresh = added - removed
+    if len(gone) != 1 or len(fresh) != 1:
         return None
 
-    old = next(iter(scope.removed))
-    new = next(iter(added))
+    (old_kind, old), (new_kind, new) = next(iter(gone)), next(iter(fresh))
+    if old_kind != new_kind:
+        return None
+
     try:
         return Rename(old=old, new=new)
     except ValueError:

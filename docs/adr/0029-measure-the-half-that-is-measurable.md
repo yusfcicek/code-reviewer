@@ -65,9 +65,16 @@ removals, two additions — yields nothing rather than a guess.
 
 ## Consequences
 
-**Recall is `1.00 [0.57, 1.00]` over five cases, floored at 0.55**, at the tier's
-own per-file limit of three, with the related section first 60 % of the time. Rank
-is reported because a cap of three makes it consequential.
+**Recall is `0.80 [0.38, 0.96]` over five cases, floored at 0.35**, at the tier's
+own per-file limit of three, with the related section first 60 % of the time and
+floored there too.
+
+The first version of this corpus reported `1.00` and the self-review found the
+number was free: every case carried three sections and the measurement asked for
+three, so every section was always returned. A measurement that cannot fail is
+the defect this ADR is about, built into the corpus written alongside it. With a
+haystack of ten sections the retriever misses one case of five, which is what
+makes the remaining number evidence.
 
 **`DOCS` still blocks nothing, and now there is a number for why.** Measured:
 the corpus supports a lower bound of 0.61 over six graded findings. A blocking
