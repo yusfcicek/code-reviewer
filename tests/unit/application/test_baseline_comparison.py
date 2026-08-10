@@ -235,3 +235,53 @@ def test_a_baseline_can_be_built_directly():
     )
 
     assert baseline.rates["x"] == 1.0
+
+
+class TestAChecksetThatChanged:
+    """Self-review S-03 — a rise from nothing.
+
+    `rates.get(check, 0.0)` read a check the baseline never measured as a rate
+    of zero, so adding a check to the corpus rendered as the reviewer improving
+    on four fronts at once. The same error the level refused elsewhere —
+    attributing a corpus edit to the thing being measured — and it slipped
+    through because the refusal compared case names and nothing compared check
+    names.
+    """
+
+    def _old_baseline(self):
+        return NarrationBaseline(
+            model="qwen3-8b",
+            prompt_fingerprint="aaaaaaaaaaaa",
+            case_names=("a",),
+            rates={"citations_are_grounded": 1.0},
+            score=1.0,
+            recorded_at="2026-08-01T00:00:00+00:00",
+        )
+
+    def test_a_check_the_baseline_never_measured_is_not_movement(self):
+        comparison = compare(
+            self._old_baseline(), _report(_case("a")), model="qwen3-8b", prompt_fingerprint="aaaaaaaaaaaa"
+        )
+
+        assert comparison.rose == ()
+
+    def test_it_is_reported_as_new_instead(self):
+        comparison = compare(
+            self._old_baseline(), _report(_case("a")), model="qwen3-8b", prompt_fingerprint="aaaaaaaaaaaa"
+        )
+
+        assert "the_prose_claims_no_verdict" in comparison.unmeasured
+
+    def test_the_checks_both_runs_measured_still_compare(self):
+        comparison = compare(
+            self._old_baseline(), _report(_case("a")), model="qwen3-8b", prompt_fingerprint="aaaaaaaaaaaa"
+        )
+
+        assert [movement.check for movement in comparison.unchanged] == ["citations_are_grounded"]
+
+    def test_the_rendering_names_the_new_checks(self):
+        comparison = compare(
+            self._old_baseline(), _report(_case("a")), model="qwen3-8b", prompt_fingerprint="aaaaaaaaaaaa"
+        )
+
+        assert "the_prose_claims_no_verdict" in render_comparison(comparison)

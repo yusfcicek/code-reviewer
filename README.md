@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.19.0.** Rebuilt from an imported prototype across twenty-five
+> **Status: 2.19.1.** Rebuilt from an imported prototype across twenty-five
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2323 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2346 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -439,6 +439,13 @@ each retrieval, each memory access.
   rather than having a better afternoon. It is also why the committed floors
   read 0.70 and 0.60 — the most ten and six graded findings can carry
   ([ADR 0027](docs/adr/0027-a-score-that-states-its-own-uncertainty.md)).
+- **The interval is over cases, not checks.** Counting 24 cases × 5 checks as
+  120 independent trials narrowed it from `[0.86, 1.00]` to `[0.97, 1.00]` —
+  checks inside one review are not independent, and the self-review caught the
+  level setting a floor from its own narrow number.
+- **F1's bound is derived, not sampled.** F1 is a harmonic mean and has no
+  sample of successes; the first version manufactured one whose bounds belonged
+  to a different number than the one printed beside them.
 - **Coverage is counted per check, in both directions.** How many cases pass a
   check, and how many demonstrate it *firing*. Before this level every narration
   check was passed by fourteen cases and demonstrated firing by one — which is

@@ -7,6 +7,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.19.1] — 2026-08-10
+
+The self-review of Level 25, and its four findings closed. Recorded in
+[`docs/roadmap/self-review-25.md`](docs/roadmap/self-review-25.md).
+
+The level's subject is a number that does not imply more than it knows. Two of
+its own did, and one of the two is what set a floor.
+
+### Fixed
+
+- **The narration interval treated 120 correlated checks as independent.** 24
+  cases × 5 checks went to Wilson as 120 trials, narrowing the interval from
+  `[0.86, 1.00]` to `[0.97, 1.00]` — and the floor was chosen from the narrow
+  number. Checks inside one review are not independent: a review with no
+  sections fails two checks for one reason. The interval is now over cases and
+  the floor is 0.85.
+- **The F1 "interval" was not an interval for the number beside it.** F1 is a
+  harmonic mean with no sample of successes, and the manufactured Wilson bounds
+  belonged to 0.83 while the printed point read 0.80. F1 is monotone in both
+  inputs, so the bound is now the harmonic mean of the precision and recall
+  bounds — conservative, and defensible.
+- **A baseline predating a check reported a rise from nothing.** Reading an
+  absent rate as nought rendered adding a check to the corpus as the reviewer
+  improving on four fronts. New checks are reported as new.
+- **A live run that measured nothing exited `1` rather than `2`.** Every case
+  unreachable is not a bad score, a distinction enforced since Level 10.
+
+---
+
 ## [2.19.0] — 2026-08-10
 
 Level 25 — a measurement that says how much it knows. Recorded in

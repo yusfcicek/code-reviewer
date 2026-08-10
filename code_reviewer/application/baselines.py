@@ -65,6 +65,10 @@ class Comparison:
     rose: tuple[CheckMovement, ...] = ()
     fell: tuple[CheckMovement, ...] = ()
     unchanged: tuple[CheckMovement, ...] = ()
+    #: Checks this run measured that the baseline never did. Reported as new
+    #: rather than as movement: reading an absent rate as nought renders a
+    #: corpus edit as the reviewer improving (self-review 25, S-03).
+    unmeasured: tuple[str, ...] = ()
     #: Why the two runs were not compared. Empty when they were.
     refused: str = ""
     prompt_changed: bool = False
@@ -154,8 +158,14 @@ def compare(
     rose: list[CheckMovement] = []
     fell: list[CheckMovement] = []
     unchanged: list[CheckMovement] = []
+    unmeasured: list[str] = []
     for check in CHECK_NAMES:
-        movement = CheckMovement(check, baseline.rates.get(check, 0.0), report.rate_for(check))
+        if check not in baseline.rates:
+            # The baseline predates this check. Reading its absence as a rate of
+            # nought would render adding a check as the reviewer improving.
+            unmeasured.append(check)
+            continue
+        movement = CheckMovement(check, baseline.rates[check], report.rate_for(check))
         if movement.delta > 1e-9:
             rose.append(movement)
         elif movement.delta < -1e-9:
@@ -167,6 +177,7 @@ def compare(
         rose=tuple(rose),
         fell=tuple(fell),
         unchanged=tuple(unchanged),
+        unmeasured=tuple(unmeasured),
         prompt_changed=prompt_fingerprint != baseline.prompt_fingerprint,
         model_changed=model != baseline.model,
     )
@@ -190,6 +201,15 @@ def render_comparison(comparison: Comparison) -> str:
         else "**Same model, same prompt, same cases.**"
     )
     lines.append("")
+
+    if comparison.unmeasured:
+        lines += [
+            "**"
+            + ", ".join(f"`{check}`" for check in comparison.unmeasured)
+            + "** did not exist when the baseline was taken, so there is no movement to "
+            "report for them.",
+            "",
+        ]
 
     if not (comparison.rose or comparison.fell):
         lines += ["No check moved.", ""]
