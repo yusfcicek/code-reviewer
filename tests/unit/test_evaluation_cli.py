@@ -23,10 +23,26 @@ UNMET = "name: silent\nfile: fixtures/subject.py\nexpect:\n  - rule: SAST.SQL_IN
 def test_a_dataset_meeting_every_floor_exits_zero(tmp_path, capsys):
     root = _dataset(tmp_path, CLEAN)
 
-    code = main(["--dataset", root, "--min-precision", "0.9", "--min-recall", "0.9", "--min-f1", "0.9"])
+    # No floors. This dataset grades a fixture the suite correctly stays quiet
+    # about, so it produces no true positives, no false positives and nothing
+    # to be uncertain about — and since Level 25 a floor is applied to the
+    # lower bound, which for a measurement of nothing is zero.
+    code = main(["--dataset", root])
 
     assert code == 0
     assert "Evaluation" in capsys.readouterr().out
+
+
+def test_a_dataset_that_measured_nothing_cannot_clear_a_floor(tmp_path, capsys):
+    """ "The suite stayed quiet" is a correct result and not a measurement of
+    accuracy. Before Level 25 it cleared any floor by dividing nothing by
+    nothing; now the interval is [0, 1] and the message says why."""
+    root = _dataset(tmp_path, CLEAN)
+
+    code = main(["--dataset", root, "--min-precision", "0.5"])
+
+    assert code == 1
+    assert "too small to say" in capsys.readouterr().out
 
 
 def test_a_score_below_a_floor_exits_one_and_names_the_shortfall(tmp_path, capsys):
@@ -35,7 +51,9 @@ def test_a_score_below_a_floor_exits_one_and_names_the_shortfall(tmp_path, capsy
     code = main(["--dataset", root, "--min-recall", "0.9"])
 
     assert code == 1
-    assert "recall 0.00 is below the floor of 0.90" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "recall 0.00" in output
+    assert "below the floor of 0.90" in output
 
 
 def test_the_default_floors_are_zero_so_a_run_reports_without_gating(tmp_path):
