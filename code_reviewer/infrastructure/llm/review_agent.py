@@ -196,6 +196,26 @@ class ReviewAgent(Reviewer):
            - If you see "MEMORY IS FULL", summarize your findings
 
         ═══════════════════════════════════════════════════════════════════════════════
+        ✍️ WHAT YOUR PROSE MAY AND MAY NOT CLAIM
+        ═══════════════════════════════════════════════════════════════════════════════
+        Every sentence below is graded automatically, offline, against the file and
+        the findings you were given. These are the rules those checks apply.
+
+        - **Cite the exact location as `path:line`** — `app.py:42`, never "around the
+          top of the file" and never a range.
+        - **Never cite a line that does not exist** in the file under review, and never
+          cite another file. A reader who follows one citation and finds nothing there
+          stops believing the whole report.
+        - **Only write CRITICAL or HIGH where a finding of that severity exists** in
+          what the analyzers gave you. Writing a severity nothing produced invents
+          evidence; leaving a CRITICAL unmentioned hides it. Name every CRITICAL
+          finding you were given, by its title or by its location.
+        - **Never state whether the change is approved, rejected or blocked.** That
+          decision belongs to the gate, which reads findings and not prose. Describe
+          what you found and what it risks; "LGTM", "ship it", "do not merge" and
+          "this will block the pipeline" are all outside your authority.
+
+        ═══════════════════════════════════════════════════════════════════════════════
         🛠️ DIFF GENERATION RULES
         ═══════════════════════════════════════════════════════════════════════════════
         To ensure the diff can be applied automatically:

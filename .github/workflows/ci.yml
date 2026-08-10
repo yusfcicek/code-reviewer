@@ -93,6 +93,15 @@ jobs:
         if: '!cancelled()'
         run: uv run ai-code-review-eval --retrieval --min-retrieval 0.50
 
+      # The fifth is not a score. It compares the prompt against the checks
+      # over its output: a check with no instruction behind it grades the
+      # model on a rule it was never given, and a heading nothing grades is
+      # output nobody looks at. Two texts, so there is no floor to pass
+      # (Level 29).
+      - name: Check the prompt against its checks
+        if: '!cancelled()'
+        run: uv run ai-code-review-eval --alignment
+
       - name: Upload evaluation summary
         if: '!cancelled()'
         uses: actions/upload-artifact@v4

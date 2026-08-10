@@ -108,6 +108,13 @@ evaluate-retrieval:
   script:
     - uv run ai-code-review-eval --retrieval --min-retrieval 0.50
 
+# The fifth is not a score. It compares the prompt against the checks over its
+# output, which is two texts and therefore has no floor to pass (Level 29).
+evaluate-alignment:
+  stage: check
+  script:
+    - uv run ai-code-review-eval --alignment
+
 # The agent reviewing this project's own merge requests.
 #
 # allow_failure is true while the agent is in alpha: a review that cannot run

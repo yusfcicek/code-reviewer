@@ -92,7 +92,7 @@ def test_the_workflow_grades_something(steps):
         assert _commands(pipeline), f"no step in {pipeline} runs {COMMAND}"
 
 
-MODES = ("--narration", "--documentation", "--retrieval")
+MODES = ("--narration", "--documentation", "--retrieval", "--alignment")
 
 
 def test_every_harness_the_command_offers_is_run(steps):
@@ -144,6 +144,16 @@ def test_the_documentation_corpus_is_graded_against_its_own_floor(steps):
     for step in documentation:
         for value in _floors(step).values():
             assert value == pytest.approx(DEFAULT_DOCUMENTATION_FLOOR)
+
+
+def test_the_alignment_step_carries_no_floor(steps):
+    """Level 29, contract C-5. Every other harness is a sample and takes a
+    floor on an interval's lower bound; this one compares two texts, so a floor
+    would be borrowed authority. A number appearing here would mean somebody
+    had started scoring it."""
+    for step in steps:
+        if "--alignment" in step:
+            assert _floors(step) == {}
 
 
 def test_the_first_place_floor_has_no_flag_and_so_cannot_drift(steps):

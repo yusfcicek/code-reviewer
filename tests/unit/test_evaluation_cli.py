@@ -271,3 +271,53 @@ def test_a_summary_that_cannot_be_written_exits_two(tmp_path):
     code = main(["--narration", "--dataset", "evaluation", "--json", str(blocked / "x.json")])
 
     assert code == 2
+
+
+class TestAlignment:
+    """Level 29 — the fifth mode. Two texts, no model, no dataset."""
+
+    def test_the_shipped_prompt_is_aligned_and_exits_zero(self, capsys):
+        assert main(["--alignment"]) == 0
+
+        output = capsys.readouterr().out
+        assert "# Prompt and checks" in output
+        assert "**Aligned**" in output
+
+    def test_a_gap_exits_one(self, monkeypatch, capsys):
+        """The exit code that means "a check grades a rule nobody asked for"."""
+        from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+
+        # Still demands the two headings nothing grades — otherwise the
+        # declined notes would have outlived their sections, which is exit 2
+        # and a different question.
+        monkeypatch.setattr(
+            ReviewAgent,
+            "SYSTEM_TEMPLATE",
+            "You are a reviewer.\n\n# Architectural Review Summary\n\n## Refactoring Roadmap\n",
+        )
+
+        assert main(["--alignment"]) == 1
+        assert "NOT ALIGNED" in capsys.readouterr().out
+
+    def test_a_declined_section_the_prompt_stopped_demanding_cannot_be_measured(self, monkeypatch, capsys):
+        """Exit 2, not 1. The corpus of two texts is inconsistent with itself,
+        which is a broken harness rather than a bad result — the split Level 10
+        introduced and every harness here has kept."""
+        import code_reviewer.domain.narration as narration
+
+        monkeypatch.setattr(narration, "UNCHECKED_SECTIONS", {"Vanished": "gone"})
+
+        assert main(["--alignment"]) == 2
+        assert "could not run" in capsys.readouterr().err
+
+    def test_it_reads_no_dataset(self, tmp_path):
+        """The other four modes need `--dataset`; this one measures the code
+        that ships. Pointing it at an empty directory changes nothing."""
+        assert main(["--alignment", "--dataset", str(tmp_path)]) == 0
+
+    def test_the_report_can_be_written_to_a_file(self, tmp_path, capsys):
+        destination = tmp_path / "alignment.md"
+
+        assert main(["--alignment", "--markdown", str(destination)]) == 0
+        assert "Prompt and checks" in destination.read_text(encoding="utf-8")
+        assert capsys.readouterr().out == ""

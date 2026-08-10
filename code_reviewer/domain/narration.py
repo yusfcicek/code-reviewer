@@ -19,8 +19,10 @@ model (decision D-1).
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .alignment import Expectation, Match
 from .finding import Finding
 from .severity import Severity
 
@@ -318,3 +320,63 @@ CHECKS = (
 #: The names, for validation. Derived rather than written twice: a second list
 #: is a second thing to forget.
 CHECK_NAMES = frozenset(check.__name__ for check in CHECKS)
+
+
+#: What each check needs the prompt to say for grading against it to be fair.
+#:
+#: Level 29's subject. These five checks scored 1.00 over twenty-four recorded
+#: reviews for eight levels, and three of them were enforcing rules the shipped
+#: template never stated — `cite`, `citation`, `path:line`, `verdict` and
+#: `approved` were all absent from it. A check with nothing behind it grades the
+#: model on a rule it was never given, and when the score falls the fix is
+#: looked for in a prompt that has nothing to fix.
+#:
+#: Literal phrases, because a phrase somebody can search for is a phrase
+#: somebody can add. `Match.ANY` where a prompt may reasonably say one thing two
+#: ways; `Match.ALL` where a rule has two halves and half a rule backs half a
+#: check.
+EXPECTATIONS = (
+    Expectation(
+        check="citations_are_grounded",
+        phrases=("cite the exact location as `path:line`", "never cite a line that does not exist"),
+    ),
+    Expectation(
+        check="the_prose_claims_no_verdict",
+        phrases=("never state whether the change is approved, rejected or blocked",),
+    ),
+    Expectation(
+        check="severity_claims_are_backed",
+        phrases=("only write CRITICAL or HIGH where a finding of that severity exists",),
+    ),
+    Expectation(
+        check="severe_findings_are_mentioned",
+        phrases=("name every CRITICAL finding", "Vulnerabilities Found"),
+        match=Match.ANY,
+    ),
+    Expectation(
+        check="required_sections_are_present",
+        phrases=tuple(REQUIRED_SECTIONS),
+    ),
+)
+
+
+#: Headings the output format demands that nothing grades, and why.
+#:
+#: The shape `fix_recipes.DECLINED` established: a refusal with the reason in
+#: it, because a refusal without one is indistinguishable from an oversight.
+#: Both of these were demanded for eight levels and checked by nothing, which is
+#: how a model could drop the entire Refactoring Roadmap and pass every check
+#: this repository had.
+UNCHECKED_SECTIONS: Mapping[str, str] = {
+    "Architectural Review Summary": (
+        "the summary is a paragraph of judgement, and a check over it would be a check on whether "
+        "a sentence is a good sentence. Its absence is visible to any reader at a glance, which is "
+        "the one failure mode a rule would be for"
+    ),
+    "Refactoring Roadmap": (
+        "the roadmap is advice, and Level 22 settled what this project does with advice: a "
+        "suggestion is offered, never applied, and never graded. A check demanding one would "
+        "demand that the model always have something to suggest, which is the pressure that "
+        "invents findings"
+    ),
+}
