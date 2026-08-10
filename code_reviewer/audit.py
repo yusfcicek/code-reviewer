@@ -26,9 +26,11 @@ import argparse
 import os
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
+from code_reviewer.application.erasure import erase, redact
 from code_reviewer.domain.audit import ChainStatus
-from code_reviewer.infrastructure.governance.sealed_sink import status_line, verify_store
+from code_reviewer.infrastructure.governance.sealed_sink import FileAuditStore, status_line, verify_store
 from code_reviewer.infrastructure.governance.signing import signer_from_environment
 
 #: The store is sound.
@@ -58,12 +60,106 @@ def build_parser() -> argparse.ArgumentParser:
             f"${PATH_VARIABLE}; with neither, there is nothing to verify."
         ),
     )
+    erase_command = subcommands.add_parser(
+        "erase",
+        help="Replace matching records with tombstones and re-seal the store.",
+        description=(
+            "Removes records deliberately. The chain is rewritten and re-signed so "
+            "the store still verifies, and each removed position keeps a tombstone "
+            "naming when and under which policy — erasure and tampering stay "
+            "distinguishable. A store that does not already verify is refused: "
+            "rewriting it would re-seal somebody else's alteration."
+        ),
+    )
+    _store_arguments(erase_command)
+    erase_command.add_argument(
+        "--before", default="", help="Remove records recorded before this ISO timestamp."
+    )
+    erase_command.add_argument("--project", default="", help="Remove records of this project.")
+    erase_command.add_argument("--merge-request", default="", help="Remove records of this merge request.")
+
+    redact_command = subcommands.add_parser(
+        "redact",
+        help="Empty the fields naming a subject, keeping the rest of the record.",
+        description=(
+            "The weaker operation, and often the right one: the organisation can "
+            "still say a review happened, and only the identifiers go."
+        ),
+    )
+    _store_arguments(redact_command)
+    redact_command.add_argument("--project", default="", help="Redact records of this project.")
+    redact_command.add_argument("--merge-request", default="", help="Redact records of this merge request.")
+
     return parser
+
+
+def _store_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--path",
+        default=os.environ.get(PATH_VARIABLE, ""),
+        help=f"The store to rewrite. Defaults to ${PATH_VARIABLE}.",
+    )
+    command.add_argument(
+        "--policy",
+        required=True,
+        help=(
+            "What this is being done under. Written into every tombstone, "
+            "because 'why is this position empty' is the first question "
+            "anybody asks about one."
+        ),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else sys.argv[1:])
-    return _verify(args)
+    if args.command == "verify":
+        return _verify(args)
+    return _rewrite(args)
+
+
+def _rewrite(args) -> int:
+    """Erasure and redaction. Exits `2` when the store refused the operation.
+
+    Refusing is not a failure of the store — it is this command declining to
+    produce something worse than what it was asked to change — so it lands on
+    the "could not do it" code rather than on "the store is wrong".
+    """
+    if not args.path:
+        print(f"Nothing to change: no --path and no ${PATH_VARIABLE}.", file=sys.stderr)  # stdout: output
+        return EXIT_CANNOT_VERIFY
+
+    store = FileAuditStore(args.path)
+    signer = signer_from_environment()
+    now = datetime.now(UTC).isoformat()
+
+    if args.command == "erase":
+        outcome = erase(
+            store,
+            policy=args.policy,
+            now=now,
+            before=args.before,
+            project=args.project,
+            merge_request=args.merge_request,
+            signer=signer,
+        )
+    else:
+        outcome = redact(
+            store,
+            policy=args.policy,
+            now=now,
+            project=args.project,
+            merge_request=args.merge_request,
+            signer=signer,
+        )
+
+    if outcome.refused:
+        print(f"Refused: {outcome.refused}", file=sys.stderr)  # stdout: the program's output
+        return EXIT_CANNOT_VERIFY
+
+    print(  # stdout: the program's output, not a diagnostic
+        f"{outcome.removed} removed, {outcome.redacted} redacted, {outcome.kept} kept."
+    )
+    return EXIT_INTACT
 
 
 def _verify(args) -> int:

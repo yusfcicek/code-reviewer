@@ -159,3 +159,51 @@ class TestTheDefaultPath:
         monkeypatch.delenv("REVIEW_AUDIT_PATH", raising=False)
 
         assert main(["verify"]) == EXIT_CANNOT_VERIFY
+
+
+class TestErasingFromTheCommandLine:
+    def test_it_removes_and_says_so(self, tmp_path, capsys):
+        path = _store(tmp_path)
+
+        code = main(["erase", "--path", str(path), "--merge-request", "1", "--policy", "request"])
+
+        assert code == EXIT_INTACT
+        assert "1 removed" in capsys.readouterr().out
+
+    def test_the_store_still_verifies_afterwards(self, tmp_path):
+        path = _store(tmp_path)
+
+        main(["erase", "--path", str(path), "--merge-request", "1", "--policy", "request"])
+
+        assert main(["verify", "--path", str(path)]) == EXIT_INTACT
+
+    def test_a_refusal_exits_two_rather_than_one(self, tmp_path, capsys):
+        """Refusing is this command declining to produce something worse than
+        what it was asked to change, not a statement that the store is wrong."""
+        path = _store(tmp_path)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines[1] = lines[1].replace('"pass"', '"fail"')
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        code = main(["erase", "--path", str(path), "--merge-request", "1", "--policy", "request"])
+
+        assert code == EXIT_CANNOT_VERIFY
+        assert "refused" in capsys.readouterr().err.lower()
+
+    def test_a_policy_is_required(self, tmp_path):
+        import pytest
+
+        with pytest.raises(SystemExit):
+            main(["erase", "--path", str(_store(tmp_path)), "--merge-request", "1"])
+
+    def test_redaction_keeps_the_record(self, tmp_path, capsys):
+        path = tmp_path / "audit.ndjson"
+        SealedAuditSink(path).write(_record(project="a-private-project-name"))
+
+        code = main(
+            ["redact", "--path", str(path), "--project", "a-private-project-name", "--policy", "request"]
+        )
+
+        assert code == EXIT_INTACT
+        assert "1 redacted" in capsys.readouterr().out
+        assert "a-private-project-name" not in path.read_text(encoding="utf-8")
