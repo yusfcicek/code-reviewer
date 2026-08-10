@@ -1,9 +1,21 @@
 # The narration corpus
 
-Fourteen cases. Each pairs a file the reviewer was looking at with the prose it
-produced about it, and the checks in
+Twenty-four cases. Each pairs a file the reviewer was looking at with the prose
+it produced about it, and the checks in
 [`domain/narration.py`](../../code_reviewer/domain/narration.py) grade the
 second against the first.
+
+**Nine of them were added by Level 25, chosen by where the coverage report said
+the corpus was thinnest.** Every check was passed by fourteen cases and
+demonstrated *firing* by exactly one — and a check whose firing behaviour is
+pinned by a single example is pinned by whatever example its author had in mind.
+That is how a check catching three phrasings of eight survived the corpus built
+to demonstrate it (self-review 21–22, S-01). Each check now has three
+demonstrations, each a different way of getting the same thing wrong.
+
+**Twenty-four cases is not a sample anybody should generalise from**, and the
+report no longer prints a number that implies otherwise: `1.00 [0.97, 1.00] over
+120 checks` is what this corpus supports.
 
 ## What these recordings are, and are not
 

@@ -45,12 +45,34 @@ def test_every_check_is_exercised_by_a_case_that_fails_it(cases):
         assert check.__name__ in declared, f"no case demonstrates {check.__name__} failing"
 
 
-def test_most_of_the_corpus_is_reviews_that_should_pass(cases):
-    """The broken ones prove the checks fire. If they were the bulk, the score
-    would be measuring the harness rather than the reviews."""
-    broken = [case for case in cases if case.expected_failures]
+def test_every_check_is_passed_by_most_of_the_corpus(cases):
+    """The concern the raw ratio was a proxy for, measured directly.
 
-    assert len(broken) < len(cases) / 2
+    This used to assert that fewer than half the cases declared a failure, on
+    the reasoning that a corpus of broken reviews measures the harness rather
+    than the reviews. Level 25 made the concern measurable per check, and the
+    ratio turned out to be the wrong proxy: a case declaring one failure still
+    passes the other four, so a corpus that is sixty per cent deliberately
+    broken can still exercise every check overwhelmingly in the passing
+    direction. This asserts that instead.
+    """
+    from code_reviewer.application.narration_evaluation import NarrationEvaluator
+
+    for entry in NarrationEvaluator().evaluate(cases).coverage:
+        assert entry.passing > len(cases) / 2, entry
+
+
+def test_every_check_is_demonstrated_firing_enough_times(cases):
+    """AC-9. One example pins one author's idea of a check — which is how a
+    check catching three phrasings of eight survived the corpus built to
+    demonstrate it (self-review 21-22, S-01)."""
+    from code_reviewer.application.narration_evaluation import (
+        MINIMUM_DEMONSTRATIONS,
+        NarrationEvaluator,
+    )
+
+    for entry in NarrationEvaluator().evaluate(cases).coverage:
+        assert entry.firing >= MINIMUM_DEMONSTRATIONS, entry
 
 
 def test_every_fixture_the_corpus_names_exists(cases):

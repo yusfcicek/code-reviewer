@@ -1,0 +1,36 @@
+#
+# MEANT TO FAIL: severe_findings_are_mentioned.
+#
+# The review gestures at the problem without naming the rule or the line. A
+# reader cannot act on it and a checker should not accept it.
+name: severe-finding-implied-not-named
+file: fixtures/hardcoded_secret.py
+expect_failures:
+  - severe_findings_are_mentioned
+findings:
+  - rule: SAST.HARDCODED_SECRET
+    line: 5
+    severity: critical
+    title: Hardcoded Secret
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: FAIL - Critical
+  - **Vulnerabilities Found**: There are some configuration concerns in this file.
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/hardcoded_secret.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: Critical - configuration should be reviewed
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None

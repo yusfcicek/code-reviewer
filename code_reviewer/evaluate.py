@@ -39,10 +39,15 @@ from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationC
 #: The dataset shipped with this repository.
 DEFAULT_DATASET = "evaluation"
 
-#: The floor the shipped narration corpus holds. Every case either passes every
-#: check or declares the one it is built to break, so the measured value is
-#: 1.00 and the floor is the measurement rather than a hope (Level 21).
-DEFAULT_NARRATION_FLOOR = 1.0
+#: The floor the shipped narration corpus holds, applied to the **lower bound**
+#: of a 95 % interval since Level 25 rather than to the point estimate.
+#:
+#: Every case still either passes every check or declares the one it is built
+#: to break, so the point estimate is 1.00. Seventy-five checks over fifteen
+#: cases put the lower bound at 0.95, and that is the floor: a value of 1.00
+#: here would be unreachable by any finite corpus, which is a floor that can
+#: only be met by nobody measuring.
+DEFAULT_NARRATION_FLOOR = 0.95
 
 EXIT_OK = 0
 EXIT_BELOW_THRESHOLD = 1
@@ -194,7 +199,10 @@ def _grade_narration(args) -> int:
         )
         return EXIT_CANNOT_MEASURE
 
-    return EXIT_OK if report.score >= args.min_narration else EXIT_BELOW_THRESHOLD
+    # The lower bound, not the point estimate (Level 25, decision D-2). The
+    # exit code and the rendered verdict were reading two different numbers,
+    # which is how a report can say BELOW THE FLOOR and exit zero.
+    return EXIT_OK if report.score_interval.lower >= args.min_narration else EXIT_BELOW_THRESHOLD
 
 
 def _grade_documentation(args) -> int:
