@@ -634,17 +634,37 @@ class QualityAnalyzer:
         return False
 
     def _has_resource_management(self, try_node: ast.Try) -> bool:
-        """True when the try block acquires something that needs releasing."""
+        """True when the try block acquires something that needs releasing.
+
+        A resource acquired by a `with` does **not** count. The whole purpose of
+        a context manager is that release is already arranged, so demanding a
+        `finally` beside one is demanding the thing that made `finally`
+        unnecessary — and the suggestion a reader gets is to add code that does
+        nothing.
+
+        Found by Level 28: the new `bare_except` case reported this on
+        `with open(...) as handle:` inside a `try`, twice, and the corpus is what
+        turned it from behaviour nobody had looked at into a defect.
+        """
         resource_patterns = ["open", "connect", "acquire", "lock", "socket"]
 
+        managed = {
+            id(item.context_expr)
+            for statement in ast.walk(try_node)
+            if isinstance(statement, (ast.With, ast.AsyncWith))
+            for item in statement.items
+        }
+
         for stmt in ast.walk(try_node):
-            if isinstance(stmt, ast.Call):
-                if isinstance(stmt.func, ast.Name):
-                    if any(p in stmt.func.id.lower() for p in resource_patterns):
-                        return True
-                elif isinstance(stmt.func, ast.Attribute):
-                    if any(p in stmt.func.attr.lower() for p in resource_patterns):
-                        return True
+            if not isinstance(stmt, ast.Call) or id(stmt) in managed:
+                continue
+            if isinstance(stmt.func, ast.Name):
+                if any(p in stmt.func.id.lower() for p in resource_patterns):
+                    return True
+            elif isinstance(stmt.func, ast.Attribute) and any(
+                p in stmt.func.attr.lower() for p in resource_patterns
+            ):
+                return True
         return False
 
     def _collect_all_issues(self, report: QualityReport) -> list[QualityIssue]:

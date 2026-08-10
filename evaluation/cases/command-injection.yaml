@@ -1,0 +1,13 @@
+# Added by Level 28. Declined a recipe on the record by Level 26 — the safe form
+# depends on what the command is for — and until now unmeasured. The list form
+# is the pin.
+name: command-injection
+file: fixtures/command_injection.py
+scope: ["SAST.COMMAND_INJECTION"]
+expect:
+  - rule: SAST.COMMAND_INJECTION
+    line: 7
+    severity: high
+expect_absent:
+  - rule: SAST.COMMAND_INJECTION
+    line: 11

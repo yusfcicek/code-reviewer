@@ -1,0 +1,26 @@
+# Added by Level 28, and it found two false positives on its first run.
+#
+# QUALITY.ERROR_HANDLING covers three shapes, not one: an empty handler, a bare
+# `except:`, and a try with resource management and no `finally`. The third
+# fired twice here on `with open(...) as handle:` — demanding a `finally` beside
+# the construct that made one unnecessary. Fixed in the analyzer; the absent
+# expectations are the pin.
+#
+# PERFORMANCE.RECURSIVE_RISK fired on `def read` because the body calls
+# `handle.read()`. Also fixed: an attribute call counts as recursion only on
+# `self` or `cls`.
+name: bare-except
+file: fixtures/bare_except.py
+scope: ["QUALITY.ERROR_HANDLING", "PERFORMANCE.RECURSIVE_RISK"]
+expect:
+  - rule: QUALITY.ERROR_HANDLING
+    line: 12
+expect_absent:
+  - rule: QUALITY.ERROR_HANDLING
+    line: 9
+  - rule: QUALITY.ERROR_HANDLING
+    line: 17
+  - rule: QUALITY.ERROR_HANDLING
+    line: 20
+  - rule: PERFORMANCE.RECURSIVE_RISK
+    line: 8

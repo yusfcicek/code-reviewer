@@ -1,0 +1,16 @@
+# Two calls to the wrong generator, and the right one in the same file. Added by
+# Level 28: SAST.INSECURE_RANDOM had a recipe since Level 26 and no case, so
+# nothing measured the rule the recipe answers.
+name: insecure-random
+file: fixtures/insecure_random.py
+scope: ["SAST.INSECURE_RANDOM"]
+expect:
+  - rule: SAST.INSECURE_RANDOM
+    line: 12
+    severity: medium
+  - rule: SAST.INSECURE_RANDOM
+    line: 16
+    severity: medium
+expect_absent:
+  - rule: SAST.INSECURE_RANDOM
+    line: 21
