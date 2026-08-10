@@ -7,6 +7,42 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.17.1] — 2026-08-10
+
+The self-review of Level 23, and its six findings closed. Recorded in
+[`docs/roadmap/self-review-23.md`](docs/roadmap/self-review-23.md).
+
+### Fixed
+
+- **The retrieved tier returned nothing at all.** Documents and code shared one
+  index — 4 205 code chunks against 1 129 document chunks — and the retrieval
+  limit was spent before the service's document filter ran. Measured: 0
+  documents in the top 20 for a realistic diff. Documents now have their own
+  index, built by the same retrieval implementation.
+- **The shape test cancelled the diff's proof.** A bare lowercase name was
+  refused even when the change had just deleted its definition, making 113 of
+  648 indexed functions (17 %) unreportable — `add`, `analyze`, `bind`,
+  `cases`, `covers`. A name the change removed is now read whatever its shape;
+  everywhere the diff proves nothing the shape test still applies.
+- **A deleted file removed nothing.** `is_deleted` changes were filtered out
+  before the documentation tier saw them, so deleting the module a document
+  describes — the plainest way to make it stale — produced no findings. The
+  comment is also rendered for documentation findings alone, since such a merge
+  request has no per-file section.
+- **`Raises:` on an abstract method was reported.** One false positive in the
+  three findings the rule produced against its own repository, on the file where
+  this project declares its ports. A body that does nothing cannot contradict
+  anything. The other two findings were real and are fixed; a test holds this
+  repository at zero.
+- **`corpus.py` had the path defect Level 23 fixed in its own copy.**
+  `collect_chunks('code_reviewer')` returned 0 chunks; retrieval has been
+  silently dead since Level 13 for any relative root other than `.`.
+- **The documentation block was unbounded** and sits above the per-file
+  reviews, so a change removing a widely documented symbol truncated the
+  reviews it was reporting on. Ten locations per tier, then a count.
+
+---
+
 ## [2.17.0] — 2026-08-10
 
 Level 23 — documentation checked against the code it describes. Recorded in
