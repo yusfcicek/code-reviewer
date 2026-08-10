@@ -316,6 +316,39 @@ class DriftJudge(ABC):
         treats a failure as `UNSURE` and loses the candidate, not the review."""
 
 
+class Signer(ABC):
+    """Signs a decision record's digest, and checks a signature it made.
+
+    A port because the key is a deployment's and never this repository's — a
+    key that could be generated here is one an attacker with the repository can
+    generate (Level 24, decision D-2). The default adapter reads a key the
+    operator supplies and refuses to construct without one; a deployment that
+    supplies none gets a signer that signs nothing and says so.
+
+    Symmetric by default, which is honest about what it buys: the verifier
+    needs the key the signer had. An asymmetric adapter is a sibling module and
+    a key-distribution problem this repository cannot solve on anybody's behalf.
+    """
+
+    @property
+    @abstractmethod
+    def key_id(self) -> str:
+        """Which key this is. Never the key itself."""
+
+    @property
+    @abstractmethod
+    def is_signing(self) -> bool:
+        """Whether anything will actually be signed."""
+
+    @abstractmethod
+    def sign(self, digest: str) -> tuple[str, str]:
+        """The signature and the key id, or two empty strings."""
+
+    @abstractmethod
+    def accepts(self, digest: str, signature: str, key_id: str) -> bool:
+        """Whether this key produced that signature. Never raises."""
+
+
 class MemoryStore(ABC):
     """Where one repository's accumulated review history is kept.
 
