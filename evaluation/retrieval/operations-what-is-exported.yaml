@@ -1,15 +1,17 @@
-name: gate-prose-is-not-an-input
+name: operations-what-is-exported
 because: >-
-  A second change against the same section, from the other direction: it
-  removes a place the prose was consulted.
+  The section says what leaves the process — counts, durations and token use —
+  and the change removes two of the three exports. The diff names none of them
+  the way the document does, which is the case this tier exists for.
 expect:
-  path: docs/gate.md
-  heading: How a merge is stopped
+  path: docs/operations.md
+  heading: Metrics
 diff: |
-  @@ -44,3 +44,1 @@
-  -        score = self._score_from_text(review_markdown)
-  -        if score < self._minimum:
-  -            return ReviewGateResult.FAIL
+  @@ -18,5 +18,3 @@
+       def finish(self, outcome, elapsed):
+  -        self._reviews_total.labels(outcome).inc()
+  -        self._duration_seconds.observe(elapsed)
+           self._log.info("review finished")
 documents:
   docs/gate.md: |
     # The gate

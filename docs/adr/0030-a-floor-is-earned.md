@@ -38,8 +38,13 @@ self-review found somebody about to break it:
 | corpus | before | after | floor |
 |---|---|---|---|
 | analyzers | 10 findings, 0.72 | **20**, 0.84 | 0.70 → **0.80** |
-| documentation | 6 findings, 0.61 | **18**, 0.82 | 0.60 → **0.80** |
-| drift retrieval | 5 cases, 1.00 | **16**, 0.69 | 0.35 → **0.40** |
+| documentation | 6 findings, 0.61 | **19**, 0.83 | 0.60 → **0.80** |
+| drift retrieval | 5 cases, 1.00 | **16**, 0.75 | 0.35 → **0.50** |
+
+The retrieval row is what self-review 28 left it at. Level 28 shipped 0.69 over
+a corpus in which two cases asked after the same section — one weakness spending
+two of sixteen supposedly independent observations — and moved a floor of 0.40
+into the test module while the shipped command went on using 0.35.
 
 **Three real defects, found by cases written to look for nothing in particular.**
 `QUALITY.ERROR_HANDLING` demanded a `finally` beside a `with`, which is the
@@ -50,13 +55,13 @@ document's **qualified** one, so no method's documented signature had ever been
 checked.
 
 **One corpus stopped scoring perfectly, and that is the good news.** Retrieval is
-a ranking, and eleven of sixteen over ten sections with a limit of three is a
+a ranking, and twelve of sixteen over ten sections with a limit of three is a
 measurement. The other three ace their corpora because the rules they grade are
 deterministic; a ranking that scored 1.00 would mean the corpus was too easy —
 which is exactly what self-review 27 found.
 
-**`DOCS` still does not block, and the no is shorter.** Eighteen findings support
-0.82; a blocking gate wants 0.95, which needs seventy-three. That is one more
+**`DOCS` still does not block, and the no is shorter.** Nineteen findings support
+0.83; a blocking gate wants 0.95, which needs seventy-three. That is one more
 level of authoring rather than an open question.
 
 ## Alternatives considered

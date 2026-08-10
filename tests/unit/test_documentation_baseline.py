@@ -14,23 +14,14 @@ import pytest
 
 from code_reviewer.application.documentation_evaluation import evaluate_documentation
 from code_reviewer.domain.evaluation import EvaluationThreshold
+from code_reviewer.evaluate import DEFAULT_DOCUMENTATION_FLOOR
 from code_reviewer.infrastructure.evaluation.documentation_dataset import DocumentationCorpus
 
 #: The floors committed to CI, applied to the **lower bound** of a 95 %
-#: interval since Level 25 rather than to the point estimate.
-#:
-#: 0.80 since Level 28. Six graded findings supported 0.61; eighteen support
-#: 0.82, and the floor takes 0.80 of it.
-#:
-#: Ten cases got it there, each covering a rule or a shape nothing exercised —
-#: the Returns and Raises halves of DOCSTRING_DRIFT, a signature on a method, a
-#: fenced block that fails to parse the way a person actually writes one. The
-#: seven cases that deliberately expect nothing are untouched: they are where
-#: this tier's failure mode lives, and diluting them to raise a number would be
-#: the move every self-review here has caught somebody making.
-MIN_PRECISION = 0.80
-MIN_RECALL = 0.80
-MIN_F1 = 0.80
+#: interval since Level 25 rather than to the point estimate. One copy, in
+#: `evaluate.py`, for the reason self-review 28 found the hard way: a floor a
+#: test module holds is not the floor the shipped command applies.
+MIN_PRECISION = MIN_RECALL = MIN_F1 = DEFAULT_DOCUMENTATION_FLOOR
 
 #: Rules the corpus must exercise. A harness grading only dead references would
 #: report a healthy F1 while four rules went unmeasured.
@@ -54,7 +45,7 @@ def report(fixtures):
 
 
 def test_the_corpus_loads(fixtures):
-    assert len(fixtures) >= 23
+    assert len(fixtures) >= 24
 
 
 def test_every_rule_is_exercised(fixtures):
@@ -80,15 +71,15 @@ def test_the_precision_half_is_exercised(fixtures):
     quiet = [fixture for fixture in fixtures if not fixture.case.expected]
     forbidding = [fixture for fixture in fixtures if fixture.case.forbidden]
 
-    assert len(quiet) >= 7
-    assert len(forbidding) >= 5
+    assert len(quiet) >= 8
+    assert len(forbidding) >= 6
 
 
 def test_several_cases_forbid_a_rule(fixtures):
     """A fixed false positive is only fixed while something pins it."""
     forbidding = [fixture for fixture in fixtures if fixture.case.forbidden]
 
-    assert len(forbidding) >= 5
+    assert len(forbidding) >= 6
 
 
 def test_no_case_failed_to_run(report):
@@ -161,12 +152,12 @@ def test_the_corpus_does_not_support_a_blocking_floor(report):
     that measured it. Level 27 measured, and the answer is still no:
 
         6 graded findings, all correct -> lower bound 0.61   (Level 23-27)
-       18                              -> 0.82   (Level 28, today)
+       19                              -> 0.83   (today)
        35                              -> 0.90
        73                              -> 0.95
 
     Level 28 asked again with a corpus three times the size, and the answer is
-    still no — but it is now a much shorter no. Eighteen findings support 0.82;
+    still no — but it is now a much shorter no. Nineteen findings support 0.83;
     a blocking gate wants the 0.95 the analyzers are held to, which needs
     seventy-three. That is one more level of authoring rather than an open
     question, and this test is the record of the number rather than a preference
@@ -220,4 +211,4 @@ def test_the_quiet_half_was_not_diluted(fixtures):
     better without anything improving."""
     quiet = [fixture for fixture in fixtures if not fixture.case.expected]
 
-    assert len(quiet) >= 7
+    assert len(quiet) >= 8

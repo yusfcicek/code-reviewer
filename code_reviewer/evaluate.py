@@ -39,6 +39,34 @@ from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationC
 #: The dataset shipped with this repository.
 DEFAULT_DATASET = "evaluation"
 
+#: The floor the shipped analyzer corpus holds, on the **lower bound** of a
+#: 95 % interval (Level 25, decision D-2) rather than on the ratio.
+#:
+#: 0.80 since Level 28, which is the first time a floor here has gone up by
+#: somebody writing cases rather than by somebody choosing a number: twenty
+#: graded findings, all correct, support 0.84.
+#:
+#: This is now the *only* copy. The floors used to live in the test modules
+#: while the workflow passed its own numbers on the command line, so when Level
+#: 25 changed what a floor means the workflow went on asking for 0.95 against a
+#: bound of 0.84 and CI failed for four levels while four reports said it
+#: passed (self-review 28, S-01). `tests/unit/test_ci_gates.py` now reads the
+#: workflow and pins it here.
+DEFAULT_ANALYZER_FLOOR = 0.80
+
+#: The floor the shipped documentation corpus holds, on the same lower bound.
+#:
+#: 0.80 since Level 28: eighteen graded findings supported 0.82, and the case
+#: self-review 28 added for the method-name collision makes it nineteen at
+#: 0.83. A
+#: blocking gate would want the 0.95 the analyzers are held to, which needs
+#: seventy-three — so `DOCS` still warns and does not block.
+#:
+#: A separate constant from the analyzers' even though the two agree today,
+#: because they are two corpora and a shared number is how one of them quietly
+#: inherits the other's evidence.
+DEFAULT_DOCUMENTATION_FLOOR = 0.80
+
 #: The floor the shipped narration corpus holds, applied to the **lower bound**
 #: of a 95 % interval over **cases**.
 #:
@@ -55,17 +83,23 @@ DEFAULT_NARRATION_FLOOR = 0.85
 
 #: The floor the shipped retrieval corpus holds, on the lower bound.
 #:
-#: 0.35 rather than 0.55, and the correction is a finding rather than a
-#: relaxation. Every case originally carried three document sections and the
-#: measurement asked for the top three, so every section was always returned and
-#: recall was 1.00 by construction — a measurement that could not fail, which is
-#: the defect this level was written to close (self-review 27, S-01). With a
-#: haystack the retriever misses one case of five: 0.80 [0.38, 0.96].
-DEFAULT_RETRIEVAL_FLOOR = 0.35
+#: The history is worth keeping because two of the three moves were findings
+#: rather than choices. 0.55 came from a corpus in which every case carried
+#: three sections and the measurement asked for three, so recall was 1.00 by
+#: construction — a measurement that could not fail (self-review 27, S-01).
+#: With a haystack it became 0.35 over five cases. Level 28 grew the corpus to
+#: sixteen and moved the test module's copy to 0.40 while leaving this one, the
+#: number the shipped gate actually uses, at 0.35 (self-review 28, S-03).
+#:
+#: 0.50 today: sixteen cases, twelve found, 0.75 [0.51, 0.90].
+DEFAULT_RETRIEVAL_FLOOR = 0.50
 
 #: How often the related section must come back *first*. The figure a retriever
-#: can actually fail, so it is floored rather than only printed (S-03).
-DEFAULT_FIRST_PLACE_FLOOR = 0.4
+#: can actually fail, so it is floored rather than only printed (S-03) — and
+#: floored on the interval's **lower bound**, like every other floor here since
+#: Level 25 (self-review 28, S-05). Ten of sixteen cases is a share of 0.62 and
+#: a bound of 0.39; the floor takes 0.35 of it.
+DEFAULT_FIRST_PLACE_FLOOR = 0.35
 
 #: How deep the measurement looks — the drift tier's own per-file limit.
 #: Measuring at a depth the tier never uses measures something else.
@@ -116,8 +150,17 @@ def build_parser() -> argparse.ArgumentParser:
         parser.add_argument(
             f"--min-{metric}",
             type=_floor,
-            default=_floor(_env(f"EVALUATION_MIN_{metric.upper()}", "0.0")),
-            help=f"Minimum acceptable {metric}. Below it, the command exits 1.",
+            # `None`, resolved after parsing: the floor depends on which
+            # corpus is being graded and that is not known until the mode flags
+            # are read. It used to default to 0.0, which made `--documentation`
+            # with no flags a command that could not fail (self-review 28).
+            # Not a string default — argparse would run `type` over it.
+            default=None,
+            help=(
+                f"Minimum acceptable {metric}, on the interval's lower bound. "
+                "Below it, the command exits 1. Defaults to the floor the "
+                "graded corpus holds."
+            ),
         )
     parser.add_argument(
         "--narration",
@@ -203,8 +246,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_metric_floors(args) -> None:
+    """Fills in the floor for whichever corpus is about to be graded.
+
+    An explicit flag wins, then the environment, then the corpus's own floor.
+    The last step is the one that matters: a run with no arguments grades
+    against what the corpus holds rather than against nothing.
+    """
+    corpus = DEFAULT_DOCUMENTATION_FLOOR if args.documentation else DEFAULT_ANALYZER_FLOOR
+    for metric in ("precision", "recall", "f1"):
+        if getattr(args, f"min_{metric}") is not None:
+            continue
+        given = _env(f"EVALUATION_MIN_{metric.upper()}", "")
+        setattr(args, f"min_{metric}", _floor(given) if given else corpus)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else sys.argv[1:])
+    _resolve_metric_floors(args)
     if args.narration:
         return _grade_narration(args)
     if args.documentation:
@@ -335,7 +394,7 @@ def _grade_retrieval(args) -> int:
 
     if report.errors or not report.results:
         return EXIT_CANNOT_MEASURE
-    if report.first_rank_share < DEFAULT_FIRST_PLACE_FLOOR:
+    if report.first_rank_interval.lower < DEFAULT_FIRST_PLACE_FLOOR:
         return EXIT_BELOW_THRESHOLD
     return EXIT_OK if report.interval.lower >= args.min_retrieval else EXIT_BELOW_THRESHOLD
 

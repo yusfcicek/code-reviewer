@@ -10,30 +10,16 @@ import pytest
 
 from code_reviewer.application.evaluation_service import EvaluationService
 from code_reviewer.domain.evaluation import EVERYTHING, EvaluationThreshold
+from code_reviewer.evaluate import DEFAULT_ANALYZER_FLOOR
 from code_reviewer.infrastructure.analyzers.suite import StaticAnalysisSuite
 from code_reviewer.infrastructure.evaluation.dataset import FileSystemDataset
 
-#: The floors committed to CI. **These are applied to the lower bound of a 95 %
-#: interval, not to the point estimate** (Level 25, decision D-2), and that
-#: change is why the numbers here went down while the measurement did not.
-#:
-#: 0.80 since Level 28, which is the first time a floor in this repository has
-#: gone **up** by somebody writing cases rather than by somebody choosing a
-#: number. Ten graded findings supported 0.72; twenty support 0.84, and the
-#: floor takes 0.80 of it.
-#:
-#: The six cases that got it there each cover a rule that had none — including
-#: three that Level 26 had written a recipe or a written refusal for without
-#: anything measuring the rule underneath. Two of them found real false
-#: positives on their first run, and both were fixed rather than annotated
-#: away (Level 28, decision D-3).
-#:
-#: 0.90 needs thirty-five graded findings and 0.95 needs seventy-three. Those
-#: are a later level's work, and the numbers are here so nobody has to
-#: re-derive them.
-MIN_PRECISION = 0.80
-MIN_RECALL = 0.80
-MIN_F1 = 0.80
+#: The floors committed to CI. One copy, in `evaluate.py`, because a floor kept
+#: in a test module is a floor CI does not run: the workflow passed its own
+#: numbers on the command line, Level 25 changed what a floor means, and the
+#: gate then failed for four levels while four reports said it passed
+#: (self-review 28, S-01). The derivation lives beside the constant.
+MIN_PRECISION = MIN_RECALL = MIN_F1 = DEFAULT_ANALYZER_FLOOR
 
 #: Namespaces the dataset must exercise. A harness that grades only the SAST
 #: rules would report a healthy F1 while three analyzers went unmeasured.
