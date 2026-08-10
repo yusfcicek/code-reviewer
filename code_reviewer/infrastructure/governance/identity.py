@@ -23,7 +23,7 @@ from code_reviewer.domain.provenance import RunIdentity, fingerprint
 #: Kept in step with `tests/unit/test_evaluation_baseline.py` by a test there:
 #: two numbers in two files drift, and this pair is exactly the pair somebody
 #: would forget.
-EVALUATION_BASELINE = "precision >= 0.95, recall >= 0.95, f1 >= 0.95 over 11 cases"
+EVALUATION_BASELINE = "precision >= 0.70, recall >= 0.70, f1 >= 0.70 (lower bound) over 11 cases"
 
 
 def package_version() -> str:

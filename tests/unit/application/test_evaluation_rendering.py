@@ -94,7 +94,8 @@ def test_a_run_with_nothing_ungraded_says_so_rather_than_omitting_the_section():
 def test_shortfalls_appear_when_a_threshold_is_supplied():
     text = render_evaluation_report(_report(), EvaluationThreshold(min_f1=0.9))
 
-    assert "f1 0.50 is below the floor of 0.90" in text
+    assert "below the floor of 0.90" in text
+    assert "f1 0.50" in text
 
 
 def test_a_case_error_is_reported_above_the_scores():

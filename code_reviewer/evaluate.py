@@ -39,10 +39,15 @@ from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationC
 #: The dataset shipped with this repository.
 DEFAULT_DATASET = "evaluation"
 
-#: The floor the shipped narration corpus holds. Every case either passes every
-#: check or declares the one it is built to break, so the measured value is
-#: 1.00 and the floor is the measurement rather than a hope (Level 21).
-DEFAULT_NARRATION_FLOOR = 1.0
+#: The floor the shipped narration corpus holds, applied to the **lower bound**
+#: of a 95 % interval since Level 25 rather than to the point estimate.
+#:
+#: Every case still either passes every check or declares the one it is built
+#: to break, so the point estimate is 1.00. Seventy-five checks over fifteen
+#: cases put the lower bound at 0.95, and that is the floor: a value of 1.00
+#: here would be unreachable by any finite corpus, which is a floor that can
+#: only be met by nobody measuring.
+DEFAULT_NARRATION_FLOOR = 0.95
 
 EXIT_OK = 0
 EXIT_BELOW_THRESHOLD = 1
@@ -105,6 +110,35 @@ def build_parser() -> argparse.ArgumentParser:
         type=_floor,
         default=_floor(_env("EVALUATION_MIN_NARRATION", str(DEFAULT_NARRATION_FLOOR))),
         help="Minimum acceptable narration score. Below it, the command exits 1.",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "With --narration: grade what the configured model produces now "
+            "instead of the recorded reviews. Needs an endpoint; without one "
+            "the command exits 2, because a measurement that could not be "
+            "taken is not a bad score."
+        ),
+    )
+    parser.add_argument(
+        "--write-baseline",
+        default="",
+        metavar="PATH",
+        help=(
+            "With --narration: store this run as a baseline, keyed by the model "
+            "and prompt fingerprint that produced it."
+        ),
+    )
+    parser.add_argument(
+        "--compare-baseline",
+        default="",
+        metavar="PATH",
+        help=(
+            "With --narration: report what moved since a stored baseline, per "
+            "check. Two runs over different cases are refused rather than "
+            "differenced."
+        ),
     )
     parser.add_argument(
         "--documentation",
@@ -179,10 +213,25 @@ def _grade_narration(args) -> int:
 
     try:
         cases = NarrationCorpus(args.dataset).cases()
-        report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
     except ConfigurationError as error:
         print(f"Narration evaluation could not run: {error}", file=sys.stderr)  # stdout: the output
         return EXIT_CANNOT_MEASURE
+
+    if args.live:
+        outcome = _live_narration(cases, args)
+        if outcome is None:
+            return EXIT_CANNOT_MEASURE
+        report = outcome.report
+        if outcome.unreachable:
+            print(  # stdout: the program's output, not a diagnostic
+                f"{len(outcome.unreachable)} case(s) could not be reviewed and are not in the score: "
+                f"{', '.join(outcome.unreachable)}",
+                file=sys.stderr,
+            )
+    else:
+        report = NarrationEvaluator().evaluate(cases, current_fingerprint=prompt_fingerprint())
+
+    _baselines(report, args)
 
     try:
         _emit(render_narration_report(report, args.min_narration), args.markdown)
@@ -194,7 +243,10 @@ def _grade_narration(args) -> int:
         )
         return EXIT_CANNOT_MEASURE
 
-    return EXIT_OK if report.score >= args.min_narration else EXIT_BELOW_THRESHOLD
+    # The lower bound, not the point estimate (Level 25, decision D-2). The
+    # exit code and the rendered verdict were reading two different numbers,
+    # which is how a report can say BELOW THE FLOOR and exit zero.
+    return EXIT_OK if report.score_interval.lower >= args.min_narration else EXIT_BELOW_THRESHOLD
 
 
 def _grade_documentation(args) -> int:
@@ -229,6 +281,73 @@ def _grade_documentation(args) -> int:
     if report.has_errors:
         return EXIT_CANNOT_MEASURE
     return EXIT_OK if threshold.is_met(report) else EXIT_BELOW_THRESHOLD
+
+
+def _baselines(report, args) -> None:
+    """Stores this run, compares it with a stored one, or neither.
+
+    Never changes the exit code. A delta is something to read, not a gate: what
+    counts as an acceptable movement is a judgement, and encoding one here
+    would be inventing a policy nobody stated.
+    """
+    from code_reviewer.application.baselines import (
+        baseline_from,
+        compare,
+        read_baseline,
+        render_comparison,
+        write_baseline,
+    )
+    from code_reviewer.infrastructure.governance.identity import prompt_fingerprint
+
+    if not (args.write_baseline or args.compare_baseline):
+        return
+
+    model = os.environ.get("VLLM_MODEL_NAME", "")
+    fingerprint = prompt_fingerprint()
+
+    if args.compare_baseline:
+        stored = read_baseline(args.compare_baseline)
+        if stored is None:
+            print(  # stdout: the program's output, not a diagnostic
+                f"Nothing to compare against at '{args.compare_baseline}'.", file=sys.stderr
+            )
+        else:
+            print(render_comparison(compare(stored, report, model, fingerprint)))  # stdout: the output
+
+    if args.write_baseline:
+        from datetime import UTC, datetime
+
+        write_baseline(
+            args.write_baseline,
+            baseline_from(report, model, fingerprint, datetime.now(UTC).isoformat()),
+        )
+
+
+def _live_narration(cases, args):
+    """A live run, or ``None`` when there is no model to run it against.
+
+    Imported here rather than at module scope so that the recorded path — the
+    one CI takes — never so much as loads the code that can call a model.
+    """
+    from code_reviewer.application.live_narration import grade_live
+    from code_reviewer.infrastructure.governance.identity import prompt_fingerprint
+
+    try:
+        from code_reviewer.__main__ import _build_reviewer
+        from code_reviewer.cli import build_parser as review_parser
+
+        reviewer = _build_reviewer(review_parser().parse_args([]))
+    except Exception as error:  # pragma: no cover - depends on the deployment
+        print(  # stdout: the program's output, not a diagnostic
+            f"Live narration could not run: no reviewer could be built ({type(error).__name__}).",
+            file=sys.stderr,
+        )
+        return None
+
+    def _source(case):
+        return (Path(args.dataset) / case.file_path).read_text(encoding="utf-8")
+
+    return grade_live(cases, reviewer, _source, fingerprint=prompt_fingerprint())
 
 
 def _emit(text: str, destination: str) -> None:

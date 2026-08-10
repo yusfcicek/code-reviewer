@@ -16,14 +16,16 @@ from code_reviewer.application.documentation_evaluation import evaluate_document
 from code_reviewer.domain.evaluation import EvaluationThreshold
 from code_reviewer.infrastructure.evaluation.documentation_dataset import DocumentationCorpus
 
-#: The floors committed to CI. Level 23 opens at 1.00 across the board over
-#: thirteen cases and floors at 0.95, matching the analyzers' margin.
+#: The floors committed to CI, applied to the **lower bound** of a 95 %
+#: interval since Level 25 rather than to the point estimate.
 #:
-#: Raising a floor is what a level earns. Lowering one to make a build green is
-#: the thing the harness exists to prevent.
-MIN_PRECISION = 0.95
-MIN_RECALL = 0.95
-MIN_F1 = 0.95
+#: The rules still score 1.00. They do so over **six graded findings** — seven
+#: of the thirteen cases expect nothing, which is deliberate and is where this
+#: tier's failure mode lives — and six of six is consistent with a real rate of
+#: 0.61. The floor says what that supports and not a decimal more.
+MIN_PRECISION = 0.60
+MIN_RECALL = 0.60
+MIN_F1 = 0.60
 
 #: Rules the corpus must exercise. A harness grading only dead references would
 #: report a healthy F1 while four rules went unmeasured.

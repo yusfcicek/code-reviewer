@@ -15,7 +15,8 @@ clothes (decision D-2).
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from code_reviewer.domain.narration import CHECKS, CheckResult, NarrationCase
+from code_reviewer.domain.confidence import Interval, wilson
+from code_reviewer.domain.narration import CHECK_NAMES, CHECKS, CheckResult, NarrationCase
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,50 @@ class NarrationFailure:
     detail: str
 
 
+#: How many cases must **demonstrate** a check firing before its firing
+#: behaviour counts as pinned.
+#:
+#: More than one, and the reason is a finding rather than a preference: the
+#: self-review of levels 21–22 measured a check at three of eight phrasings a
+#: model actually writes, and the corpus that was built to demonstrate that
+#: check used one of the three that worked. One example pins one author's idea
+#: of the check.
+MINIMUM_DEMONSTRATIONS = 3
+
+
+@dataclass(frozen=True)
+class CheckCoverage:
+    """How much of the corpus exercises one check, in each direction.
+
+    Two numbers rather than one, because a check has two behaviours and a
+    corpus is usually thin in exactly one of them. Every check in this
+    repository's corpus was passed by thirteen or fourteen cases and
+    demonstrated firing by one.
+    """
+
+    check: str
+    #: Cases where the check passed and the case did not expect it to fail.
+    passing: int = 0
+    #: Cases built to break it, which it broke on. A case that fails a check it
+    #: did not declare is a corpus defect rather than evidence the check works,
+    #: and is not counted here.
+    firing: int = 0
+
+    @property
+    def is_uncovered(self) -> bool:
+        """Whether a whole direction is missing.
+
+        A check nothing demonstrates has never been shown to fire; a check
+        nothing passes has never been shown to stay quiet, and a checker that
+        fires on everything is the failure mode of a checker.
+        """
+        return self.passing == 0 or self.firing == 0
+
+    @property
+    def is_thin(self) -> bool:
+        return self.firing < MINIMUM_DEMONSTRATIONS
+
+
 @dataclass(frozen=True)
 class NarrationReport:
     """What a corpus scored, and everything that qualifies the number."""
@@ -107,6 +152,42 @@ class NarrationReport:
             for graded in self.graded
             for result in graded.failures
         )
+
+    @property
+    def coverage(self) -> tuple[CheckCoverage, ...]:
+        """How many cases exercise each check, in each direction.
+
+        Reported because the aggregate cannot say it. Five checks averaged move
+        by a fifth when one of them breaks completely, and the corpus that
+        hides a broken check is the corpus that only ever demonstrated it once.
+        """
+        passing: dict[str, int] = dict.fromkeys(CHECK_NAMES, 0)
+        firing: dict[str, int] = dict.fromkeys(CHECK_NAMES, 0)
+
+        for graded in self.graded:
+            for result in graded.results:
+                if result.check not in passing:
+                    continue
+                declared = result.check in graded.expected_failures
+                if declared and not result.passed:
+                    firing[result.check] += 1
+                elif not declared and result.passed:
+                    passing[result.check] += 1
+
+        return tuple(
+            CheckCoverage(check=name, passing=passing[name], firing=firing[name]) for name in CHECK_NAMES
+        )
+
+    @property
+    def score_interval(self) -> Interval:
+        """The score, and the rates still consistent with it.
+
+        A share of checks over a corpus this size is not a number to quote
+        bare: 1.00 over fifteen cases is consistent with a real rate of 0.80,
+        and this repository printed it as though it were not (Level 25).
+        """
+        agreed = sum(1 for graded in self.graded for result in graded.results if graded.agrees(result))
+        return wilson(agreed, self.check_count)
 
     def rate_for(self, check: str) -> float:
         """The share of cases that passed one named check.

@@ -7,6 +7,53 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.19.0] — 2026-08-10
+
+Level 25 — a measurement that says how much it knows. Recorded in
+[`docs/roadmap/level-25/spec.md`](docs/roadmap/level-25/spec.md) and
+[ADR 0027](docs/adr/0027-a-score-that-states-its-own-uncertainty.md).
+
+This repository has printed `1.00 over eleven cases` since Level 12 and treated
+the two halves as one fact. Both are true; together they mislead, and the
+arithmetic says by how much — ten of ten is consistent with a real rate of 0.72.
+
+### Added
+
+- **A Wilson interval on every score**, with the method and confidence printed
+  beside it. The normal approximation gives `[1.00, 1.00]` at fifteen of
+  fifteen, which is how this happened in the first place.
+- **Coverage per check, in both directions** — how many cases pass it, how many
+  demonstrate it firing. A check under three demonstrations is named rather than
+  averaged away.
+- **Nine narration cases**, chosen from the coverage table: a citation past the
+  end of a real file and one to a sibling, a verdict in the passive voice, an
+  invented critical and an escalated severity, two criticals with one mentioned
+  and a severe finding implied but never named, a review cut to one section and
+  one whose sections are all renamed.
+- **`evaluate --narration --live`** grades what the configured reviewer produces
+  now. Opt-in; the default suite never calls a model, asserted by a test.
+- **`--write-baseline` and `--compare-baseline`.** A baseline carries the model
+  and prompt fingerprint that produced it; a comparison reports per-check
+  movement and refuses two different case sets.
+
+### Changed
+
+- **The floor is applied to the interval's lower bound.** The gate is strictly
+  harder, and the committed floors are 0.70 (analyzers), 0.60 (documentation)
+  and 0.95 (narration) — the most those samples support. A later level that adds
+  cases earns the higher numbers.
+- A dataset that measures nothing no longer clears every floor by dividing
+  nothing by nothing.
+- The narration corpus README, the analyzer baseline and the run identity all
+  quote the interval rather than the bare score.
+
+### Fixed
+
+- The narration exit code compared the point estimate while the rendered verdict
+  compared the bound, so a report could say BELOW THE FLOOR and exit zero.
+
+---
+
 ## [2.18.1] — 2026-08-10
 
 The self-review of Level 24, and its four findings closed. Recorded in

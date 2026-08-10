@@ -1,0 +1,33 @@
+#
+# MEANT TO FAIL: severity_claims_are_backed.
+#
+# The prose calls a clean file critical. The existing case invents a severity
+# beside a real finding; this one invents the whole thing, which is the shape a
+# model produces when it has decided a file looks dangerous.
+name: invented-critical
+file: fixtures/parameterised_query.py
+expect_failures:
+  - severity_claims_are_backed
+findings: []
+review: |
+  ## 🔒 Security Analysis
+  - **SAST Scan Result**: PASS
+  - **Vulnerabilities Found**: None
+
+  ## 🔍 Semantic Change Analysis
+  - **Change Type**: REFACTOR
+  - **Completeness**: Complete
+  - **Breaking Changes**: No
+
+  ## 🔗 Impact Analysis
+  - **Dependencies Checked**: `fixtures/parameterised_query.py`
+  - **Affected Code (Not in Diff)**: None
+  - **Risk Assessment**: CRITICAL - this query construction is unsafe
+
+  ## 📊 Code Quality
+  - **SOLID Compliance**: 85/100
+  - **Issues Found**: None
+
+  ## ⚡ Performance Analysis
+  - **Complexity Issues**: None
+  - **Resource Leaks**: None

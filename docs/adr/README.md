@@ -34,6 +34,7 @@ nobody has taken turns this directory into a wish list.
 | [0024](0024-propose-never-apply.md) | Propose, never apply | Accepted |
 | [0025](0025-two-tiers-and-the-weaker-one-is-a-separate-namespace.md) | Two tiers, and the weaker one is a separate namespace | Accepted |
 | [0026](0026-detection-rather-than-prevention.md) | Detection rather than prevention, and saying so | Accepted |
+| [0027](0027-a-score-that-states-its-own-uncertainty.md) | A score that states its own uncertainty | Accepted |
 
 ## Adding one
 
