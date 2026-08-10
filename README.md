@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.18.0.** Rebuilt from an imported prototype across twenty-four
+> **Status: 2.18.1.** Rebuilt from an imported prototype across twenty-four
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2221 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2243 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -390,13 +390,19 @@ each retrieval, each memory access.
   `--no-documentation` turns the check off.
 
 ### 🔐 20. A record somebody else can check
-- **Each record names the digest of the one before it.** A deleted or reordered
-  line is detectable without trusting the file's length, and the check costs no
-  key at all.
+- **Each record names the digest of the one before it**, and its own position.
+  A line edited, removed from the middle, or reordered is detectable, and the
+  check costs no key at all. **Truncation is not**: a prefix of a valid chain is
+  a valid chain, so `--expect-at-least N` compares against a count you kept
+  outside the file (self-review S-01).
 - **Signed with a key this repository never produces.** No generated key, no
   bundled key, no fallback to something weaker — a key this project could make
   is one an attacker with this project can make. `REVIEW_AUDIT_KEY` or nothing
   is signed, and neither a missing nor an unusable key stops a review.
+- **Unsigned means corruption-evident, not tamper-evident**, and the verifier
+  says so on every unsigned answer: the digest takes no key, so anybody who can
+  edit the file can recompute the chain. Signing is what separates a careless
+  edit from somebody who has this tool.
 - **What it buys, said plainly:** an operator holding the key *and* the store
   can forge anything. What this buys is that the cheap tampers — edit a line,
   delete a line, swap two — stop being invisible

@@ -358,10 +358,12 @@ def _build_recorder(args, policy) -> DecisionRecorder | None:
         "Recording the decision",
         extra={"fields": {"path": path, "signed": signer.is_signing, "key_id": signer.key_id}},
     )
-    # Sealed rather than plain since Level 24: each line names the digest of
-    # the one before it, so a deleted or reordered record is detectable without
-    # trusting the file's length. Unsigned when no key was supplied — the links
-    # are the cheaper guarantee and they cost no key at all.
+    # Sealed rather than plain since Level 24: each line names the digest of the
+    # one before it and its own position, so an edited, removed or reordered
+    # record is detectable. Unsigned when no key was supplied, and that is worth
+    # less than it sounds — the digest takes no key, so an unsigned chain catches
+    # corruption and careless edits, not somebody who can run this tool
+    # (self-review 24, S-02).
     return DecisionRecorder(SealedAuditSink(path, signer=signer), build_run_identity(policy))
 
 

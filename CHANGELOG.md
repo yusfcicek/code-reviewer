@@ -7,6 +7,42 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.18.1] — 2026-08-10
+
+The self-review of Level 24, and its four findings closed. Recorded in
+[`docs/roadmap/self-review-24.md`](docs/roadmap/self-review-24.md).
+
+The level's argument was "we say exactly what this buys and no more". Twice
+that sentence was untrue, and the review found it by running the attacks rather
+than by reading the claims.
+
+### Fixed
+
+- **A signed store could be truncated at the tail and still verified.** Five
+  records, the last three deleted: every remaining link correct, every remaining
+  signature valid, because nothing said how long the store should be — and the
+  record somebody wants gone is usually the most recent. Each record now carries
+  its position, verification reports where the store ends, and
+  `verify --expect-at-least N` compares against a count kept outside the file.
+  Truncation still cannot be *detected* from the file alone, and the README, the
+  ADR and the spec now say so instead of claiming otherwise.
+- **An unsigned chain detected nothing an attacker with the tool does.** The
+  digest takes no key, so editing a line and recomputing every seal produced a
+  store that verified. The verifier now states this on every unsigned answer;
+  the code used to call it "the cheaper guarantee" without saying cheaper than
+  what.
+- **An undated record was destroyed by every age-based erasure.** `"" >= before`
+  is false, so a record with no `recorded_at` fell through every guard and
+  matched. What cannot be dated cannot be aged out; it can still be erased by
+  name.
+- **Timestamps were compared as strings.** `2026-06-01T05:00:00+03:00` is 02:00Z
+  and sorted after a 03:00Z cutoff, so it survived an erasure it was two hours
+  older than — any runner outside UTC was exposed, and an erasure request that
+  leaves data in place is the failure with a legal consequence attached. Compared
+  as instants now, and a cutoff that cannot be read refuses the whole operation.
+
+---
+
 ## [2.18.0] — 2026-08-10
 
 Level 24 — a record somebody else can check. Recorded in
@@ -26,8 +62,8 @@ tampers an ordinary mistake and an ordinary insider produce.
 
 ### Added
 
-- **A sealed store.** Each record names the digest of the one before it, so a
-  deleted or reordered line is detectable without trusting the file's length.
+- **A sealed store.** Each record names the digest of the one before it and
+  its own position, so an edited, removed or reordered line is detectable.
   `--audit-path` writes one now.
 - **Signing with a key this repository never produces.** No generated key, no
   bundled key, no fallback to something weaker: `REVIEW_AUDIT_KEY` or nothing is

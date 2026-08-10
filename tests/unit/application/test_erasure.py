@@ -269,3 +269,70 @@ class TestNothingErasesByItself:
             }
 
             assert not any("erasure" in name for name in imported), module
+
+
+class TestDatingARecord:
+    """Self-review S-03 and S-04 — the two ways an age policy got it wrong.
+
+    S-03: a record with no `recorded_at` was removed by every age-based
+    erasure, because `"" >= before` is false and it fell through every guard.
+    The one record whose age is unknown is the one that must not go.
+
+    S-04: timestamps were compared as strings, so `2026-06-01T05:00:00+03:00`
+    (02:00Z) sorted after a 03:00Z cutoff and survived an erasure it was older
+    than. Any runner outside UTC was exposed, and an erasure request that
+    leaves the data in place is the failure with a legal consequence attached.
+    """
+
+    def _one(self, tmp_path, when):
+        path = tmp_path / "audit.ndjson"
+        SealedAuditSink(path).write(_record("1", when=when))
+        return FileAuditStore(path)
+
+    def test_an_undated_record_survives_an_age_erasure(self, tmp_path):
+        store = self._one(tmp_path, "")
+
+        outcome = erase(store, before="2026-01-01T00:00:00+00:00", policy="12 months", now=NOW)
+
+        assert outcome.removed == 0
+
+    def test_an_unparseable_date_survives_an_age_erasure(self, tmp_path):
+        """Same rule: what cannot be dated cannot be aged out."""
+        store = self._one(tmp_path, "last Tuesday")
+
+        assert erase(store, before="2026-01-01T00:00:00+00:00", policy="12 months", now=NOW).removed == 0
+
+    def test_an_offset_timestamp_is_compared_as_an_instant(self, tmp_path):
+        """05:00+03:00 is 02:00Z, which is older than a 03:00Z cutoff."""
+        store = self._one(tmp_path, "2026-06-01T05:00:00+03:00")
+
+        outcome = erase(store, before="2026-06-01T03:00:00+00:00", policy="request", now=NOW)
+
+        assert outcome.removed == 1
+
+    def test_an_offset_timestamp_newer_than_the_cutoff_survives(self, tmp_path):
+        store = self._one(tmp_path, "2026-06-01T05:00:00+00:00")
+
+        assert erase(store, before="2026-06-01T03:00:00+00:00", policy="request", now=NOW).removed == 0
+
+    def test_a_cutoff_that_cannot_be_read_erases_nothing(self, tmp_path):
+        """A malformed cutoff must not delete the store."""
+        store = self._one(tmp_path, "2020-01-01T00:00:00+00:00")
+
+        outcome = erase(store, before="whenever", policy="request", now=NOW)
+
+        assert outcome.removed == 0
+        assert outcome.refused
+
+    def test_a_naive_timestamp_is_read_as_utc(self, tmp_path):
+        """The stores this project writes are UTC; a naive stamp is not a
+        reason to refuse, but assuming a local zone would be."""
+        store = self._one(tmp_path, "2020-01-01T00:00:00")
+
+        assert erase(store, before="2026-01-01T00:00:00+00:00", policy="request", now=NOW).removed == 1
+
+    def test_an_undated_record_can_still_be_erased_by_subject(self, tmp_path):
+        """The date is what is unknown, not the identity."""
+        store = self._one(tmp_path, "")
+
+        assert erase(store, merge_request="1", policy="request", now=NOW).removed == 1
