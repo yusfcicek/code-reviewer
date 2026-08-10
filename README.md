@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.20.1.** Rebuilt from an imported prototype across twenty-six
+> **Status: 2.21.0.** Rebuilt from an imported prototype across twenty-seven
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2418 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2489 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -472,6 +472,34 @@ each retrieval, each memory access.
 - This level measures and does not tune. Performing a prompt change needs an
   endpoint this repository does not have, and reporting a tuning that did not
   happen is the defect Level 23 exists to catch.
+
+### 🔎 22. Measuring the half that was never measured
+- **The retrieved drift tier has a corpus now.** Whether the document section a
+  reader says relates to a change actually comes back is deterministic — run the
+  retriever, look for the section, record the rank — and it is the half that
+  failed: Level 23's tier returned *nothing at all* for a level with nothing to
+  notice.
+- Recall `1.00 [0.57, 1.00]` over five cases at the tier's own limit of three,
+  floored at 0.55, with the related section first 60 % of the time. **What is not
+  measured is printed**: whether the model was right about a candidate it saw
+  needs a human on every case
+  ([ADR 0029](docs/adr/0029-measure-the-half-that-is-measurable.md)).
+- Each case carries **its own documents** so a reader sees the whole haystack, and
+  **the argument for why the two relate** so somebody can disagree. No case's diff
+  contains its section's heading — a case a token match could solve would measure
+  the wrong thing.
+- **A score on the retrieval port**, so a relevance floor is expressible. A
+  retriever with no notion of a score marks its results unscored and the floor
+  reports itself as *not applied* — the silence that cost a whole tier.
+- **Go, JavaScript, TypeScript and Java** in the symbol index. Declarations, not
+  programs; the covered set is a stated constant, and Python keeps the AST path
+  that lets a signature mismatch be claimed only about Python.
+- **One documentation edit is offered: a rename.** The diff knows both names, so
+  it is a substitution rather than a sentence anybody has to review. Prose is
+  still never suggested.
+- **`DOCS` still blocks nothing, and there is a number for why**: six graded
+  findings support a lower bound of 0.61, and a blocking gate needs about a
+  hundred. A test records the arithmetic instead of a preference.
 
 ---
 

@@ -36,6 +36,7 @@ nobody has taken turns this directory into a wish list.
 | [0026](0026-detection-rather-than-prevention.md) | Detection rather than prevention, and saying so | Accepted |
 | [0027](0027-a-score-that-states-its-own-uncertainty.md) | A score that states its own uncertainty | Accepted |
 | [0028](0028-a-suggestion-is-a-set-of-edits.md) | A suggestion is a set of edits | Accepted |
+| [0029](0029-measure-the-half-that-is-measurable.md) | Measure the half that is measurable | Accepted |
 
 ## Adding one
 
