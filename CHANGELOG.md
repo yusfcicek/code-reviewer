@@ -7,6 +7,49 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.20.0] — 2026-08-10
+
+Level 26 — more of the fixes that are arithmetic. Recorded in
+[`docs/roadmap/level-26/spec.md`](docs/roadmap/level-26/spec.md) and
+[ADR 0028](docs/adr/0028-a-suggestion-is-a-set-of-edits.md).
+
+Level 22 shipped three recipes against thirty-nine emittable rules, so 8 % of
+findings got a button and the rest got a paragraph telling somebody what to
+type. Its one-contiguous-range rule cost the other half by accident: a fix
+needing an import at the top and a call in the middle was not expressible.
+
+### Added
+
+- **A suggestion is a set of edits.** Non-overlapping, applied bottom-up, and
+  bounded as a whole — five edits of twelve lines is not a twelve-line
+  suggestion. `Suggestion.single` keeps the Level 22 shape, and the tests that
+  pinned it were not rewritten.
+- **Four recipes**, taking coverage from three rules to seven.
+  `SAST.INSECURE_RANDOM` rewrites the call *and* adds `import secrets`, which is
+  the two-part edit the format change exists for. `SAST.INSECURE_HTTP`,
+  `QUALITY.ERROR_HANDLING` and `SAST.INSECURE_FILE_OPERATION` each decline more
+  than they accept.
+- **An import that lands where imports go** — after the last import, or after
+  the module docstring, never before it, and never when the module is already
+  imported in any spelling.
+- **Recipe coverage, measured.** 7 of 39, and the thirty-two without one each
+  carry a recorded reason. A rule with neither is a red test.
+
+### Changed
+
+- **One note per edit.** A `suggestion` block replaces lines around the note's
+  own line and must include it, so two disjoint edits cannot share a note — a
+  correction to this level's own plan, found by reading the platform's rules.
+  Each note says which part of the whole it is.
+
+### Notes
+
+`SAST.DEBUG_CODE` is the most obviously mechanical rule left and is declined on
+the record: its fix is a deletion, and Level 22 refused an empty replacement for
+a reason this level honours rather than reverses in passing.
+
+---
+
 ## [2.19.1] — 2026-08-10
 
 The self-review of Level 25, and its four findings closed. Recorded in

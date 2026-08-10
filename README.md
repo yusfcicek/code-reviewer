@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.19.1.** Rebuilt from an imported prototype across twenty-five
+> **Status: 2.20.0.** Rebuilt from an imported prototype across twenty-six
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2346 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2409 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -299,9 +299,17 @@ each retrieval, each memory access.
   recorded rather than annotated away, and Level 13 closed it.
 
 ### 🛠️ 16. A fix you can apply
-- Three deterministic recipes — `hashlib.md5` → `sha256`, `yaml.load` →
-  `yaml.safe_load`, a hardcoded literal → `os.environ[...]` — each reading the
-  line its finding named and **declining when the pattern is not there**.
+- **Seven deterministic recipes of thirty-nine emittable rules — 18 %, and the
+  number is printed** rather than counted by hand. The thirty-two without one
+  each carry a recorded reason, and a rule with neither is a red test.
+- Each reads the line its finding named and **declines when the pattern is not
+  there**: a URL built from a variable, a bare `except` that re-raises, an
+  `open` call with a shape the recipe cannot read.
+- **A suggestion is a set of edits**, non-overlapping and applied bottom-up, so
+  a fix needing `import secrets` at the top and a call rewritten in the middle
+  is expressible ([ADR 0028](docs/adr/0028-a-suggestion-is-a-set-of-edits.md)).
+  Each edit is its own note saying which part of the whole it is — a suggestion
+  block must include the note's own line, so disjoint edits cannot share one.
 - **Validated by applying it.** The edit is applied in memory and the result
   re-parsed; one that would leave the file unparseable is discarded rather than
   published.
