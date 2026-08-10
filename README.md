@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.17.1.** Rebuilt from an imported prototype across twenty-three
+> **Status: 2.18.0.** Rebuilt from an imported prototype across twenty-four
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2074 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2221 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -388,6 +388,34 @@ each retrieval, each memory access.
 - Thirteen graded cases at precision/recall/F1 1.00, seven of which expect
   nothing. `ai-code-review-eval --documentation` runs them;
   `--no-documentation` turns the check off.
+
+### 🔐 20. A record somebody else can check
+- **Each record names the digest of the one before it.** A deleted or reordered
+  line is detectable without trusting the file's length, and the check costs no
+  key at all.
+- **Signed with a key this repository never produces.** No generated key, no
+  bundled key, no fallback to something weaker — a key this project could make
+  is one an attacker with this project can make. `REVIEW_AUDIT_KEY` or nothing
+  is signed, and neither a missing nor an unusable key stops a review.
+- **What it buys, said plainly:** an operator holding the key *and* the store
+  can forge anything. What this buys is that the cheap tampers — edit a line,
+  delete a line, swap two — stop being invisible
+  ([ADR 0026](docs/adr/0026-detection-rather-than-prevention.md)).
+- **`ai-code-review-audit verify` answers with a position**, and says whether
+  the *digest* disagreed (that line was edited) or the *link* did (one was
+  removed, inserted or moved). Three exit codes; `unverifiable` is not
+  `tampered`, because unsigned is the state every deployment starts in.
+- **Control coverage as data.** NIST SP 800-53 Rev. 5 ships as a replaceable
+  YAML file naming its publisher and revision. The report says what a run is
+  **evidence of** — a test asserts it never says "compliant" or "certified" —
+  and lists the controls with *no* evidence, which is the answer an auditor is
+  actually asking for.
+- **Erasure that does not look like an attack.** `audit erase` and
+  `audit redact` rewrite and re-sign the chain so the store still verifies, and
+  leave a tombstone naming when and under which policy. A store that did not
+  verify beforehand is refused: rewriting it would re-seal somebody else's
+  alteration.
+- Nothing here erases by itself, and nothing here can fail a review.
 
 ---
 
