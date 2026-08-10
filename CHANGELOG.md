@@ -7,6 +7,43 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.23.1] — 2026-08-11
+
+The self-review of Level 29, and the five findings it closed.
+
+### Fixed
+
+- **A heading the checks grade and the prompt never demands was invisible.**
+  The level validated the declined map against the output format and never
+  validated the checked list, so adding a section to `REQUIRED_SECTIONS` would
+  fail every review forever while the harness built to catch that disagreement
+  reported **Aligned**. Both directions are one list now (`ungrounded`).
+- **A stale decline exited 2 rather than 1.** The measurement was taken and the
+  answer was known — a note that outlived its section. Exit 2 is kept for the
+  code contradicting itself: a blank reason, or a heading both graded and
+  declined.
+- **`severe_findings_are_mentioned` accepted a field label as an instruction.**
+  `Vulnerabilities Found` is a shape in the output format and states none of the
+  rule, so the check reported itself backed by a prompt that asked for nothing. A
+  test now asserts the output format alone backs exactly one check.
+- **A phrase that wrapped across two lines reported as absent** — including the
+  sentence the level had just added to the prompt. Whitespace is flattened on
+  both sides; lines are joined, not turned into a bag of words.
+- **The specialists were declared out of scope for the wrong reason.** They are
+  covered because `system_prompt_for` embeds the generalist template, not
+  because "a specialist writes a section". A test pins the composition, so the
+  claim cannot narrow to one prompt of five in silence.
+- **`alignment` tripped this project's own complexity rule** at 16, found by the
+  dogfooding gate. Its two refusals are a helper.
+
+### Changed
+
+- The measurement's limit is stated where the claim lives: it detects a missing
+  or deleted instruction, not a paraphrase. A rewrite in other words reports
+  unbacked and the fix is to add the wording beside the check.
+
+---
+
 ## [2.23.0] — 2026-08-11
 
 Level 29 — does the prompt ask for what the checks enforce? Recorded in

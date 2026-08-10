@@ -114,3 +114,28 @@ def test_the_output_format_alone_backs_only_the_check_about_the_output_format():
     backed = [expectation.check for expectation in EXPECTATIONS if expectation.met_by(format_only)]
 
     assert backed == ["required_sections_are_present"]
+
+
+def test_the_specialists_inherit_the_instructions_they_are_graded_on():
+    """Self-review 29, S-05.
+
+    Level 29's spec put the specialists out of scope on the grounds that "a
+    specialist writes a section, not a review". That is not why they are safe.
+    They are safe because `system_prompt_for` composes the generalist template
+    and adds a subject brief on top, so every instruction measured here reaches
+    them verbatim.
+
+    A real reason nothing pinned. If that composition ever changed — a
+    specialism built from its own template — the alignment claim would silently
+    narrow to one of five prompts, and this measurement would go on printing
+    **Aligned**.
+    """
+    from code_reviewer.domain.orchestration import Specialism
+    from code_reviewer.infrastructure.llm.specialist_agent import system_prompt_for
+
+    for specialism in Specialism:
+        prompt = system_prompt_for(specialism)
+
+        assert ReviewAgent.SYSTEM_TEMPLATE in prompt, specialism
+        for expectation in EXPECTATIONS:
+            assert expectation.met_by(prompt), (specialism, expectation.check)

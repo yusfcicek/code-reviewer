@@ -22,7 +22,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .alignment import Expectation, Match
+from .alignment import Expectation
 from .finding import Finding
 from .severity import Severity
 
@@ -332,9 +332,17 @@ CHECK_NAMES = frozenset(check.__name__ for check in CHECKS)
 #: looked for in a prompt that has nothing to fix.
 #:
 #: Literal phrases, because a phrase somebody can search for is a phrase
-#: somebody can add. `Match.ANY` where a prompt may reasonably say one thing two
-#: ways; `Match.ALL` where a rule has two halves and half a rule backs half a
-#: check.
+#: somebody can add. Every one of these is `Match.ALL`, which is the strict
+#: reading: a rule with two halves needs both, and a prompt that says half of
+#: it backs half a check. `Match.ANY` exists for a rule a prompt may reasonably
+#: phrase two ways and nothing here needs it — the one place it was used
+#: accepted a field label as an alternative to an instruction (self-review 29,
+#: S-02).
+#:
+#: What this measures, exactly: whether the sentence is **there**. A rewrite
+#: that means the same thing in other words reports unbacked, and the fix is to
+#: add the wording here. That is the price of refusing an unmeasured judgement
+#: in the middle of a measurement, and it is stated rather than glossed.
 EXPECTATIONS = (
     Expectation(
         check="citations_are_grounded",
