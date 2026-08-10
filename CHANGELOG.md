@@ -136,7 +136,8 @@ needing an import at the top and a call in the middle was not expressible.
 - **An import that lands where imports go** — after the last import, or after
   the module docstring, never before it, and never when the module is already
   imported in any spelling.
-- **Recipe coverage, measured.** 6 of 39, and the thirty-three without one each
+- **Recipe coverage, measured.** 6 of 39 as counted at the time — 6 of 34 after
+  Level 28 corrected the denominator — and the ones without a recipe each
   carry a recorded reason. A rule with neither is a red test.
 
 ### Changed

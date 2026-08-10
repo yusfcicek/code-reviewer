@@ -299,7 +299,7 @@ each retrieval, each memory access.
   recorded rather than annotated away, and Level 13 closed it.
 
 ### 🛠️ 16. A fix you can apply
-- **Six deterministic recipes of thirty-nine emittable rules — 15 %, and the
+- **Six deterministic recipes of thirty-four emittable rules — 18 %, and the
   number is printed** rather than counted by hand. The thirty-two without one
   each carry a recorded reason, and a rule with neither is a red test.
 - Each reads the line its finding named and **declines when the pattern is not
