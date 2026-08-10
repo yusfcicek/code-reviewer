@@ -299,13 +299,33 @@ class TestAlignment:
         assert main(["--alignment"]) == 1
         assert "NOT ALIGNED" in capsys.readouterr().out
 
-    def test_a_declined_section_the_prompt_stopped_demanding_cannot_be_measured(self, monkeypatch, capsys):
-        """Exit 2, not 1. The corpus of two texts is inconsistent with itself,
-        which is a broken harness rather than a bad result — the split Level 10
-        introduced and every harness here has kept."""
+    def test_a_declined_section_the_prompt_stopped_demanding_is_a_gap(self, monkeypatch, capsys):
+        """Exit 1, not 2. Self-review 29, S-03: the measurement was taken and
+        the answer is known — a note that outlived its section — so "could not
+        measure" was the wrong thing for the command to say."""
         import code_reviewer.domain.narration as narration
 
         monkeypatch.setattr(narration, "UNCHECKED_SECTIONS", {"Vanished": "gone"})
+
+        assert main(["--alignment"]) == 1
+        assert "Vanished" in capsys.readouterr().out
+
+    def test_a_graded_section_the_prompt_never_demands_is_a_gap(self, monkeypatch, capsys):
+        """Self-review 29, S-01, at the command. Before it, this reported
+        **Aligned** while every review would have failed forever."""
+        import code_reviewer.domain.narration as narration
+
+        monkeypatch.setattr(narration, "REQUIRED_SECTIONS", (*narration.REQUIRED_SECTIONS, "Threat Model"))
+
+        assert main(["--alignment"]) == 1
+        assert "Threat Model" in capsys.readouterr().out
+
+    def test_a_constant_contradicting_another_cannot_be_measured(self, monkeypatch, capsys):
+        """Exit 2 is kept for the case it was always right for: the code
+        disagreeing with itself rather than with the prompt."""
+        import code_reviewer.domain.narration as narration
+
+        monkeypatch.setattr(narration, "UNCHECKED_SECTIONS", {"Code Quality": "a reason"})
 
         assert main(["--alignment"]) == 2
         assert "could not run" in capsys.readouterr().err

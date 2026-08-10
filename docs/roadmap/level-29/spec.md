@@ -62,8 +62,12 @@ without a model.
   arithmetic. Whether it is *present* is.
 - **A sixth narration check**, unless the ungoverned-headings answer is that one
   is owed — and then it is owed with a demonstration, like every other check.
-- **Grading the specialists' prompts against the generalist's checks.** A
-  specialist writes a section, not a review; the checks are about a review.
+- **Measuring the specialists' prompts separately.** Not because "a specialist
+  writes a section" — that was the reason this spec first gave and it is not the
+  one that holds. `system_prompt_for` composes the generalist template and adds
+  a subject brief, so every instruction measured here reaches every specialist
+  verbatim. A test pins the composition, because the claim would otherwise
+  narrow silently to one prompt of five (self-review 29, S-05).
 - **Re-recording the corpus.** Every case is already stale against the current
   fingerprint and says so. Adding instructions does not make that worse, and
   re-recording needs an endpoint.
@@ -78,10 +82,13 @@ fair. Declared as data, not prose, so a test can read it.
 By name, with what was looked for. Not counted, not averaged: three unbacked
 checks is a list of three things to write, and an aggregate would hide which.
 
-### C-3 — A demanded heading with no check is reported as ungoverned
-Unless it carries a written reason, in the same place, in the same shape as
-`fix_recipes.DECLINED`: this project's answer to "we decided not to" is a
-constant with the reason in it.
+### C-3 — A heading and a check disagreeing about existence is reported, both ways
+A demanded heading with no check is **ungoverned**, unless it carries a written
+reason in the shape `fix_recipes.DECLINED` established. A heading the code
+names — graded or declined — that the prompt does not demand is **ungrounded**,
+and it is the more damaging direction: a graded heading nothing demands fails
+every case in the corpus, forever. Level 29 validated one side and not the
+other (self-review 29, S-01).
 
 ### C-4 — The measurement takes no model and no network
 Prompt text in, report out. It is exactly as reproducible as the two files it
@@ -111,7 +118,7 @@ often than the checks are.
 | AC-4 | A declined heading with an empty reason is refused | Unit test |
 | AC-5 | The report names what needs an endpoint | Unit test |
 | AC-6 | The measurement runs with no model, no network and no clock | Architecture + unit test |
-| AC-7 | `ai-code-review-eval --alignment` exits 0 / 1 / 2 on the three outcomes | CLI test |
+| AC-7 | `ai-code-review-eval --alignment` exits 0 aligned, 1 on a gap in either direction, 2 when the code contradicts itself | CLI test |
 | AC-8 | Both pipelines run it, pinned like the other four | `test_ci_gates.py` |
 | AC-9 | The shipped prompt has no unbacked check and no ungoverned heading | Baseline test |
 | AC-10 | The three unbacked checks are closed by editing the prompt | The level's report |

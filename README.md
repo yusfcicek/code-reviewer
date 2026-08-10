@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.23.0.** Rebuilt from an imported prototype across twenty-nine
+> **Status: 2.23.1.** Rebuilt from an imported prototype across twenty-nine
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2559 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2572 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -512,13 +512,17 @@ each retrieval, each memory access.
   template. A check with no instruction behind it grades the model on a rule it
   was never given, and when the score falls the fix is looked for in a prompt
   that has nothing to fix.
-- **The reverse direction was unmeasured too.** The output format demands seven
+- **Both reverse directions are measured.** The output format demands seven
   headings and five were checked, so a review dropping the whole Refactoring
-  Roadmap passed everything. Each demanded heading is now graded or carries a
-  written reason it is not.
-- **Two texts and a substring search.** Anything cleverer would put an
-  unmeasured judgement inside a measurement, which is why Level 21 refused an
-  LLM judge in the first place.
+  Roadmap passed everything; each demanded heading is now graded or carries a
+  written reason. And a heading the *checks* name that the prompt never demands
+  is reported too — the more damaging direction, since it fails every review
+  there will ever be.
+- **Two texts and a substring search**, and what it measures is whether the
+  sentence is *there*: a rewrite in other words reports unbacked, and the fix is
+  to add the wording beside the check. Anything cleverer would put an unmeasured
+  judgement inside a measurement, which is why Level 21 refused an LLM judge in
+  the first place.
 - **No interval and no floor**, and that is a decision rather than an oversight:
   this is not a sample. "Three of five checks are unbacked" is a list of three
   things to write
@@ -864,7 +868,7 @@ CI runs exactly these nine checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-2559 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+2572 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no

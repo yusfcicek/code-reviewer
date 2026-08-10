@@ -136,11 +136,17 @@ class TestTheReport:
         with pytest.raises(ValueError, match="reason"):
             alignment(PROMPT, self.EXPECTATIONS, checked=(), declined={"Code Quality": "  "})
 
-    def test_a_declined_heading_the_prompt_does_not_demand_is_refused(self):
+    def test_a_declined_heading_the_prompt_does_not_demand_is_reported(self):
         """A reason for something nobody asked for is a reason that has gone
-        stale — the prompt dropped the section and the note stayed."""
-        with pytest.raises(ValueError, match="does not demand"):
-            alignment(PROMPT, self.EXPECTATIONS, checked=(), declined={"Vanished": "gone"})
+        stale — the prompt dropped the section and the note stayed.
+
+        Reported rather than raised since self-review 29: the measurement was
+        taken and the answer is known, so "could not measure" was the wrong
+        thing for the command to say.
+        """
+        report = alignment(PROMPT, self.EXPECTATIONS, checked=(), declined={"Vanished": "gone"})
+
+        assert report.ungrounded == ("Vanished",)
 
     def test_a_report_with_nothing_missing_is_aligned(self):
         report = alignment(
@@ -165,3 +171,88 @@ class TestTheReport:
         analyzer harness. Twice is enough to write it down."""
         with pytest.raises(ValueError, match="expectation"):
             alignment(PROMPT, (), checked=(), declined={})
+
+
+class TestANameInTheCodeThatThePromptDoesNotDemand:
+    """Self-review 29, S-01 and S-03.
+
+    The level validated the `declined` map against what the prompt demands and
+    never validated `checked`. Adding a heading to `REQUIRED_SECTIONS` that the
+    output format does not ask for makes every review fail
+    `required_sections_are_present` forever — and the harness built to catch
+    exactly that disagreement reported **Aligned**.
+
+    It is the more damaging of the two directions. A demanded heading nothing
+    grades costs a reader nothing; a graded heading nothing demands fails every
+    case in the corpus.
+    """
+
+    EXPECTATIONS = (Expectation(check="cites", phrases=("path:line",)),)
+
+    def test_a_graded_heading_the_prompt_never_demands_is_ungrounded(self):
+        report = alignment(
+            PROMPT, self.EXPECTATIONS, checked=("Security Analysis", "Threat Model"), declined={}
+        )
+
+        assert report.ungrounded == ("Threat Model",)
+        assert not report.is_aligned
+
+    def test_a_declined_heading_the_prompt_stopped_demanding_is_ungrounded_too(self):
+        """It used to raise, so the command answered "the measurement could not
+        be taken". The measurement was taken and the answer was known: a note
+        that outlived its section. Same species, same list."""
+        report = alignment(PROMPT, self.EXPECTATIONS, checked=(), declined={"Vanished": "gone"})
+
+        assert "Vanished" in report.ungrounded
+        assert not report.is_aligned
+
+    def test_the_two_are_reported_together_in_reading_order(self):
+        report = alignment(PROMPT, self.EXPECTATIONS, checked=("Zebra",), declined={"Aardvark": "a reason"})
+
+        assert report.ungrounded == ("Aardvark", "Zebra")
+
+    def test_a_heading_that_is_both_graded_and_declined_is_refused(self):
+        """A contradiction between two constants, like a blank reason: it is
+        a mistake in the code rather than a fact about the prompt."""
+        with pytest.raises(ValueError, match="both"):
+            alignment(
+                PROMPT,
+                self.EXPECTATIONS,
+                checked=("Code Quality",),
+                declined={"Code Quality": "a reason"},
+            )
+
+    def test_a_decline_with_no_reason_is_still_refused(self):
+        with pytest.raises(ValueError, match="reason"):
+            alignment(PROMPT, self.EXPECTATIONS, checked=(), declined={"Code Quality": "  "})
+
+
+class TestAnInstructionThatWrapsAcrossLines:
+    """Self-review 29, S-04.
+
+    A prompt is wrapped text. The instruction added by Level 29 reads
+
+        ... leaving a CRITICAL unmentioned hides it. Name every CRITICAL
+        finding you were given, by its title or by its location.
+
+    and the phrase `name every CRITICAL finding` spans the break, so a plain
+    substring search said the prompt never asked for it. The measurement would
+    then report a gap for a prompt somebody merely reflowed — a false alarm in
+    a gate, which is how gates get switched off.
+    """
+
+    WRAPPED = "You are a reviewer.\n\nName every CRITICAL\nfinding you were given, by its title.\n"
+
+    def test_the_phrase_is_found_across_the_break(self):
+        assert Expectation(check="mentions", phrases=("name every CRITICAL finding",)).met_by(self.WRAPPED)
+
+    def test_indentation_after_the_break_does_not_hide_it(self):
+        indented = "Name every CRITICAL\n          finding you were given.\n"
+
+        assert Expectation(check="mentions", phrases=("name every CRITICAL finding",)).met_by(indented)
+
+    def test_a_phrase_that_is_genuinely_absent_is_still_absent(self):
+        """The normalisation must not turn the search into a word bag."""
+        expectation = Expectation(check="mentions", phrases=("name every CRITICAL finding",))
+
+        assert not expectation.met_by("CRITICAL findings are named by every reviewer.")

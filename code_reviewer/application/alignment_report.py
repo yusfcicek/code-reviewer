@@ -33,9 +33,22 @@ def render_alignment_report(report: AlignmentReport) -> str:
         f"{len(report.demanded)} heading(s) demanded by the output format.",
         "",
         f"**{'Aligned' if report.is_aligned else 'NOT ALIGNED'}** — "
-        f"{len(report.unbacked)} unbacked check(s), {len(report.ungoverned)} ungoverned heading(s).",
+        f"{len(report.unbacked)} unbacked check(s), {len(report.ungoverned)} ungoverned heading(s), "
+        f"{len(report.ungrounded)} ungrounded name(s).",
         "",
     ]
+
+    if report.ungrounded:
+        lines += [
+            "## Headings the code names and the prompt does not demand",
+            "",
+            "The damaging direction. A heading the checks require and the output format never "
+            "asks for fails every review there will ever be; a reason recorded for a section the "
+            "prompt dropped is a note that outlived its subject.",
+            "",
+            *[f"- {heading}" for heading in report.ungrounded],
+            "",
+        ]
 
     if report.unbacked:
         lines += [

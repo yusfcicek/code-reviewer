@@ -37,6 +37,10 @@ the measurement gates the build.**
   contain for grading against it to be fair.
 - Each heading the output format demands is either graded by a check or carries
   a written reason it is not, in the shape `fix_recipes.DECLINED` established.
+- And the reverse: a heading the code names, graded or declined, that the prompt
+  does not demand is reported too. It is the more damaging direction — a graded
+  heading nothing demands fails every review there will ever be — and it is the
+  one the level shipped without checking (self-review 29, S-01).
 - The comparison is two texts and a substring search. Anything cleverer — a
   model asked whether the prompt implies the rule, a similarity over embeddings
   — would put an unmeasured judgement inside a measurement, which is precisely
@@ -56,9 +60,19 @@ deleted to reach alignment would be alignment bought by measuring less.
 
 The three unbacked checks are closed by a section of the prompt that states what
 is graded. `ai-code-review-eval --alignment` exits 1 if a future edit removes
-one, and 2 if the two texts disagree about what exists — a declined heading the
-prompt stopped demanding is a note that outlived its subject, which is a broken
-harness rather than a bad result.
+one, or if a name in the code has no section behind it. Exit 2 is reserved for
+the code contradicting itself rather than the prompt: a decline with no reason,
+or a heading that is both graded and deliberately ungraded. A declined heading
+the prompt stopped demanding is a gap and not an unmeasurable state — the
+measurement was taken and the answer is known.
+
+**What the comparison is, exactly.** It asks whether the sentence is *there*. A
+rewrite that means the same thing in other words reports unbacked, and the fix
+is to add the wording beside the check. That is the price of refusing an
+unmeasured judgement in the middle of a measurement, and the alternative — a
+model asked whether a paraphrase counts — is the thing this ADR exists to
+avoid. Whitespace is flattened before comparing, because a phrase that wraps
+across two lines is still the phrase.
 
 **What still needs a served model, named rather than approximated:**
 

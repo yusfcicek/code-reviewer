@@ -8,6 +8,7 @@ from code_reviewer.domain.alignment import AlignmentReport, UnbackedCheck
 GAPPED = AlignmentReport(
     unbacked=(UnbackedCheck(check="the_prose_claims_no_verdict", missing=("never state a verdict",)),),
     ungoverned=("Refactoring Roadmap",),
+    ungrounded=("Threat Model",),
     declined=("Architectural Review Summary",),
     aligned=("citations_are_grounded",),
     demanded=("Refactoring Roadmap", "Architectural Review Summary"),
@@ -34,6 +35,14 @@ def test_a_declined_heading_is_listed_separately_from_a_gap():
 
     assert ungraded < declined
     assert "1 ungoverned heading(s)" in text
+
+
+def test_an_ungrounded_heading_is_named(report_text=None):
+    """Self-review 29, S-01. The direction the level forgot to look in."""
+    text = render_alignment_report(GAPPED)
+
+    assert "Threat Model" in text
+    assert "1 ungrounded name(s)" in text
 
 
 def test_a_clean_report_says_so():
