@@ -156,12 +156,17 @@ class ReviewService:
 
     def _review(self, project_id: int, merge_request_iid: int, publish: bool) -> ReviewResult:
         reference = self._forge.fetch_merge_request(project_id, merge_request_iid)
-        changes = [change for change in self._forge.fetch_changes(reference) if not change.is_deleted]
+        # Deletions are kept for the documentation tier and only for it. There
+        # is nothing left to review in a deleted file, but deleting the module a
+        # document describes is the plainest way to make the document stale, and
+        # dropping the change here was the whole of self-review S-03.
+        every_change = self._forge.fetch_changes(reference)
+        changes = [change for change in every_change if not change.is_deleted]
 
         outcome = ReviewOutcome()
         result = ReviewResult(outcome=outcome)
 
-        if not changes:
+        if not every_change:
             return result
 
         # Cross-file context: what else moved in this merge request.
@@ -205,13 +210,16 @@ class ReviewService:
         # Computed before the comment is rendered, because the record names it
         # and the comment quotes the record. The value is the same either way:
         # it is a function of the outcome and the policy.
-        documentation = self._documentation(changes, sources)
+        documentation = self._documentation(every_change, sources)
         result.findings.extend(documentation.findings)
 
         result.exit_code = outcome.exit_code(self._policy)
         record = self._record(reference, outcome, result, pending)
 
-        if sections:
+        # Sections *or* documentation: a merge request that only deletes a
+        # module has no per-file section, and the stale references its deletion
+        # created are the only thing there is to say about it.
+        if sections or not documentation.is_empty:
             result.comment = render_review_comment(
                 self._policy.version,
                 outcome,

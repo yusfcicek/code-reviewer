@@ -240,3 +240,88 @@ class TestNothingHereBlocks:
 
     def test_a_review_of_nothing_but_documentation_findings_passes(self):
         assert not self._outcome_with_documentation_findings().is_blocking
+
+
+class TestADeletedFile:
+    """Self-review S-03 — the most obvious stale reference, missed.
+
+    `ReviewService` filtered `is_deleted` changes out before anything saw them,
+    which is right for reviewing (there is nothing left to review) and wrong
+    for this: deleting the module a document describes is the plainest way to
+    make the document stale, and it produced nothing at all.
+
+    The forge does carry the deletion's diff — every line as a removal — so the
+    names are available from the same subtraction every other change uses. The
+    defect was only that the change never arrived.
+    """
+
+    DELETION = (
+        "@@ -1,6 +0,0 @@\n"
+        "-def start_app(config):\n"
+        '-    """Boots it."""\n'
+        "-    return config\n"
+        "-\n"
+        "-\n"
+        "-class LegacyRenderer:\n"
+    )
+
+    def _outcome(self, diff=None, documents=None):
+        deleted = FileChange(path="legacy.py", diff=self.DELETION if diff is None else diff, is_deleted=True)
+        documents = (
+            documents
+            if documents is not None
+            else [("README.md", "# Guide\n\nBoot with `start_app`, then `create_app`.\n")]
+        )
+        return DocumentationService(index=INDEX, documents=documents).review([deleted], {})
+
+    def test_a_symbol_the_deleted_file_defined_is_reported(self):
+        assert [finding.rule_id for finding in self._outcome().findings] == ["DOCS.DEAD_REFERENCE"]
+
+    def test_the_finding_points_at_the_document(self):
+        finding = self._outcome().findings[0]
+
+        assert finding.file_path == "README.md"
+        assert finding.line_number == 3
+
+    def test_a_deletion_with_no_diff_reports_nothing(self):
+        """No diff, no names, no guess."""
+        assert self._outcome(diff="").findings == []
+
+    def test_a_symbol_that_still_exists_elsewhere_is_not_reported(self):
+        """Moving a module is not deleting a function."""
+        documents = [("README.md", "Boot with `create_app`.\n")]
+        diff = "@@ -1,2 +0,0 @@\n-def create_app(config, worker):\n-    return config\n"
+
+        assert self._outcome(diff=diff, documents=documents).findings == []
+
+    def test_a_deleted_file_is_not_checked_for_docstring_drift(self):
+        """Its docstrings are gone. Reporting them is reporting nothing."""
+        source = 'def gone(a):\n    """X.\n\n    Args:\n        b: absent.\n    """\n'
+        deleted = FileChange(path="legacy.py", diff=self.DELETION, is_deleted=True)
+
+        outcome = DocumentationService(index=INDEX, documents=[]).review([deleted], {"legacy.py": source})
+
+        assert all(finding.rule_id != "DOCS.DOCSTRING_DRIFT" for finding in outcome.findings)
+
+
+class TestAMergeRequestThatOnlyDeletes:
+    """The hole the S-03 fix opened, closed in the same round.
+
+    Routing deletions to this tier is useless if the comment is only rendered
+    when some file was reviewed. A merge request that deletes a module and
+    changes nothing else has no per-file section at all, so the findings were
+    computed and then discarded.
+    """
+
+    def test_the_comment_is_rendered_for_documentation_findings_alone(self):
+        from code_reviewer.application.documentation_service import DocumentationSummary
+        from code_reviewer.application.report import render_review_comment
+        from code_reviewer.domain.outcome import ReviewOutcome
+
+        findings = _service().review([_change()], {"app.py": ""}).findings
+        body = render_review_comment(
+            "1.0", ReviewOutcome(), [], documentation=DocumentationSummary(resolved=findings)
+        )
+
+        assert "README.md:3" in body
+        assert "AI Review Report" in body

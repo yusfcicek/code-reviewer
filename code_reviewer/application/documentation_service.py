@@ -169,7 +169,9 @@ class DocumentationService:
     def _docstring_findings(changes: Sequence[FileChange], sources: Mapping[str, str]) -> list[Finding]:
         findings: list[Finding] = []
         for change in changes:
-            if _suffix(change.path) not in SOURCE_SUFFIXES:
+            if change.is_deleted or _suffix(change.path) not in SOURCE_SUFFIXES:
+                # A deleted file's docstrings are gone. Reporting drift in them
+                # is reporting a defect nobody can fix (self-review S-03).
                 continue
             source = sources.get(change.path)
             if not source:
