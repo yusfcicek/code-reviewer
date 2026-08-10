@@ -7,6 +7,52 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.24.0] — 2026-08-11
+
+Level 30 — key custody, and three refusals with reasons. Recorded in
+[`docs/roadmap/level-30/spec.md`](docs/roadmap/level-30/spec.md) and
+[ADR 0032](docs/adr/0032-a-key-that-is-gone-is-not-a-key-that-lied.md).
+
+### Fixed
+
+- **Rotating the audit signing key made an intact chain report as `tampered`.**
+  `Signer.accepts` answered a boolean, so it said the same thing about a
+  signature it had checked and found wrong as about a key id it had never heard
+  of — against the rule Level 24 wrote and did not carry into its own key
+  handling. There are three answers now, and `None` means *no key of that name*.
+- **`verify_store` asked whether the signer was signing** and used the answer to
+  decide whether it could check anything. A deployment that has stopped signing
+  and still holds its retired keys would have found its whole history
+  unverifiable while the key sat in the environment.
+- **`FileAuditStore.is_verifiable` reported True for a store it could not check
+  at all**, so an erasure would have re-sealed records signed by a rotated-away
+  key and destroyed the only evidence of who attested to them.
+
+### Added
+
+- **`Keyring`**: one key signs, any number verify. A retired key never signs.
+  Retired keys come from `REVIEW_AUDIT_KEY_RETIRED_<id>`, one variable each, so
+  nothing is parsed out of secret material; each is subject to every refusal a
+  signing key is, and none reaches a repr, a log, a signature or a key id.
+- **The verdict names the key ids it could not check**, and the verify command
+  prints the ones it holds beside them.
+- **A store conformance suite.** Choosing a store is still refused; what a store
+  must *do* is now executable. The file adapter passes it and two deliberately
+  wrong adapters fail it.
+- **A test over every field a `DecisionRecord` can carry**, asserting nothing in
+  a serialised record spans more than one line — the premise under the refusal
+  to encrypt, which until now was a habit.
+
+### Notes
+
+- **Attestation is refused again.** Every fact such a document would contain is
+  already machine-readable; what it adds is the cover page, and the cover page
+  is where a claim gets made that this repository cannot support.
+- **History is never re-signed under a new key.** The key id is the only record
+  of which key attested to what.
+
+---
+
 ## [2.23.1] — 2026-08-11
 
 The self-review of Level 29, and the five findings it closed.

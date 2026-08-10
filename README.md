@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.23.1.** Rebuilt from an imported prototype across twenty-nine
+> **Status: 2.24.0.** Rebuilt from an imported prototype across thirty
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2572 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2617 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -412,7 +412,9 @@ each retrieval, each memory access.
 - **Signed with a key this repository never produces.** No generated key, no
   bundled key, no fallback to something weaker — a key this project could make
   is one an attacker with this project can make. `REVIEW_AUDIT_KEY` or nothing
-  is signed, and neither a missing nor an unusable key stops a review.
+  is signed, and neither a missing nor an unusable key stops a review. Retired
+  keys are `REVIEW_AUDIT_KEY_RETIRED_<id>`, one variable each, verify-only
+  (Level 30).
 - **Unsigned means corruption-evident, not tamper-evident**, and the verifier
   says so on every unsigned answer: the digest takes no key, so anybody who can
   edit the file can recompute the chain. Signing is what separates a careless
@@ -530,6 +532,32 @@ each retrieval, each memory access.
 - **What needs a served model is printed on every run**: whether the model
   *obeys* an instruction that is present, and whether a recorded review still
   describes what the current prompt produces. Neither is guessed at.
+
+### 🔑 24. A key that is gone is not a key that lied
+- **Rotating the signing key used to make an intact chain report as forged.**
+  `accepts` answered a boolean, so it said the same thing about a signature it
+  had checked and found wrong as about a key id it had never heard of — and
+  Level 24's own rule is that `unverifiable` is not `tampered`.
+- **Three answers now**, and the third is *no key of that name*. The verdict
+  names the key ids it could not check, and the command prints the ones it
+  holds beside it: the mistake this is for is a name that does not match
+  ([ADR 0032](docs/adr/0032-a-key-that-is-gone-is-not-a-key-that-lied.md)).
+- **A keyring: one key signs, any number verify.** A retired key never signs,
+  or "retired" is a label rather than a property. One environment variable per
+  retired key — `REVIEW_AUDIT_KEY_RETIRED_<id>` — so nothing is parsed out of
+  secret material. History is never re-signed under the new key: the key id is
+  the only record of which key attested to what.
+- **An erasure refuses a store it cannot verify at all**, not only one it has
+  caught. Re-sealing records signed by a key nobody holds would destroy the
+  evidence of who attested to them, with the tool built to detect that.
+- **Three of Level 24's four non-goals are refused again, with what was missing
+  underneath each.** *Choosing a store*: refused, and what a store must **do**
+  is an executable conformance suite the file adapter passes and two
+  deliberately wrong adapters fail. *An attestation*: refused — every fact one
+  would contain is already machine-readable, and what a document adds is the
+  cover page, which is where a claim gets made that this repository cannot
+  support. *Encrypting the record*: refused, and its premise — identifiers,
+  never content — is now a test over every field rather than a habit.
 
 ---
 
@@ -868,7 +896,7 @@ CI runs exactly these nine checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-2572 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+2617 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no
