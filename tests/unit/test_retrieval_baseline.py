@@ -29,17 +29,17 @@ from code_reviewer.infrastructure.retrieval.vector_index import InMemoryVectorIn
 
 #: The floor committed to CI, on the interval's lower bound (Level 25's rule).
 #:
-#: 0.40 since Level 28, and the interesting thing about this corpus is that it
-#: is the only one of the four the code does not ace. Sixteen cases, eleven
-#: found: recall 0.69, lower bound 0.44, floor 0.40.
+#: The interesting thing about this corpus is that it is the only one of the
+#: four the code does not ace. Sixteen cases, twelve found: recall 0.75, lower
+#: bound 0.51.
 #:
 #: That is a measurement rather than a formality. The other three corpora score
 #: 1.00 because the rules they grade are deterministic and the cases were
 #: written to be decidable; retrieval is a ranking, and a ranking that returns
-#: the related section eleven times in sixteen is telling the truth about a
+#: the related section twelve times in sixteen is telling the truth about a
 #: hybrid index over ten sections with a limit of three.
 #:
-#: The five misses are named in the report rather than averaged. Improving them
+#: The four misses are named in the report rather than averaged. Improving them
 #: is a later level's work and would be a change to the retriever, which this
 #: level deliberately does not make: a miss is a fact, not a proven defect.
 MIN_RECALL = 0.40
@@ -91,6 +91,26 @@ class TestTheCorpus:
         for case in cases:
             assert case.heading.lower() not in case.diff.lower(), case.name
 
+    def test_no_two_cases_ask_after_the_same_section(self, cases):
+        """Self-review 28, S-06.
+
+        `RecallReport.interval` calls the cases "independent by construction",
+        and Wilson's interval is only as narrow as that claim is true. Level 28
+        shipped two cases pointing at one section of one document, and both
+        missed — so a single weakness in the retriever spent two of sixteen
+        observations and narrowed the interval by pretending to be two.
+
+        The identical mistake self-review 25 found in the narration harness,
+        which counted five checks of one review as five trials. A corpus grows
+        by asking new questions.
+        """
+        seen: set[tuple[str, str]] = set()
+        for case in cases:
+            key = (case.path, case.heading)
+
+            assert key not in seen, f"{case.name} repeats {key[0]}#{key[1]}"
+            seen.add(key)
+
     def test_a_missing_corpus_is_refused_rather_than_scored_as_empty(self):
         with pytest.raises(RetrievalDatasetError):
             RetrievalCorpus("evaluation/nothing-here").cases()
@@ -121,8 +141,8 @@ class TestTheMeasurement:
             assert sections > LIMIT, f"{case.name} hides its answer among {sections} of {LIMIT}"
 
     def test_the_shipped_corpus_actually_misses_something(self, report):
-        """A corpus nothing fails is a corpus that proves nothing. One miss of
-        five is evidence the question is real."""
+        """A corpus nothing fails is a corpus that proves nothing. Four misses
+        of sixteen are evidence the question is real."""
         assert report.missed
 
     def test_the_interval_is_over_cases(self, report, cases):
