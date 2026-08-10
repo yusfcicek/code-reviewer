@@ -94,3 +94,18 @@ def test_the_retrieved_tier_is_not_graded_here(fixtures):
     graded = {expectation.rule_id for fixture in fixtures for expectation in fixture.case.expected}
 
     assert not any(rule.startswith("DRIFT.") for rule in graded)
+
+
+def test_the_corpus_is_found_from_the_dataset_root_as_well():
+    """`--dataset evaluation` is what the other two harnesses are given. One
+    flag meaning two things across three harnesses is a trap, not a feature."""
+    assert len(DocumentationCorpus("evaluation").cases()) == len(
+        DocumentationCorpus("evaluation/documentation").cases()
+    )
+
+
+def test_a_missing_corpus_is_refused_rather_than_scored_as_empty():
+    from code_reviewer.infrastructure.evaluation.documentation_dataset import DocumentationDatasetError
+
+    with pytest.raises(DocumentationDatasetError):
+        DocumentationCorpus("evaluation/nothing-here").cases()

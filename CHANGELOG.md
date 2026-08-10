@@ -7,6 +7,67 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.17.0] — 2026-08-10
+
+Level 23 — documentation checked against the code it describes. Recorded in
+[`docs/roadmap/level-23/spec.md`](docs/roadmap/level-23/spec.md) and
+[ADR 0025](docs/adr/0025-two-tiers-and-the-weaker-one-is-a-separate-namespace.md).
+
+The roadmap has required since Level 0 that documentation may never claim
+behaviour the code does not have. Nothing enforced it: the analysis suite reads
+Python and skips Markdown. The reason it earns a level is that **prose outranks
+code in a reader's head and outranks it completely in a model's** — an agent
+answering a question about a repository reads the README first, and believes it.
+
+### Added
+
+- **`DOCS.*` — what a change proves about the documentation.** Five rules: a
+  document naming a symbol the change removed, a documented signature the code
+  does not have, an option or environment name the change deleted, a fenced
+  Python example that does not parse, and a docstring whose `Args`, `Raises` or
+  `Returns` section its function contradicts.
+- **`DRIFT.POSSIBLE_STALE_SECTION` — what no token match reaches.** Documents
+  join the retrieval corpus; the changed diff is the query; a model is asked one
+  narrow question about each retrieved section and answers with one of three
+  words. This is the tier that finds the paragraph describing behaviour the
+  change altered without naming a single symbol.
+- **The two are separated everywhere.** Two report blocks, the second labelled
+  unverified. Two namespaces in the attribution table — `DOCS` an analyzer,
+  `DRIFT` an agent — which is the *entire* implementation of "a retrieved
+  candidate can never block": ADR 0022 already refuses a blocking verdict citing
+  a non-deterministic producer.
+- **A corpus and a floor.** Thirteen cases under `evaluation/documentation`,
+  graded by the analyzers' own scoring, precision/recall/F1 ≥ 0.95. Seven of
+  them expect nothing. `evaluate --documentation` runs them.
+- **`--no-documentation`** turns the whole check off.
+
+### Changed
+
+- One LLM provider per run, shared by the narrator and the drift judge. Two
+  meant two connections, two budgets, and two answers to "which model produced
+  this review".
+
+### Fixed
+
+- `Workspace` resolves paths against its root, so building an index from a
+  *relative* root walked relatively produced `pkg/pkg/app.py`, every read was
+  refused, and the result was an empty index — indistinguishable from a
+  repository containing no Python.
+
+### Notes
+
+Nothing this level produces can block a merge. Both tiers emit at or below
+`Severity.LOW`, because the rules are newly measured and this project's rule
+since Level 12 is that a floor is earned by the level that measured one.
+
+The first implementation of the deterministic tier resolved every backtick in
+every document and reported twenty-five findings in this repository's README, of
+which nearly all were wrong — `hashlib.md5` is a library call, `ConfigMap` is a
+Kubernetes noun, `--cov` is pytest's. Every rule is now scoped to what the diff
+proves, which is what makes it a fact rather than a resemblance.
+
+---
+
 ## [2.16.1] — 2026-08-09
 
 The self-review of levels 21 and 22, and its six findings closed. Recorded in

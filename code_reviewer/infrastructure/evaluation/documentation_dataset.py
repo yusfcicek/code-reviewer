@@ -40,11 +40,24 @@ class DocumentationFixture:
     sources: Mapping[str, str] = field(default_factory=dict)
 
 
+#: Where the cases live under a dataset root, matching `narration/`.
+SUBDIRECTORY = "documentation"
+
+
 class DocumentationCorpus:
-    """Every case under a directory, in a stable order."""
+    """Every ``documentation/*.yaml`` under a root, in a stable order.
+
+    Args:
+        root: The dataset directory. Either the root holding
+            ``documentation/`` — which is what ``--dataset`` names for every
+            other corpus — or that subdirectory itself. Accepting both keeps
+            one flag meaning one thing across three harnesses.
+    """
 
     def __init__(self, root: str | Path):
-        self._root = Path(root)
+        given = Path(root)
+        nested = given / SUBDIRECTORY
+        self._root = nested if nested.is_dir() else given
 
     def cases(self) -> list[DocumentationFixture]:
         if not self._root.is_dir():
