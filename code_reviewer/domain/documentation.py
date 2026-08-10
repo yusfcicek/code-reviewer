@@ -595,6 +595,28 @@ def _raise_shape(function: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[bool
     return raises, bare
 
 
+def _is_stub(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Whether the body does nothing at all.
+
+    An `@abstractmethod`, a protocol member, a `...` placeholder. Its docstring
+    documents a **contract** its implementers must honour, and the declaration
+    is the only place to state one — so `Raises:` and `Returns:` there are
+    correct however little the body does.
+
+    Reporting them was self-review S-04, and one false positive in the three
+    findings this rule produced against its own repository. A body that does
+    nothing cannot contradict anything.
+    """
+    body = [
+        node
+        for node in function.body
+        if not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant))
+    ]
+    if not body:
+        return True
+    return len(body) == 1 and isinstance(body[0], ast.Pass)
+
+
 def _returns_a_value(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     for node in ast.walk(function):
         if isinstance(node, ast.Return) and node.value is not None:
@@ -651,12 +673,15 @@ def _docstring_defect(function: ast.FunctionDef | ast.AsyncFunctionDef, docstrin
         if missing:
             complaints.append(f"signature has ({', '.join(missing)}), undocumented")
 
-    raises, bare = _raise_shape(function)
-    if documented.raises and not raises and not bare:
-        complaints.append(f"documents raising ({', '.join(documented.raises)}), the body raises nothing")
+    # A stub is examined for what it says about its own signature and for
+    # nothing else: there is no body to contradict (S-04).
+    if not _is_stub(function):
+        raises, bare = _raise_shape(function)
+        if documented.raises and not raises and not bare:
+            complaints.append(f"documents raising ({', '.join(documented.raises)}), the body raises nothing")
 
-    if documented.returns and not _returns_a_value(function):
-        complaints.append("documents a return value, every path returns None")
+        if documented.returns and not _returns_a_value(function):
+            complaints.append("documents a return value, every path returns None")
 
     if not complaints:
         return None

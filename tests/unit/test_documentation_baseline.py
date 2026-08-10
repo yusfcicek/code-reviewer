@@ -109,3 +109,25 @@ def test_a_missing_corpus_is_refused_rather_than_scored_as_empty():
 
     with pytest.raises(DocumentationDatasetError):
         DocumentationCorpus("evaluation/nothing-here").cases()
+
+
+def test_this_repository_has_no_docstring_drift():
+    """The rule's own repository is its hardest corpus, and the only one that
+    was not authored to make it look good.
+
+    Written after self-review S-04: the rule produced three findings here, one
+    of them false (an abstract method documenting the contract its empty body
+    cannot fulfil) and two of them real parameters nobody had documented. This
+    test is what keeps the count at zero.
+    """
+    from pathlib import Path
+
+    from code_reviewer.domain.documentation import docstring_defects
+
+    found = [
+        f"{path}:{defect.line} {defect.subject} — {defect.detail}"
+        for path in sorted(Path("code_reviewer").rglob("*.py"))
+        for defect in docstring_defects(path.read_text(encoding="utf-8"))
+    ]
+
+    assert found == [], found

@@ -113,6 +113,9 @@ def render_review_comment(
         decision_summary: One line naming what decided, from the record that
             was written. Never the model's prose — a verdict rests on
             deterministic producers, and this says which (ADR 0004, 0022).
+        suggestion_count: How many applicable suggestions were posted on the
+            changed lines. The block says they exist; the suggestions
+            themselves are notes on the lines they edit (Level 22).
         documentation: What Level 23 found about the repository's prose. Two
             blocks, never one: what resolved against the code, and what a
             model selected and nothing verified.
