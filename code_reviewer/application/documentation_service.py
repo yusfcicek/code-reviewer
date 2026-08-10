@@ -159,7 +159,9 @@ class DocumentationService:
                 # A document that could not be read costs that document and
                 # nothing else, the same answer `corpus.py` gives.
                 continue
-            defects = documentation_defects(claims_in(text), self._index, scope.for_document(path in edited))
+            defects = documentation_defects(
+                claims_in(text, named=scope.names), self._index, scope.for_document(path in edited)
+            )
             findings.extend(_finding(path, defect) for defect in defects)
         return findings
 

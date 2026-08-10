@@ -253,9 +253,7 @@ def _build_documentation(args, provider=None):
     # self-review finding S-01: code won every ranking, the limit was spent
     # before the document filter ran, and the tier returned nothing at all. The
     # retrieval *implementation* is still the single one Level 13 built.
-    drift = DriftService(
-        retriever=build_document_retriever(args.repo_root), judge=ModelDriftJudge(provider)
-    )
+    drift = DriftService(retriever=build_document_retriever(args.repo_root), judge=ModelDriftJudge(provider))
     return documentation, drift
 
 
