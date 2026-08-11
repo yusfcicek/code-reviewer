@@ -381,3 +381,97 @@ class TestTheRecordHoldsNoSourceText:
         from code_reviewer.domain.provenance import SuppressionRecord
 
         assert {field.name for field in fields(SuppressionRecord)} == {"rule_id", "location", "reason"}
+
+
+class TestFreeTextIsFlattenedWhereItEnters:
+    """Self-review 30, S-02.
+
+    Level 30 refused to encrypt the record and made its premise a test: nothing
+    a record holds spans more than one line. The test built its own record, so
+    it checked a record I wrote rather than the values the code can put there —
+    and `failure_reason=str(refusal)` takes whatever a `ValueError` says. An
+    exception message with a newline is entirely ordinary.
+
+    A check that cannot fail for the real system is the species five
+    self-reviews in a row have found. So the premise is enforced where the
+    value enters, by flattening rather than by refusing: an accountability
+    feature may not fail the thing it accounts for (Level 20, contract C-9),
+    and a record that raised on a multi-line reason would do exactly that,
+    inside the `except` that exists to write a record when something already
+    went wrong.
+    """
+
+    def test_a_multiline_failure_reason_becomes_one_line(self):
+        from code_reviewer.domain.provenance import DecisionRecord, RunIdentity
+
+        record = DecisionRecord(
+            verdict="warn",
+            exit_code=1,
+            identity=RunIdentity(package_version="1", policy_version="1"),
+            completed=False,
+            failure_reason="the record refused itself:\n  a blocking finding\n  names an agent",
+        )
+
+        assert "\n" not in record.failure_reason
+        assert "a blocking finding names an agent" in record.failure_reason
+
+    def test_a_multiline_warning_becomes_one_line(self):
+        from code_reviewer.domain.provenance import DecisionRecord, RunIdentity
+
+        record = DecisionRecord(
+            verdict="pass",
+            exit_code=0,
+            identity=RunIdentity(package_version="1", policy_version="1"),
+            warnings=("the retriever failed:\nconnection refused",),
+        )
+
+        assert all("\n" not in warning for warning in record.warnings)
+
+    def test_a_multiline_suppression_reason_becomes_one_line(self):
+        """The one field a person types, and a YAML block scalar is multi-line
+        by construction."""
+        from code_reviewer.domain.provenance import SuppressionRecord
+
+        recorded = SuppressionRecord(
+            rule_id="SAST.WEAK_CRYPTO",
+            location="app.py:3",
+            reason="md5 is a cache key here,\nnot a security primitive",
+        )
+
+        assert "\n" not in recorded.reason
+
+    def test_the_refusal_a_record_actually_produces_is_covered(self):
+        """The path that motivated this: `governance.py` puts `str(refusal)`
+        into `failure_reason` when a record refuses itself."""
+        from code_reviewer.domain.provenance import (
+            DecisionRecord,
+            Producer,
+            ProducerKind,
+            Provenance,
+            RunIdentity,
+        )
+
+        opinion = Provenance(
+            producer=Producer(name="agent", kind=ProducerKind.AGENT),
+            rule_id="X",
+            location="a.py:1",
+            severity="critical",
+        )
+        try:
+            DecisionRecord(
+                verdict="fail",
+                exit_code=1,
+                identity=RunIdentity(package_version="1", policy_version="1"),
+                blocking=(opinion,),
+            )
+            raise AssertionError("the record should have refused itself")
+        except ValueError as refusal:
+            written = DecisionRecord(
+                verdict="warn",
+                exit_code=1,
+                identity=RunIdentity(package_version="1", policy_version="1"),
+                completed=False,
+                failure_reason=str(refusal),
+            )
+
+        assert "\n" not in written.failure_reason

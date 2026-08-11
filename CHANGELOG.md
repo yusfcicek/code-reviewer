@@ -7,6 +7,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.24.1] — 2026-08-11
+
+The self-review of Level 30, and the four findings it closed.
+
+### Fixed
+
+- **Retiring the key you are still signing with crashed the review.** `Keyring`
+  refuses two keys under one name; `signer_from_environment` did not catch that
+  refusal, so a `ValueError` reached the composition root from the most likely
+  mistake in the operation the level exists for. The signing key keeps the name
+  and the duplicate retired entry is dropped with a warning.
+- **The encryption refusal's premise was checked on a record the test built**,
+  never on the values the code puts there — `failure_reason=str(refusal)` takes
+  whatever a `ValueError` says. Free text is flattened where it enters, rather
+  than refused: a record that raised on a multi-line reason would raise inside
+  the `except` that exists to write a record when something already went wrong.
+- **The store conformance suite covered the one adapter that already worked.**
+  The adapters are enumerated now, read out of the source with `ast` rather than
+  off `__subclasses__` — a subclass nobody imported does not appear there.
+- **An unverifiable verdict answered one question and dropped another.** A store
+  with an unheld key *and* an unsigned record reported only the key, so an
+  operator who found it would come back to a store that still did not verify.
+
+---
+
 ## [2.24.0] — 2026-08-11
 
 Level 30 — key custody, and three refusals with reasons. Recorded in

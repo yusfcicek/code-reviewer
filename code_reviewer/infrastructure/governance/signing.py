@@ -228,6 +228,27 @@ def signer_from_environment(environment: Mapping[str, str] | None = None) -> Sig
 
     if not retired:
         return signing
+
+    # The most likely mistake in the operation this exists for: retiring the key
+    # you are still signing with. `Keyring` refuses two keys under one name, and
+    # rightly — a key id is what a record names. But that refusal reaching the
+    # composition root would take the review with it, and an accountability
+    # feature may not fail the thing it accounts for (Level 20, contract C-9;
+    # self-review 30, S-01).
+    #
+    # The signing key keeps the name, because it is the one about to write
+    # records under it. The duplicate retired entry is dropped and said so.
+    kept: list[Signer] = []
+    for retired_key in retired:
+        if signing.is_signing and retired_key.key_id == signing.key_id:
+            logger.warning(
+                "A retired audit key is configured under the same name as the signing key; "
+                "the signing key keeps the name and the retired entry is ignored",
+                extra={"fields": {"key_id": retired_key.key_id}},
+            )
+            continue
+        kept.append(retired_key)
+
     # A deployment that has stopped signing can still read its own history,
     # which is why this is reached even with no current key.
-    return Keyring(signing=signing, retired=retired)
+    return Keyring(signing=signing, retired=tuple(kept))

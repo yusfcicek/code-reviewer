@@ -343,3 +343,45 @@ class TestAKeyNobodyHoldsAnyMore:
         verdict = verify(entries, lambda digest, signature, key_id: None)
 
         assert verdict.status is ChainStatus.TAMPERED
+
+
+class TestAStoreWithMoreThanOneThingWrongWithItsSignatures:
+    """Self-review 30, S-04.
+
+    The unheld-key reason replaced the one about unsigned records rather than
+    joining it. An operator reading *"no key was given for 2025-key"* would
+    conclude that finding that key makes the store intact — and it would not,
+    because a record in there attests to nothing at all.
+
+    Both facts were known when the verdict was built. Answering one question
+    and dropping the other is how a verdict sends somebody after the wrong
+    thing.
+    """
+
+    def _mixed(self):
+        entries, previous = [], GENESIS
+        signed_by = {1: "held", 2: "gone", 3: None}
+        for sequence in (1, 2, 3):
+            payload = {"n": sequence}
+            key_id = signed_by[sequence]
+            sign = (lambda digest, key_id=key_id: (f"sig-{digest}-{key_id}", key_id)) if key_id else None
+            seal = sealed(payload, previous, sign, sequence)
+            entries.append((seal, payload))
+            previous = seal.digest
+        return entries
+
+    def test_it_names_the_key_it_could_not_check(self):
+        verdict = verify(self._mixed(), lambda d, s, key_id: True if key_id == "held" else None)
+
+        assert "gone" in verdict.reason
+
+    def test_it_also_says_that_something_is_unsigned(self):
+        verdict = verify(self._mixed(), lambda d, s, key_id: True if key_id == "held" else None)
+
+        assert "unsigned" in verdict.reason
+
+    def test_the_counts_are_both_there_to_be_read(self):
+        verdict = verify(self._mixed(), lambda d, s, key_id: True if key_id == "held" else None)
+
+        assert verdict.checked == 3
+        assert verdict.signed == 2
