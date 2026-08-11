@@ -25,6 +25,27 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 
+
+def one_line(text: str) -> str:
+    """The same sentence, on one line.
+
+    The record holds identifiers and short reasons, which is the whole premise
+    under this project's refusal to encrypt it (Level 24, restated by Level 30):
+    confidentiality is the store's problem because the format cannot carry
+    somebody's source. That was enforced by a test over a record the test built
+    itself, so it never saw the values the code actually puts here —
+    `failure_reason=str(refusal)` takes whatever a `ValueError` says, and an
+    exception message with a newline is entirely ordinary (self-review 30,
+    S-02).
+
+    Flattened rather than refused. A record that raised on a multi-line reason
+    would raise inside the `except` that exists to write a record when
+    something has already gone wrong, and an accountability feature may not
+    fail the thing it accounts for (Level 20, contract C-9).
+    """
+    return " ".join(text.split())
+
+
 #: How much of a prompt digest is kept. Enough to distinguish two prompts by
 #: eye in a report; short enough to read out.
 FINGERPRINT_LENGTH = 12
@@ -99,6 +120,11 @@ class SuppressionRecord:
     rule_id: str
     location: str
     reason: str = ""
+
+    def __post_init__(self) -> None:
+        # A person types this, and a YAML block scalar is multi-line by
+        # construction.
+        object.__setattr__(self, "reason", one_line(self.reason))
 
     @property
     def is_explained(self) -> bool:
@@ -204,6 +230,9 @@ class DecisionRecord:
     warnings: tuple[str, ...] = field(default=())
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "failure_reason", one_line(self.failure_reason))
+        object.__setattr__(self, "warnings", tuple(one_line(warning) for warning in self.warnings))
+
         if self.verdict != "fail":
             return
 

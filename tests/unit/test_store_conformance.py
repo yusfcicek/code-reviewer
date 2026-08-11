@@ -222,3 +222,51 @@ def test_the_port_names_every_method_an_adapter_must_write(method):
     """The contract as a list somebody implementing it can read. A method added
     to the port without a line here is a method no adapter knows it owes."""
     assert method in AuditStore.__abstractmethods__
+
+
+class TestTheSuiteCoversWhatExists:
+    """Self-review 30, S-03.
+
+    Level 30 wrote "every `AuditStore` adapter runs this suite" and ran it
+    against the one adapter that already worked. Nothing said what would happen
+    to the second — an adapter added later would join the port and skip the
+    contract in silence, which is the failure this suite was written to prevent
+    in somebody else's repository and not in this one.
+
+    So the adapters are enumerated. A new one is a failing test until it is
+    listed here and exercised above.
+    """
+
+    #: Adapters this repository ships, by name. A subclass defined in a test —
+    #: the three fakes above — is not one of these and is deliberately excluded:
+    #: the contract is about what somebody deploys.
+    SHIPPED: ClassVar[tuple[str, ...]] = ("FileAuditStore",)
+
+    def test_every_shipped_adapter_is_named(self):
+        """Read out of the source rather than off `__subclasses__`.
+
+        A subclass only appears in `__subclasses__` once its module has been
+        imported, so a check built on it passes for an adapter nobody imported
+        — which is the same shape as the defect it is meant to catch, and the
+        second time this repository has had to notice it.
+        """
+        import ast
+        from pathlib import Path
+
+        package = Path(__file__).resolve().parents[2] / "code_reviewer"
+        shipped = {
+            node.name
+            for path in package.rglob("*.py")
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            if isinstance(node, ast.ClassDef)
+            and any(isinstance(base, ast.Name) and base.id == "AuditStore" for base in node.bases)
+        }
+
+        assert shipped == set(self.SHIPPED), (
+            "an AuditStore adapter exists that the conformance suite does not name"
+        )
+
+    def test_the_named_adapter_is_the_one_the_suite_runs(self):
+        """The list above would be worth nothing if it named something no test
+        touched."""
+        assert FileAuditStore.__name__ in self.SHIPPED

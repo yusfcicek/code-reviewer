@@ -326,3 +326,86 @@ class TestRetiredKeysFromTheEnvironment:
         )
 
         assert isinstance(signer, HmacSigner)
+
+
+class TestRetiringTheKeyYouAreStillUsing:
+    """Self-review 30, S-01.
+
+    `Keyring` refuses two keys answering to one name, which is right: a key id
+    is what a record names, and two keys under one name make a record's
+    attribution a coin flip. But `signer_from_environment` did not catch it, so
+    the refusal reached the composition root as a `ValueError` and took the
+    review with it.
+
+    The way to hit it is the most likely mistake in the operation this whole
+    level is about: retiring the key you are still signing with.
+
+        REVIEW_AUDIT_KEY_ID=2025-key
+        REVIEW_AUDIT_KEY_RETIRED_2025-key=...
+
+    `signer_from_environment` says "Never raises" in its own docstring, and the
+    rule since Level 20's contract C-9 is that an accountability feature may not
+    fail the thing it accounts for.
+    """
+
+    CURRENT = "current-key-material-long-enough"
+    RETIRED = "retired-key-material-long-enough"
+
+    def _environment(self):
+        return {
+            "REVIEW_AUDIT_KEY": self.CURRENT,
+            "REVIEW_AUDIT_KEY_ID": "2025-key",
+            "REVIEW_AUDIT_KEY_RETIRED_2025-key": self.RETIRED,
+        }
+
+    def test_it_does_not_raise(self):
+        from code_reviewer.infrastructure.governance.signing import signer_from_environment
+
+        signer = signer_from_environment(self._environment())
+
+        assert signer.is_signing
+
+    def test_the_key_that_signs_wins_the_name(self):
+        """The retired entry is what is dropped, because the signing key is the
+        one about to write records under that id."""
+        from code_reviewer.infrastructure.governance.signing import signer_from_environment
+
+        signer = signer_from_environment(self._environment())
+        signature, key_id = signer.sign("a-digest")
+
+        assert key_id == "2025-key"
+        assert signer.accepts("a-digest", signature, "2025-key") is True
+
+    def test_the_collision_is_logged_so_it_is_not_silent(self, caplog):
+        import logging
+
+        from code_reviewer.infrastructure.governance.signing import signer_from_environment
+
+        with caplog.at_level(logging.WARNING):
+            signer_from_environment(self._environment())
+
+        # The id travels as a structured field, which is how every identifier
+        # in this package is logged.
+        assert any(getattr(record, "fields", {}).get("key_id") == "2025-key" for record in caplog.records)
+
+    def test_the_key_material_is_not_in_the_log(self, caplog):
+        import logging
+
+        from code_reviewer.infrastructure.governance.signing import signer_from_environment
+
+        with caplog.at_level(logging.DEBUG):
+            signer_from_environment(self._environment())
+
+        assert self.RETIRED not in caplog.text
+        assert self.CURRENT not in caplog.text
+
+    def test_two_retired_keys_under_one_name_cannot_happen_from_the_environment(self):
+        """One variable per key, and a mapping has one value per name — the
+        reason the format is what it is (decision D-4)."""
+        from code_reviewer.infrastructure.governance.signing import signer_from_environment
+
+        signer = signer_from_environment(
+            {"REVIEW_AUDIT_KEY_RETIRED_2025-key": self.RETIRED, "REVIEW_AUDIT_KEY": self.CURRENT}
+        )
+
+        assert signer.key_ids == ("2025-key", "unnamed-key")
