@@ -17,11 +17,19 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
+      # Pinned to an exact version, not `@v9`: setup-uv stopped publishing
+      # major and minor tags at v8, deliberately, so that a compromised
+      # upstream cannot move a tag under everybody's pipeline. `@v9` resolves
+      # to nothing, which fails the job rather than silently using something
+      # older — but the failure would read as a broken workflow, so the reason
+      # is written here.
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v9.0.0
         with:
+          # Still stated rather than left to the default, which is now `auto`.
+          # What this pipeline wants is a cache, on every event.
           enable-cache: true
 
       - name: Set up Python
@@ -104,7 +112,7 @@ jobs:
 
       - name: Upload evaluation summary
         if: '!cancelled()'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: evaluation-summary
           path: evaluation-summary.json
@@ -119,7 +127,7 @@ jobs:
 
       - name: Upload coverage
         if: '!cancelled()'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.xml
