@@ -314,11 +314,22 @@ def _signature_verdict(
     if unheld:
         # Named rather than counted: the operator's next move is to find that
         # key or to accept that it is gone, and both need the name (C-5).
+        #
+        # And said *beside* the unsigned count rather than instead of it. This
+        # branch used to replace it, so a store with an unheld key and an
+        # unsigned record reported only the first — and an operator who found
+        # the key would come back to a store that still did not verify
+        # (self-review 30, S-04).
+        also = (
+            f"; {checked - signed} of {checked} record(s) are unsigned and attest to nothing"
+            if signed < checked
+            else ""
+        )
         return ChainVerdict(
             ChainStatus.UNVERIFIABLE,
             reason=(
                 "the links hold; no key was given for "
-                f"{', '.join(unheld)}, so what those records attest to cannot be checked"
+                f"{', '.join(unheld)}, so what those records attest to cannot be checked{also}"
             ),
             checked=checked,
             signed=signed,
