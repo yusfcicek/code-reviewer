@@ -19,8 +19,10 @@ model (decision D-1).
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .alignment import Expectation
 from .finding import Finding
 from .severity import Severity
 
@@ -318,3 +320,76 @@ CHECKS = (
 #: The names, for validation. Derived rather than written twice: a second list
 #: is a second thing to forget.
 CHECK_NAMES = frozenset(check.__name__ for check in CHECKS)
+
+
+#: What each check needs the prompt to say for grading against it to be fair.
+#:
+#: Level 29's subject. These five checks scored 1.00 over twenty-four recorded
+#: reviews for eight levels, and three of them were enforcing rules the shipped
+#: template never stated — `cite`, `citation`, `path:line`, `verdict` and
+#: `approved` were all absent from it. A check with nothing behind it grades the
+#: model on a rule it was never given, and when the score falls the fix is
+#: looked for in a prompt that has nothing to fix.
+#:
+#: Literal phrases, because a phrase somebody can search for is a phrase
+#: somebody can add. Every one of these is `Match.ALL`, which is the strict
+#: reading: a rule with two halves needs both, and a prompt that says half of
+#: it backs half a check. `Match.ANY` exists for a rule a prompt may reasonably
+#: phrase two ways and nothing here needs it — the one place it was used
+#: accepted a field label as an alternative to an instruction (self-review 29,
+#: S-02).
+#:
+#: What this measures, exactly: whether the sentence is **there**. A rewrite
+#: that means the same thing in other words reports unbacked, and the fix is to
+#: add the wording here. That is the price of refusing an unmeasured judgement
+#: in the middle of a measurement, and it is stated rather than glossed.
+EXPECTATIONS = (
+    Expectation(
+        check="citations_are_grounded",
+        phrases=("cite the exact location as `path:line`", "never cite a line that does not exist"),
+    ),
+    Expectation(
+        check="the_prose_claims_no_verdict",
+        phrases=("never state whether the change is approved, rejected or blocked",),
+    ),
+    Expectation(
+        check="severity_claims_are_backed",
+        phrases=("only write CRITICAL or HIGH where a finding of that severity exists",),
+    ),
+    Expectation(
+        check="severe_findings_are_mentioned",
+        # `Vulnerabilities Found` used to stand here as an alternative, and it
+        # is a *field label* in the output format rather than an instruction:
+        # it states none of the rule, so the check reported itself backed by a
+        # prompt that never asked for anything (self-review 29, S-02). An
+        # instruction is a sentence telling the model what to do; a shape is a
+        # shape.
+        phrases=("name every CRITICAL finding",),
+    ),
+    Expectation(
+        check="required_sections_are_present",
+        phrases=tuple(REQUIRED_SECTIONS),
+    ),
+)
+
+
+#: Headings the output format demands that nothing grades, and why.
+#:
+#: The shape `fix_recipes.DECLINED` established: a refusal with the reason in
+#: it, because a refusal without one is indistinguishable from an oversight.
+#: Both of these were demanded for eight levels and checked by nothing, which is
+#: how a model could drop the entire Refactoring Roadmap and pass every check
+#: this repository had.
+UNCHECKED_SECTIONS: Mapping[str, str] = {
+    "Architectural Review Summary": (
+        "the summary is a paragraph of judgement, and a check over it would be a check on whether "
+        "a sentence is a good sentence. Its absence is visible to any reader at a glance, which is "
+        "the one failure mode a rule would be for"
+    ),
+    "Refactoring Roadmap": (
+        "the roadmap is advice, and Level 22 settled what this project does with advice: a "
+        "suggestion is offered, never applied, and never graded. A check demanding one would "
+        "demand that the model always have something to suggest, which is the pressure that "
+        "invents findings"
+    ),
+}

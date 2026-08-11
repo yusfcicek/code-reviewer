@@ -256,3 +256,36 @@ def test_a_severity_claim_in_the_shape_a_review_writes_it_is_caught():
         result = severity_claims_are_backed(_case(phrasing))
 
         assert not result.passed, f"not caught: {phrasing}"
+
+
+class TestWhatEachCheckNeedsThePromptToSay:
+    """Level 29, AC-1 and AC-3.
+
+    Five checks graded twenty-four recorded reviews to a score of 1.00, and
+    three of them were enforcing rules the prompt never stated. The pairing is
+    declared here, beside the checks, so a sixth check with no expectation
+    fails a test rather than joining silently.
+    """
+
+    def test_every_check_declares_what_the_prompt_must_say(self):
+        from code_reviewer.domain.narration import CHECKS, EXPECTATIONS
+
+        assert {expectation.check for expectation in EXPECTATIONS} == {check.__name__ for check in CHECKS}
+
+    def test_no_expectation_names_a_check_that_does_not_exist(self):
+        from code_reviewer.domain.narration import CHECK_NAMES, EXPECTATIONS
+
+        for expectation in EXPECTATIONS:
+            assert expectation.check in CHECK_NAMES
+
+    def test_every_unchecked_section_carries_a_reason(self):
+        from code_reviewer.domain.narration import UNCHECKED_SECTIONS
+
+        for section, reason in UNCHECKED_SECTIONS.items():
+            assert reason.strip(), section
+
+    def test_a_required_section_is_not_also_declined(self):
+        """One heading cannot be both graded and deliberately ungraded."""
+        from code_reviewer.domain.narration import REQUIRED_SECTIONS, UNCHECKED_SECTIONS
+
+        assert not set(REQUIRED_SECTIONS) & set(UNCHECKED_SECTIONS)

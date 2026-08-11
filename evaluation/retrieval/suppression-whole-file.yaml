@@ -1,0 +1,65 @@
+name: suppression-whole-file
+because: >-
+  The change adds handling for a directive that applies to a whole file
+  rather than a line, and the diff uses none of the section's words.
+expect:
+  path: docs/suppression.md
+  heading: Silencing a whole file
+diff: |
+  @@ -22,4 +22,7 @@
+       def parse(self, text):
+  -        return [self._line_directive(line) for line in text.splitlines()]
+  +        parsed = [self._line_directive(line) for line in text.splitlines()]
+  +        if text.startswith("# review-ignore-file:"):
+  +            parsed.append(self._blanket(text))
+  +        return parsed
+documents:
+  docs/suppression.md: |
+    # Suppression
+
+    ## Silencing a rule
+
+    A directive next to a line quiets one rule there, and the written reason is what
+    the next person reads.
+
+    ## Silencing a whole file
+
+    A directive at the top applies to every line below it, which is a bigger claim
+    and wants a bigger reason.
+
+    ## What is counted
+
+    Every quieted finding is counted and the count is printed, because a silence
+    nobody can see is indistinguishable from a clean result.
+  docs/operations.md: |
+    # Operations
+    
+    ## Running the service
+    
+    A worker claims the oldest queued job and moves it to running. Nothing blocks
+    inside the store, because a worker that waits there cannot be told to stop.
+    
+    ## Configuration
+    
+    Every setting is read from the environment once at start-up and logged by name,
+    never by value.
+    
+    ## Deploying
+    
+    The chart applies a config map, a deployment and a horizontal autoscaler. A
+    rollout that cannot pull its image fails closed.
+    
+    ## Metrics
+    
+    Counts, durations and token use, exported for scraping. None of it says whether
+    a review was any good.
+    
+    ## Troubleshooting
+    
+    A run that produced no comment either found nothing to review or could not reach
+    the forge, and the exit code tells you which.
+    
+    ## Upgrading
+    
+    Read the changelog. Two entries have moved a floor, and a floor that moved is a
+    claim that changed.

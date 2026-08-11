@@ -5,9 +5,9 @@ An AI code review agent for CI/CD pipelines. It triages a merge request before
 spending tokens on it, runs static analyzers over the changed files, asks an LLM
 for an architectural review, and turns the result into a pipeline decision.
 
-> **Status: 2.21.1.** Rebuilt from an imported prototype across twenty-seven
+> **Status: 2.24.1.** Rebuilt from an imported prototype across thirty
 > levels of work. 59 defects were found and recorded and all 59 are now fixed —
-> the last deferred one closed in Level 7. 2494 tests at 94 % coverage; lint,
+> the last deferred one closed in Level 7. 2631 tests at 94 % coverage; lint,
 > formatting, types, tests, a dependency audit with an empty ignore list and a
 > review-quality floor all gate on CI. Levels 7-11 closed a further nineteen
 > gaps found by comparing against a sibling implementation; Level 12 started a
@@ -287,19 +287,19 @@ each retrieval, each memory access.
   able to tell a bad score from a broken harness.
 - Findings a case does not grade are **counted and named**, never dropped, so
   narrowing what is graded cannot quietly improve the score.
-- The current baseline is precision, recall and F1 all `1.00 [0.72, 1.00] over
-  10 graded findings` ([baseline](docs/roadmap/level-12/baseline.md)). The
-  interval is the honest form of the number: ten of ten is consistent with a
-  real rate of 0.72, and until Level 25 this was printed exactly the way a
+- The current baseline is precision, recall and F1 all `1.00 [0.84, 1.00] over
+  20 graded findings` ([baseline](docs/roadmap/level-12/baseline.md)). The
+  interval is the honest form of the number: twenty of twenty is consistent with
+  a real rate of 0.84, and until Level 25 this was printed exactly the way a
   measurement a hundred times larger would be. The committed floors are applied
-  to the **lower bound**, which is why they read 0.70 rather than 0.95 — a
+  to the **lower bound**, which is why they read 0.80 rather than 0.95 — a
   stricter claim, not a weaker one
   ([ADR 0027](docs/adr/0027-a-score-that-states-its-own-uncertainty.md)).
 - Level 12 opened at recall 0.89 — the gap was a real defect the dataset
   recorded rather than annotated away, and Level 13 closed it.
 
 ### 🛠️ 16. A fix you can apply
-- **Six deterministic recipes of thirty-nine emittable rules — 15 %, and the
+- **Six deterministic recipes of thirty-four emittable rules — 18 %, and the
   number is printed** rather than counted by hand. The thirty-two without one
   each carry a recorded reason, and a rule with neither is a red test.
 - Each reads the line its finding named and **declines when the pattern is not
@@ -412,7 +412,9 @@ each retrieval, each memory access.
 - **Signed with a key this repository never produces.** No generated key, no
   bundled key, no fallback to something weaker — a key this project could make
   is one an attacker with this project can make. `REVIEW_AUDIT_KEY` or nothing
-  is signed, and neither a missing nor an unusable key stops a review.
+  is signed, and neither a missing nor an unusable key stops a review. Retired
+  keys are `REVIEW_AUDIT_KEY_RETIRED_<id>`, one variable each, verify-only
+  (Level 30).
 - **Unsigned means corruption-evident, not tamper-evident**, and the verifier
   says so on every unsigned answer: the digest takes no key, so anybody who can
   edit the file can recompute the chain. Signing is what separates a careless
@@ -479,11 +481,13 @@ each retrieval, each memory access.
   retriever, look for the section, record the rank — and it is the half that
   failed: Level 23's tier returned *nothing at all* for a level with nothing to
   notice.
-- Recall `0.80 [0.38, 0.96]` over five cases at the tier's own limit of three,
-  floored at 0.35, with the related section first 60 % of the time and floored
-  there too. Every case hides its answer among ten sections — a corpus whose
-  answer is always returned measures arithmetic, which is what the first version
-  of this one did. **What is not measured is printed**: whether the model was
+- Recall `0.75 [0.51, 0.90]` over sixteen cases at the tier's own limit of
+  three, floored at 0.50, with the related section first 62 % of the time —
+  `[0.39, 0.80]`, floored at 0.35 on the bound like every other floor here.
+  Every case hides its answer among ten sections, and no two cases ask after the
+  same section: a corpus whose answer is always returned measures arithmetic,
+  which is what the first version of this one did, and a corpus that asks one
+  question twice counts one weakness as two. **What is not measured is printed**: whether the model was
   right about a candidate it saw needs a human on every case
   ([ADR 0029](docs/adr/0029-measure-the-half-that-is-measurable.md)).
 - Each case carries **its own documents** so a reader sees the whole haystack, and
@@ -499,9 +503,61 @@ each retrieval, each memory access.
 - **One documentation edit is offered: a rename.** The diff knows both names, so
   it is a substitution rather than a sentence anybody has to review. Prose is
   still never suggested.
-- **`DOCS` still blocks nothing, and there is a number for why**: six graded
-  findings support a lower bound of 0.61, and a blocking gate needs about a
-  hundred. A test records the arithmetic instead of a preference.
+- **`DOCS` still blocks nothing, and there is a number for why**: nineteen
+  graded findings support a lower bound of 0.83, and a blocking gate needs
+  seventy-three. A test records the arithmetic instead of a preference.
+
+### ✍️ 23. Does the prompt ask for what the checks enforce?
+- **Five checks graded the reviewer's prose to 1.00 for eight levels, and three
+  of them enforced rules the prompt never stated.** `cite`, `citation`,
+  `path:line`, `verdict` and `approved` appeared nowhere in the shipped
+  template. A check with no instruction behind it grades the model on a rule it
+  was never given, and when the score falls the fix is looked for in a prompt
+  that has nothing to fix.
+- **Both reverse directions are measured.** The output format demands seven
+  headings and five were checked, so a review dropping the whole Refactoring
+  Roadmap passed everything; each demanded heading is now graded or carries a
+  written reason. And a heading the *checks* name that the prompt never demands
+  is reported too — the more damaging direction, since it fails every review
+  there will ever be.
+- **Two texts and a substring search**, and what it measures is whether the
+  sentence is *there*: a rewrite in other words reports unbacked, and the fix is
+  to add the wording beside the check. Anything cleverer would put an unmeasured
+  judgement inside a measurement, which is why Level 21 refused an LLM judge in
+  the first place.
+- **No interval and no floor**, and that is a decision rather than an oversight:
+  this is not a sample. "Three of five checks are unbacked" is a list of three
+  things to write
+  ([ADR 0031](docs/adr/0031-the-prompt-and-its-checks-are-one-artefact.md)).
+- **What needs a served model is printed on every run**: whether the model
+  *obeys* an instruction that is present, and whether a recorded review still
+  describes what the current prompt produces. Neither is guessed at.
+
+### 🔑 24. A key that is gone is not a key that lied
+- **Rotating the signing key used to make an intact chain report as forged.**
+  `accepts` answered a boolean, so it said the same thing about a signature it
+  had checked and found wrong as about a key id it had never heard of — and
+  Level 24's own rule is that `unverifiable` is not `tampered`.
+- **Three answers now**, and the third is *no key of that name*. The verdict
+  names the key ids it could not check, and the command prints the ones it
+  holds beside it: the mistake this is for is a name that does not match
+  ([ADR 0032](docs/adr/0032-a-key-that-is-gone-is-not-a-key-that-lied.md)).
+- **A keyring: one key signs, any number verify.** A retired key never signs,
+  or "retired" is a label rather than a property. One environment variable per
+  retired key — `REVIEW_AUDIT_KEY_RETIRED_<id>` — so nothing is parsed out of
+  secret material. History is never re-signed under the new key: the key id is
+  the only record of which key attested to what.
+- **An erasure refuses a store it cannot verify at all**, not only one it has
+  caught. Re-sealing records signed by a key nobody holds would destroy the
+  evidence of who attested to them, with the tool built to detect that.
+- **Three of Level 24's four non-goals are refused again, with what was missing
+  underneath each.** *Choosing a store*: refused, and what a store must **do**
+  is an executable conformance suite the file adapter passes and two
+  deliberately wrong adapters fail. *An attestation*: refused — every fact one
+  would contain is already machine-readable, and what a document adds is the
+  cover page, which is where a claim gets made that this repository cannot
+  support. *Encrypting the record*: refused, and its premise — identifiers,
+  never content — is now a test over every field rather than a habit.
 
 ---
 
@@ -534,7 +590,7 @@ finding IDs from [`docs/roadmap/findings.md`](docs/roadmap/findings.md).
 | Resilience | ✅ Works | A failing file is reported as unreviewed; model calls carry a timeout and a retry budget |
 | TLS | ✅ Safe | Certificate verification is on unless `GITLAB_SSL_VERIFY=false` is set explicitly, which warns; `GITLAB_CA_BUNDLE` is supported |
 | Dependencies | ✅ Current | LangChain 1.x; `pip-audit` runs in CI and reports no advisory, with an empty ignore list |
-| Evaluation harness | ✅ Works | Eleven annotated cases scored on every push against floors applied to a 95 % lower bound — `1.00 [0.72, 1.00]` over 10 graded findings — with ungraded findings counted rather than dropped |
+| Evaluation harness | ✅ Works | Seventeen annotated cases scored on every push against floors applied to a 95 % lower bound — `1.00 [0.84, 1.00]` over 20 graded findings — with ungraded findings counted rather than dropped |
 | Retrieval | ✅ Works | Hybrid BM25 + embedding search over the checkout, fused by rank and diversified; measured to beat either half alone; untrusted and best-effort |
 | Project memory | ✅ Works | Identifiers and counts only, decaying with a half-life, recalled per file and marked in the report; never touches the verdict |
 | Container & manifests | ✅ Works | Multi-stage image running as uid 10001, Kubernetes manifests with limits and a locked-down security context, and a test that parses both and asserts every claim |
@@ -830,17 +886,17 @@ expect_absent:           # where a fixed false positive is pinned
     line: 14
 ```
 
-Write what *should* be found, not what is found today. The shipped dataset
-states one defect the suite still misses, which is why the committed recall
-floor is 0.85 rather than 1.00. The loader refuses anything it does not
+Write what *should* be found, not what is found today. The committed floor is
+0.80 rather than 1.00 because it is applied to a lower bound: twenty graded
+findings, all of them correct, support 0.84 and no more. The loader refuses anything it does not
 recognise — an unknown key, a missing line, an unparseable severity — because a
 dataset is ground truth and a key nobody reads is a claim nobody checks.
 
-CI runs exactly these six checks — `.github/workflows/ci.yml` on GitHub and
+CI runs exactly these nine checks — `.github/workflows/ci.yml` on GitHub and
 `.gitlab-ci.yml` on GitLab. The GitLab pipeline also runs this agent against
 its own merge requests, so the job below is one the project uses on itself.
 
-1585 tests, 94 % coverage with an enforced floor of 91 %. The dependency
+2631 tests, 94 % coverage with an enforced floor of 91 %. The dependency
 audit runs with an empty ignore list. The domain and
 application layers sit at 88–100 %; the
 review workflow runs entirely against in-memory fakes, with no network and no

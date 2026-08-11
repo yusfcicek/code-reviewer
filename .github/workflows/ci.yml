@@ -56,19 +56,51 @@ jobs:
         run: ./scripts/audit-deps.sh
 
       # Review quality, measured rather than asserted. The floors are the
-      # measured baseline minus a margin (Level 12, decision D-4).
+      # measured baseline minus a margin (Level 12, decision D-4), applied to
+      # the lower bound of a 95 % interval rather than to the ratio (Level 25).
+      #
+      # Every number below is pinned to the constant the command itself uses by
+      # `tests/unit/test_ci_gates.py`. Without that test the two drifted: Level
+      # 25 changed what a floor means, these lines went on asking for the old
+      # ones, and the two steps failed for four levels while four level reports
+      # said they passed (self-review 28, S-01).
       - name: Evaluate review quality
         if: '!cancelled()'
         run: >
           uv run ai-code-review-eval
-          --min-precision 0.95 --min-recall 0.95 --min-f1 0.95
+          --min-precision 0.80 --min-recall 0.80 --min-f1 0.80
           --json evaluation-summary.json
 
       # The second measurement: what the model *said*, graded offline against
       # the facts it was written about. No endpoint is involved (Level 21).
       - name: Evaluate narration quality
         if: '!cancelled()'
-        run: uv run ai-code-review-eval --narration --min-narration 1.0
+        run: uv run ai-code-review-eval --narration --min-narration 0.85
+
+      # The third: whether a change is reported against the prose that
+      # described it (Level 23, measured by Level 27). Warns rather than
+      # blocks in the product; the corpus itself is gated here.
+      - name: Evaluate documentation drift
+        if: '!cancelled()'
+        run: >
+          uv run ai-code-review-eval --documentation
+          --min-precision 0.80 --min-recall 0.80 --min-f1 0.80
+
+      # The fourth: whether the section a reader says relates to a change is
+      # retrieved at all. Level 28 earned this floor and CI never ran it
+      # (self-review 28, S-04).
+      - name: Evaluate drift retrieval
+        if: '!cancelled()'
+        run: uv run ai-code-review-eval --retrieval --min-retrieval 0.50
+
+      # The fifth is not a score. It compares the prompt against the checks
+      # over its output: a check with no instruction behind it grades the
+      # model on a rule it was never given, and a heading nothing grades is
+      # output nobody looks at. Two texts, so there is no floor to pass
+      # (Level 29).
+      - name: Check the prompt against its checks
+        if: '!cancelled()'
+        run: uv run ai-code-review-eval --alignment
 
       - name: Upload evaluation summary
         if: '!cancelled()'

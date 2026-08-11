@@ -100,6 +100,20 @@ class RecallReport:
             return 0.0
         return sum(1 for result in self.results if result.rank == 1) / len(self.results)
 
+    @property
+    def first_rank_interval(self) -> Interval:
+        """First place, and the rates still consistent with it.
+
+        The floor goes here rather than on :attr:`first_rank_share`, because
+        Level 25 moved every floor in this repository to a lower bound and ADR
+        0027 says why: a share over sixteen cases is consistent with a much
+        worse retriever, and a floor on the point estimate is cleared by a
+        corpus too small to mean anything. This figure arrived two levels after
+        that rule and was the last one still exempt from it (self-review 28,
+        S-05).
+        """
+        return wilson(sum(1 for result in self.results if result.rank == 1), len(self.results))
+
 
 def measure_recall(cases: Sequence[RecallCase], build_retriever, limit: int) -> RecallReport:
     """Runs each case's change against its own documents and records the rank.
@@ -155,10 +169,12 @@ def render_recall_report(report: RecallReport, floor: float, first_place_floor: 
         "about it — that needs a human on every case._",
         "",
         f"**First place**: {report.first_rank_share:.0%} of cases returned the related section "
-        f"at rank 1 (floor {first_place_floor:.0%}) — "
-        f"{'met' if report.first_rank_share >= first_place_floor else 'BELOW THE FLOOR'}. "
+        f"at rank 1, lower bound {report.first_rank_interval.lower:.2f} "
+        f"(floor {first_place_floor:.2f} on the lower bound) — "
+        f"{'met' if report.first_rank_interval.lower >= first_place_floor else 'BELOW THE FLOOR'}. "
         "The tier's per-file limit is three, so rank is not a detail — and this is the figure "
-        "a retriever can actually fail, so it is floored too (self-review 27, S-03).",
+        "a retriever can actually fail, so it is floored too (self-review 27, S-03), on the "
+        "bound rather than the share (self-review 28, S-05).",
         "",
     ]
 

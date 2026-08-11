@@ -202,16 +202,17 @@ def sealed(
 
 def verify(
     entries: "Sequence[tuple[Seal, Mapping[str, Any]]]",
-    accepts: "Callable[[str, str, str], bool] | None" = None,
+    accepts: "Callable[[str, str, str], bool | None] | None" = None,
     expect_at_least: int = 0,
 ) -> ChainVerdict:
     """Checks a store, and reports the first thing that does not hold.
 
     Args:
         entries: Seals with the payloads they sealed, in stored order.
-        accepts: Whether a signature is valid for a digest and key id. ``None``
-            means no key is available, which makes signatures *unverifiable*
-            rather than wrong.
+        accepts: Whether a signature is valid for a digest and key id. Passing
+            ``None`` means no key is available at all, which makes signatures
+            *unverifiable* rather than wrong. The callable itself answers three
+            ways; see below.
         expect_at_least: How many records an anchor **outside this file** says
             the store should hold. Zero means no anchor was given, and then
             truncation is not detectable at all: a prefix of a valid chain is a
@@ -222,9 +223,17 @@ def verify(
     its payload means that record was edited. A **link** that does not point at
     the record before it means one was removed, inserted or moved. An operator
     needs to know which, and the reason says so.
+
+    So is a third thing, since Level 30. ``accepts`` answers ``True``,
+    ``False`` or ``None``, and ``None`` means **the verifier holds no key with
+    that name** — which is the state of anybody who has rotated a key. Reading
+    that as ``False`` turned the most routine operation in key management into
+    an accusation of forgery, against this module's own rule that unverifiable
+    is not tampered.
     """
     previous = GENESIS
     signed = 0
+    unheld: list[str] = []
 
     for position, (seal, payload) in enumerate(entries, start=1):
         if seal.previous != previous:
@@ -259,15 +268,26 @@ def verify(
 
         if seal.is_signed:
             signed += 1
-            if accepts is not None and not accepts(seal.digest, seal.signature, seal.key_id):
-                return ChainVerdict(
-                    ChainStatus.TAMPERED,
-                    position,
-                    "the signature is not one this key could have produced",
-                    position - 1,
-                    signed - 1,
-                    position - 1,
-                )
+            if accepts is not None:
+                answer = accepts(seal.digest, seal.signature, seal.key_id)
+                if answer is None:
+                    # A key the verifier does not hold. The link still holds and
+                    # the digest still matches: nothing here is evidence of a
+                    # tamper, and saying so would be the cry-wolf this module
+                    # was written to avoid. Collected and reported at the end,
+                    # because a real tamper further on is the more serious
+                    # finding and must be the one an operator sees.
+                    if seal.key_id not in unheld:
+                        unheld.append(seal.key_id)
+                elif not answer:
+                    return ChainVerdict(
+                        ChainStatus.TAMPERED,
+                        position,
+                        "the signature is not one this key could have produced",
+                        position - 1,
+                        signed - 1,
+                        position - 1,
+                    )
 
         previous = seal.digest
 
@@ -282,13 +302,39 @@ def verify(
             len(entries),
         )
 
-    return _signature_verdict(len(entries), signed, accepts)
+    return _signature_verdict(len(entries), signed, accepts, tuple(unheld))
 
 
-def _signature_verdict(checked: int, signed: int, accepts: object) -> ChainVerdict:
+def _signature_verdict(
+    checked: int, signed: int, accepts: object, unheld: tuple[str, ...] = ()
+) -> ChainVerdict:
     """Every link held. Whether that is the whole story depends on the keys."""
     if checked == 0:
         return ChainVerdict(ChainStatus.INTACT, checked=0, last_sequence=0)
+    if unheld:
+        # Named rather than counted: the operator's next move is to find that
+        # key or to accept that it is gone, and both need the name (C-5).
+        #
+        # And said *beside* the unsigned count rather than instead of it. This
+        # branch used to replace it, so a store with an unheld key and an
+        # unsigned record reported only the first — and an operator who found
+        # the key would come back to a store that still did not verify
+        # (self-review 30, S-04).
+        also = (
+            f"; {checked - signed} of {checked} record(s) are unsigned and attest to nothing"
+            if signed < checked
+            else ""
+        )
+        return ChainVerdict(
+            ChainStatus.UNVERIFIABLE,
+            reason=(
+                "the links hold; no key was given for "
+                f"{', '.join(unheld)}, so what those records attest to cannot be checked{also}"
+            ),
+            checked=checked,
+            signed=signed,
+            last_sequence=checked,
+        )
     if accepts is None:
         if signed == 0:
             return ChainVerdict(

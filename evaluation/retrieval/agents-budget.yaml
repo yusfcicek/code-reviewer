@@ -1,0 +1,63 @@
+name: agents-budget
+because: >-
+  The change adds a stop when an allowance runs out, which is the behaviour
+  the section promises.
+expect:
+  path: docs/agents.md
+  heading: Budgets
+diff: |
+  @@ -26,3 +26,5 @@
+       def step(self, state):
+  -        return self._model.invoke(state)
+  +        if self._spent >= self._allowance:
+  +            return state.stopped("allowance exhausted")
+  +        return self._model.invoke(state)
+documents:
+  docs/agents.md: |
+    # The committee
+
+    ## How work is divided
+
+    Each specialist is offered only the tools its own subject needs, so a claim
+    about a capability it does not have cannot be made.
+
+    ## Budgets
+
+    Every agent has a token allowance, and one that exhausts it stops rather than
+    truncating in the middle of a sentence.
+
+    ## When one fails
+
+    Its subject is reported as unreviewed. The others still run.
+  docs/operations.md: |
+    # Operations
+    
+    ## Running the service
+    
+    A worker claims the oldest queued job and moves it to running. Nothing blocks
+    inside the store, because a worker that waits there cannot be told to stop.
+    
+    ## Configuration
+    
+    Every setting is read from the environment once at start-up and logged by name,
+    never by value.
+    
+    ## Deploying
+    
+    The chart applies a config map, a deployment and a horizontal autoscaler. A
+    rollout that cannot pull its image fails closed.
+    
+    ## Metrics
+    
+    Counts, durations and token use, exported for scraping. None of it says whether
+    a review was any good.
+    
+    ## Troubleshooting
+    
+    A run that produced no comment either found nothing to review or could not reach
+    the forge, and the exit code tells you which.
+    
+    ## Upgrading
+    
+    Read the changelog. Two entries have moved a floor, and a floor that moved is a
+    claim that changed.

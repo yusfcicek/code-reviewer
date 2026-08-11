@@ -1,0 +1,33 @@
+# Added by Level 28. DEAD_REFERENCE had one case; a rule demonstrated once is a
+# rule pinned by whatever example its author had in mind.
+name: dead-reference-in-a-second-document
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: app.py
+    diff: |
+      @@ -1,4 +1,1 @@
+      -def legacy_boot(config):
+      -    return config
+      -
+       x = 1
+documents:
+  docs/guide.md: |
+    # Guide
+
+    Start with `legacy_boot`.
+  docs/other.md: |
+    # Other
+
+    Also start with `legacy_boot`, then continue.
+expected:
+  - rule: DOCS.DEAD_REFERENCE
+    line: 3
+  - rule: DOCS.DEAD_REFERENCE
+    line: 3

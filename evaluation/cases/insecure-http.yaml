@@ -1,0 +1,22 @@
+# Added by Level 28. Two of the three URLs are reported: the HTTPS one is not,
+# and the loopback one *is*.
+#
+# The loopback expectation is the interesting half. A first draft forbade it,
+# on the assumption that plain HTTP to localhost is not the defect the rule is
+# about. The rule reports it, and the case now records that rather than the
+# assumption — the recipe declines it, which is where the distinction belongs
+# (Level 26). A case written from a guess about an analyzer is the mistake the
+# last three self-reviews each found a version of.
+name: insecure-http
+file: fixtures/insecure_http.py
+scope: ["SAST.INSECURE_HTTP"]
+expect:
+  - rule: SAST.INSECURE_HTTP
+    line: 7
+    severity: low
+  - rule: SAST.INSECURE_HTTP
+    line: 9
+    severity: low
+expect_absent:
+  - rule: SAST.INSECURE_HTTP
+    line: 8

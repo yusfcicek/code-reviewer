@@ -1,0 +1,64 @@
+name: agents-one-fails
+because: >-
+  The change makes one specialist's failure cost its own subject rather than
+  the run, which the section describes without naming a symbol.
+expect:
+  path: docs/agents.md
+  heading: When one fails
+diff: |
+  @@ -33,4 +33,7 @@
+       for specialist in self._specialists:
+  -        reports.append(specialist.review(brief))
+  +        try:
+  +            reports.append(specialist.review(brief))
+  +        except Exception:
+  +            unreviewed.append(specialist.subject)
+documents:
+  docs/agents.md: |
+    # The committee
+
+    ## How work is divided
+
+    Each specialist is offered only the tools its own subject needs, so a claim
+    about a capability it does not have cannot be made.
+
+    ## Budgets
+
+    Every agent has a token allowance, and one that exhausts it stops rather than
+    truncating in the middle of a sentence.
+
+    ## When one fails
+
+    Its subject is reported as unreviewed. The others still run.
+  docs/operations.md: |
+    # Operations
+    
+    ## Running the service
+    
+    A worker claims the oldest queued job and moves it to running. Nothing blocks
+    inside the store, because a worker that waits there cannot be told to stop.
+    
+    ## Configuration
+    
+    Every setting is read from the environment once at start-up and logged by name,
+    never by value.
+    
+    ## Deploying
+    
+    The chart applies a config map, a deployment and a horizontal autoscaler. A
+    rollout that cannot pull its image fails closed.
+    
+    ## Metrics
+    
+    Counts, durations and token use, exported for scraping. None of it says whether
+    a review was any good.
+    
+    ## Troubleshooting
+    
+    A run that produced no comment either found nothing to review or could not reach
+    the forge, and the exit code tells you which.
+    
+    ## Upgrading
+    
+    Read the changelog. Two entries have moved a floor, and a floor that moved is a
+    claim that changed.

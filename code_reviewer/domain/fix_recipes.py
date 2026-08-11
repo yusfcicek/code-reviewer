@@ -238,13 +238,14 @@ DECLINED: Mapping[str, str] = {
     "PERFORMANCE.LARGE_MEMORY": "streaming instead of loading is a redesign of the function",
     "PERFORMANCE.RECURSIVE_RISK": "converting recursion to iteration is a rewrite",
     "PERFORMANCE.UNNECESSARY_COPY": "whether the copy is necessary is what the analyzer guessed at",
-    "SEMANTIC.BREAKING": "a breaking change is a fact about the change, not a defect with a fix",
-    "SEMANTIC.BUGFIX": "not a defect",
-    "SEMANTIC.DOCS": "not a defect",
-    "SEMANTIC.FEATURE": "not a defect",
-    "SEMANTIC.REFACTOR": "not a defect",
-    "SEMANTIC.STYLE": "not a defect",
-    "SEMANTIC.UNKNOWN": "not a defect",
+    "SEMANTIC.BREAKING_CHANGE": (
+        "a breaking change is a fact about the change rather than a defect: the fix is to every "
+        "caller, or a deprecation shim, and both are decisions"
+    ),
+    "SEMANTIC.UNREFERENCED_IN_FILE": (
+        "a symbol nothing in the file references is either dead or called from elsewhere, and "
+        "telling those apart is what the reader is for"
+    ),
 }
 
 #: Recipes whose edit needs a module the file may not import yet. The second

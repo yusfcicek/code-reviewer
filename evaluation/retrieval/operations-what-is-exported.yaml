@@ -1,0 +1,63 @@
+name: operations-what-is-exported
+because: >-
+  The section says what leaves the process — counts, durations and token use —
+  and the change removes two of the three exports. The diff names none of them
+  the way the document does, which is the case this tier exists for.
+expect:
+  path: docs/operations.md
+  heading: Metrics
+diff: |
+  @@ -18,5 +18,3 @@
+       def finish(self, outcome, elapsed):
+  -        self._reviews_total.labels(outcome).inc()
+  -        self._duration_seconds.observe(elapsed)
+           self._log.info("review finished")
+documents:
+  docs/gate.md: |
+    # The gate
+
+    ## How a merge is stopped
+
+    Findings decide. The prose a language model produces is advice for a reader and
+    never an input to the decision.
+
+    ## Exit codes
+
+    Zero, one and two mean three different things.
+
+    ## Severity thresholds
+
+    A finding at or above the configured level stops the pipeline; everything below
+    it is reported and does not.
+  docs/operations.md: |
+    # Operations
+    
+    ## Running the service
+    
+    A worker claims the oldest queued job and moves it to running. Nothing blocks
+    inside the store, because a worker that waits there cannot be told to stop.
+    
+    ## Configuration
+    
+    Every setting is read from the environment once at start-up and logged by name,
+    never by value.
+    
+    ## Deploying
+    
+    The chart applies a config map, a deployment and a horizontal autoscaler. A
+    rollout that cannot pull its image fails closed.
+    
+    ## Metrics
+    
+    Counts, durations and token use, exported for scraping. None of it says whether
+    a review was any good.
+    
+    ## Troubleshooting
+    
+    A run that produced no comment either found nothing to review or could not reach
+    the forge, and the exit code tells you which.
+    
+    ## Upgrading
+    
+    Read the changelog. Two entries have moved a floor, and a floor that moved is a
+    claim that changed.

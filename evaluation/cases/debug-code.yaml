@@ -1,0 +1,13 @@
+# Added by Level 28. SAST.DEBUG_CODE is the rule Level 26 declined a recipe for
+# on the record, and a rule with a written refusal and no case is a refusal
+# about behaviour nobody measured.
+name: debug-code
+file: fixtures/debug_code.py
+scope: ["SAST.DEBUG_CODE"]
+expect:
+  - rule: SAST.DEBUG_CODE
+    line: 3
+    severity: medium
+  - rule: SAST.DEBUG_CODE
+    line: 7
+    severity: medium

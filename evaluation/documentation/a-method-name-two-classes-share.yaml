@@ -1,0 +1,32 @@
+# Added by self-review 28 (S-02). Level 28 taught the scope check that a diff
+# declares a method by its bare name while a document writes it qualified,
+# which is how `Renderer.render` came to be checked at all. The widening
+# matched on the final segment alone, so a change to one class's `render` made
+# the tier report a stale signature on another class's `render` — a symbol the
+# diff proves nothing about.
+#
+# `render`, `run`, `close` and `read` are shared by two classes in most trees,
+# so this is the ordinary case rather than the exotic one, and a corpus case is
+# how the fix stays fixed.
+name: a-method-name-two-classes-share
+index:
+  names: [render, Renderer, Legacy, Renderer.render, Legacy.render, MAX_LINES]
+  signatures:
+    Renderer.render: [self, width, height]
+    Legacy.render: [self, a, b]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: render.py
+    diff: |
+      @@ -1,2 +1,2 @@
+      -    def render(self, width):
+      +    def render(self, width, height):
+documents:
+  docs/legacy.md: |
+    # The old renderer
+
+    Call `Legacy.render(a)` to draw the old way.
+expected: []
+forbidden:
+  - rule: DOCS.SIGNATURE_MISMATCH

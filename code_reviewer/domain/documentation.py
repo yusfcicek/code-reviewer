@@ -117,6 +117,16 @@ class SymbolIndex:
         # mistake. A qualified symbol the tree indexed is stored qualified.
         return self.signatures.get(name)
 
+    def owners_of(self, tail: str) -> int:
+        """How many qualified names in the tree end in this segment.
+
+        `Renderer.render` and `Legacy.render` are two owners of `render`, and a
+        diff that declares the bare name says nothing about which one it
+        belongs to. :meth:`ChangeScope.covers` asks this before attributing a
+        document's qualified claim to a change (self-review 28, S-02).
+        """
+        return sum(1 for name in self.names if "." in name and name.rsplit(".", 1)[-1] == tail)
+
     def knows_option(self, flag: str) -> bool:
         return flag in self.options
 
@@ -375,6 +385,32 @@ class ChangeScope:
         """
         return self.removed | self.touched
 
+    def covers(self, subject: str, index: "SymbolIndex") -> bool:
+        """Whether the change is responsible for this name, dotted or not.
+
+        A diff of a method yields the **bare** name — `def render(self, …)` is a
+        line that declares `render` — while a document names it **qualified**,
+        as `Renderer.render`. Comparing the two as strings missed every
+        signature a method ever had, which is what Level 28's new case found on
+        its first run.
+
+        Level 28 defended matching on the final segment alone by arguing that a
+        name belonging to something else would fail to resolve. It resolves
+        whenever two classes share a method name, which for `render`, `run`,
+        `close` and `read` is the ordinary case — and the tier then reported a
+        stale signature on a class the diff never touched (self-review 28,
+        S-02). So the tree is asked how many owners the name has, and the
+        widening applies only when the answer is one: with two, which of them
+        the diff declared is not in the diff, and a tier that reports what a
+        change *proves* has to say so.
+        """
+        if subject in self.touched:
+            return True
+        tail = subject.rsplit(".", 1)[-1]
+        if tail == subject or tail not in self.touched:
+            return False
+        return index.owners_of(tail) == 1
+
     def for_document(self, changed: bool) -> "ChangeScope":
         """The same scope, told whether *this* document was edited."""
         return ChangeScope(removed=self.removed, touched=self.touched, document_changed=changed)
@@ -487,7 +523,7 @@ def _symbol_defect(claim: DocumentClaim, index: SymbolIndex, scope: ChangeScope)
 
     if claim.kind is not ClaimKind.SIGNATURE:
         return None
-    if not (scope.document_changed or claim.subject in scope.touched):
+    if not (scope.document_changed or scope.covers(claim.subject, index)):
         return None
 
     defined = index.parameters_of(claim.subject)

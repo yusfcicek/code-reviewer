@@ -7,6 +7,239 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.24.1] — 2026-08-11
+
+The self-review of Level 30, and the four findings it closed.
+
+### Fixed
+
+- **Retiring the key you are still signing with crashed the review.** `Keyring`
+  refuses two keys under one name; `signer_from_environment` did not catch that
+  refusal, so a `ValueError` reached the composition root from the most likely
+  mistake in the operation the level exists for. The signing key keeps the name
+  and the duplicate retired entry is dropped with a warning.
+- **The encryption refusal's premise was checked on a record the test built**,
+  never on the values the code puts there — `failure_reason=str(refusal)` takes
+  whatever a `ValueError` says. Free text is flattened where it enters, rather
+  than refused: a record that raised on a multi-line reason would raise inside
+  the `except` that exists to write a record when something already went wrong.
+- **The store conformance suite covered the one adapter that already worked.**
+  The adapters are enumerated now, read out of the source with `ast` rather than
+  off `__subclasses__` — a subclass nobody imported does not appear there.
+- **An unverifiable verdict answered one question and dropped another.** A store
+  with an unheld key *and* an unsigned record reported only the key, so an
+  operator who found it would come back to a store that still did not verify.
+
+---
+
+## [2.24.0] — 2026-08-11
+
+Level 30 — key custody, and three refusals with reasons. Recorded in
+[`docs/roadmap/level-30/spec.md`](docs/roadmap/level-30/spec.md) and
+[ADR 0032](docs/adr/0032-a-key-that-is-gone-is-not-a-key-that-lied.md).
+
+### Fixed
+
+- **Rotating the audit signing key made an intact chain report as `tampered`.**
+  `Signer.accepts` answered a boolean, so it said the same thing about a
+  signature it had checked and found wrong as about a key id it had never heard
+  of — against the rule Level 24 wrote and did not carry into its own key
+  handling. There are three answers now, and `None` means *no key of that name*.
+- **`verify_store` asked whether the signer was signing** and used the answer to
+  decide whether it could check anything. A deployment that has stopped signing
+  and still holds its retired keys would have found its whole history
+  unverifiable while the key sat in the environment.
+- **`FileAuditStore.is_verifiable` reported True for a store it could not check
+  at all**, so an erasure would have re-sealed records signed by a rotated-away
+  key and destroyed the only evidence of who attested to them.
+
+### Added
+
+- **`Keyring`**: one key signs, any number verify. A retired key never signs.
+  Retired keys come from `REVIEW_AUDIT_KEY_RETIRED_<id>`, one variable each, so
+  nothing is parsed out of secret material; each is subject to every refusal a
+  signing key is, and none reaches a repr, a log, a signature or a key id.
+- **The verdict names the key ids it could not check**, and the verify command
+  prints the ones it holds beside them.
+- **A store conformance suite.** Choosing a store is still refused; what a store
+  must *do* is now executable. The file adapter passes it and two deliberately
+  wrong adapters fail it.
+- **A test over every field a `DecisionRecord` can carry**, asserting nothing in
+  a serialised record spans more than one line — the premise under the refusal
+  to encrypt, which until now was a habit.
+
+### Notes
+
+- **Attestation is refused again.** Every fact such a document would contain is
+  already machine-readable; what it adds is the cover page, and the cover page
+  is where a claim gets made that this repository cannot support.
+- **History is never re-signed under a new key.** The key id is the only record
+  of which key attested to what.
+
+---
+
+## [2.23.1] — 2026-08-11
+
+The self-review of Level 29, and the five findings it closed.
+
+### Fixed
+
+- **A heading the checks grade and the prompt never demands was invisible.**
+  The level validated the declined map against the output format and never
+  validated the checked list, so adding a section to `REQUIRED_SECTIONS` would
+  fail every review forever while the harness built to catch that disagreement
+  reported **Aligned**. Both directions are one list now (`ungrounded`).
+- **A stale decline exited 2 rather than 1.** The measurement was taken and the
+  answer was known — a note that outlived its section. Exit 2 is kept for the
+  code contradicting itself: a blank reason, or a heading both graded and
+  declined.
+- **`severe_findings_are_mentioned` accepted a field label as an instruction.**
+  `Vulnerabilities Found` is a shape in the output format and states none of the
+  rule, so the check reported itself backed by a prompt that asked for nothing. A
+  test now asserts the output format alone backs exactly one check.
+- **A phrase that wrapped across two lines reported as absent** — including the
+  sentence the level had just added to the prompt. Whitespace is flattened on
+  both sides; lines are joined, not turned into a bag of words.
+- **The specialists were declared out of scope for the wrong reason.** They are
+  covered because `system_prompt_for` embeds the generalist template, not
+  because "a specialist writes a section". A test pins the composition, so the
+  claim cannot narrow to one prompt of five in silence.
+- **`alignment` tripped this project's own complexity rule** at 16, found by the
+  dogfooding gate. Its two refusals are a helper.
+
+### Changed
+
+- The measurement's limit is stated where the claim lives: it detects a missing
+  or deleted instruction, not a paraphrase. A rewrite in other words reports
+  unbacked and the fix is to add the wording beside the check.
+
+---
+
+## [2.23.0] — 2026-08-11
+
+Level 29 — does the prompt ask for what the checks enforce? Recorded in
+[`docs/roadmap/level-29/spec.md`](docs/roadmap/level-29/spec.md) and
+[ADR 0031](docs/adr/0031-the-prompt-and-its-checks-are-one-artefact.md).
+
+### Added
+
+- **A fifth harness: `ai-code-review-eval --alignment`.** It compares the
+  shipped prompt against the checks over its output — no model, no dataset, no
+  network. Exit 0 aligned, 1 a gap, 2 the two texts disagree about what exists.
+- **Each narration check declares the phrases the prompt must contain** for
+  grading against it to be fair, beside the check.
+- **Each heading the output format demands is graded or declined with a
+  reason**, in the shape `fix_recipes.DECLINED` established.
+
+### Fixed
+
+- **Three of the five narration checks graded rules the prompt never stated.**
+  `citations_are_grounded`, `the_prose_claims_no_verdict` and
+  `severity_claims_are_backed` had nothing behind them: `cite`, `citation`,
+  `path:line`, `verdict` and `approved` appeared nowhere in the template. The
+  prompt now states what is graded.
+- **Two of the seven demanded headings were graded by nothing**, so a review
+  dropping the whole Refactoring Roadmap passed every check. Both now carry a
+  written reason they are ungraded.
+
+### Notes
+
+- **No interval and no floor on this one**, deliberately. Every other
+  measurement here is a sample; this compares two texts that ship together, and
+  a rate over it would be a number pretending to be a measurement.
+- **What needs a served model is printed on every run**: whether the model obeys
+  an instruction that is present, and whether a recorded review still describes
+  what the current prompt produces. Neither was approximated.
+
+---
+
+## [2.22.1] — 2026-08-11
+
+The self-review of Level 28, and the seven findings it closed. Every one is a
+version of the question the last five self-reviews converged on: *what would
+this say if the thing it checks were broken?*
+
+### Fixed
+
+- **CI has been failing since Level 25, and four level reports said it passed.**
+  Level 25 moved every floor onto a 95 % interval's lower bound. The pipelines
+  passed their own numbers on the command line and went on asking for
+  0.95/0.95/0.95 and 1.00 against bounds — so both evaluation jobs exited 1
+  while each report recorded a local run made with different arguments. Every
+  floor now has one copy, in `evaluate.py` beside its derivation, and
+  `tests/unit/test_ci_gates.py` reads both pipelines and pins each number to it.
+- **Two of the four harnesses were never run by CI.** Level 28 earned floors for
+  corpora no pipeline graded. Both pipelines now run all four.
+- **A method name two classes share was attributed to whichever one changed.**
+  Level 28 taught the documentation scope that a diff declares `render` while a
+  document writes `Renderer.render`; matching on the final segment alone made a
+  change to one class report a stale signature on another's. The tree is now
+  asked how many owners the name has, and the widening applies only when the
+  answer is one.
+- **The shipped retrieval floor was 0.35 while the level claimed 0.40** — the
+  0.40 lived in a test module. It is 0.50 today, which is what the corpus holds.
+- **The first-place floor was compared against a point estimate**, the last
+  figure in the repository still exempt from Level 25's rule. On the bound it is
+  0.39 rather than a share of 0.62; the floor takes 0.35.
+- **Two retrieval cases asked after the same section**, and both missed, so one
+  weakness spent two of sixteen observations that `RecallReport.interval` calls
+  independent. Replaced by a question nothing else asks; a test refuses a repeat.
+- **The default metric floor was zero**, which made `ai-code-review-eval` with no
+  arguments a command that could not fail. It is now the floor of whichever
+  corpus is being graded.
+- **The README quoted measurements the code stopped producing** — ten graded
+  findings, five retrieval cases, 1585 tests. This repository ships a tier whose
+  whole thesis is that documentation may not claim behaviour the code lacks.
+
+### Changed
+
+- **Retrieval floor 0.40 → 0.50**, recall 0.75 [0.51, 0.90] over sixteen cases.
+- **Documentation corpus 23 → 24 cases**, nineteen graded findings supporting
+  0.83. `DOCS` still warns rather than blocks; 0.95 needs seventy-three.
+
+---
+
+## [2.22.0] — 2026-08-11
+
+Level 28 — earning the floors. Recorded in
+[`docs/roadmap/level-28/spec.md`](docs/roadmap/level-28/spec.md) and
+[ADR 0030](docs/adr/0030-a-floor-is-earned.md).
+
+Sixteen levels of saying *a floor is earned by the level that measured it*, and
+not one of them had ever moved a floor up.
+
+### Changed
+
+- **Analyzer floor 0.70 → 0.80.** Ten graded findings became twenty; six new
+  cases, chosen from the coverage gap, three of them covering rules Level 26 had
+  written a recipe or a refusal for without anything measuring the rule.
+- **Documentation floor 0.60 → 0.80.** Six graded findings became eighteen, and
+  every `DOCS` rule now has at least three demonstrations.
+- **Retrieval floor 0.35 → 0.40.** Five cases became sixteen and recall fell from
+  a free 1.00 to a measured 0.69 — the only corpus of the four the code does not
+  ace, which is what makes it worth having.
+
+### Fixed
+
+- **`QUALITY.ERROR_HANDLING` demanded a `finally` beside a `with`** — the
+  construct that makes one unnecessary — and suggested code that does nothing.
+- **`PERFORMANCE.RECURSIVE_RISK` called `def read` recursive** because its body
+  calls `handle.read()`. An attribute call now counts only on `self` or `cls`.
+- **No method's documented signature had ever been checked.** A diff declares a
+  method's *bare* name and a document writes the *qualified* one; the scope
+  check compared them as strings.
+- **The emittable rule list was built from an enum the suite never reads.** Seven
+  rules were claimed that cannot be emitted and two that are emitted were absent;
+  the recipe coverage denominator was 39 rather than 34.
+
+### Notes
+
+`DOCS` still does not block. Eighteen findings support 0.82; a blocking gate
+wants 0.95, which needs seventy-three — one more level of authoring rather than
+an open question.
+
+---
+
 ## [2.21.1] — 2026-08-10
 
 The self-review of Level 27, and its three findings closed. Recorded in
@@ -136,7 +369,8 @@ needing an import at the top and a call in the middle was not expressible.
 - **An import that lands where imports go** — after the last import, or after
   the module docstring, never before it, and never when the module is already
   imported in any spelling.
-- **Recipe coverage, measured.** 6 of 39, and the thirty-three without one each
+- **Recipe coverage, measured.** 6 of 39 as counted at the time — 6 of 34 after
+  Level 28 corrected the denominator — and the ones without a recipe each
   carry a recorded reason. A rule with neither is a red test.
 
 ### Changed

@@ -1,0 +1,27 @@
+# The second way a fenced block fails to parse, and the one that is not a typo:
+# a block copied out of a method, keeping its indentation.
+name: broken-example-with-bad-indentation
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: docs/usage.md
+    diff: |
+      @@ -1,1 +1,4 @@
+      +```python
+documents:
+  docs/usage.md: |
+    # Usage
+
+    ```python
+    value = 1
+      value = 2
+    ```
+expected:
+  - rule: DOCS.BROKEN_EXAMPLE
+    line: 3

@@ -1,0 +1,27 @@
+# BROKEN_EXAMPLE had one case and its block was nonsense. This is the shape a
+# person actually writes: valid-looking Python with a missing colon.
+name: broken-example-with-a-real-syntax-error
+index:
+  names: [create_app, Renderer, Renderer.render, MAX_LINES, drain]
+  signatures:
+    create_app: [config, worker]
+    Renderer.render: [version]
+    drain: [worker, seconds]
+  options: ["--strict"]
+  environment: [CI_PROJECT_ID]
+changes:
+  - path: README.md
+    diff: |
+      @@ -1,1 +1,5 @@
+      +```python
+documents:
+  README.md: |
+    # Guide
+
+    ```python
+    def boot(config)
+        return config
+    ```
+expected:
+  - rule: DOCS.BROKEN_EXAMPLE
+    line: 3

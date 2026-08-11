@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from code_reviewer.evaluate import main
+from code_reviewer.evaluate import _resolve_metric_floors, main
 from code_reviewer.infrastructure.evaluation.narration_dataset import NarrationCorpus
 
 
@@ -16,6 +16,11 @@ def _dataset(root, case_body: str, fixture: str = "value = 1\n") -> str:
     return str(root)
 
 
+#: Floors of nothing, for the cases that exercise the plumbing rather than the
+#: measurement. The default is now the floor the shipped corpus holds, and a
+#: two-line dataset does not hold it (self-review 28, S-01).
+NO_FLOOR = ["--min-precision", "0", "--min-recall", "0", "--min-f1", "0"]
+
 CLEAN = "name: quiet\nfile: fixtures/subject.py\n"
 UNMET = "name: silent\nfile: fixtures/subject.py\nexpect:\n  - rule: SAST.SQL_INJECTION\n    line: 1\n"
 
@@ -23,11 +28,13 @@ UNMET = "name: silent\nfile: fixtures/subject.py\nexpect:\n  - rule: SAST.SQL_IN
 def test_a_dataset_meeting_every_floor_exits_zero(tmp_path, capsys):
     root = _dataset(tmp_path, CLEAN)
 
-    # No floors. This dataset grades a fixture the suite correctly stays quiet
-    # about, so it produces no true positives, no false positives and nothing
-    # to be uncertain about — and since Level 25 a floor is applied to the
-    # lower bound, which for a measurement of nothing is zero.
-    code = main(["--dataset", root])
+    # Floored at nothing on purpose. This dataset grades a fixture the suite
+    # correctly stays quiet about, so it produces no true positives, no false
+    # positives and nothing to be uncertain about — and since Level 25 a floor
+    # is applied to the lower bound, which for a measurement of nothing is
+    # zero. The shipped floor is what the shipped corpus holds and this is not
+    # that corpus.
+    code = main(["--dataset", root, *NO_FLOOR])
 
     assert code == 0
     assert "Evaluation" in capsys.readouterr().out
@@ -56,10 +63,28 @@ def test_a_score_below_a_floor_exits_one_and_names_the_shortfall(tmp_path, capsy
     assert "below the floor of 0.90" in output
 
 
-def test_the_default_floors_are_zero_so_a_run_reports_without_gating(tmp_path):
+def test_the_default_floor_is_the_one_the_shipped_corpus_holds(tmp_path):
+    """Self-review 28, S-01.
+
+    It used to be zero, so `ai-code-review-eval` with no arguments was a
+    command that could not fail — and the workflow carried its own numbers,
+    which is how they came to disagree with the code for four levels. The
+    default is now the floor the corpus earned, and a run that misses it says
+    so without being told to.
+    """
+    from code_reviewer.evaluate import DEFAULT_ANALYZER_FLOOR, DEFAULT_DOCUMENTATION_FLOOR, build_parser
+
     root = _dataset(tmp_path, UNMET)
 
-    assert main(["--dataset", root]) == 0
+    assert main(["--dataset", root]) == 1
+
+    args = build_parser().parse_args(["--documentation"])
+    _resolve_metric_floors(args)
+    assert args.min_precision == DEFAULT_DOCUMENTATION_FLOOR
+
+    args = build_parser().parse_args([])
+    _resolve_metric_floors(args)
+    assert args.min_precision == DEFAULT_ANALYZER_FLOOR
 
 
 def test_a_missing_fixture_exits_two_and_names_the_case(tmp_path, capsys):
@@ -82,7 +107,7 @@ def test_the_json_summary_is_written_where_asked(tmp_path):
     root = _dataset(tmp_path, CLEAN)
     destination = tmp_path / "out" / "evaluation.json"
 
-    assert main(["--dataset", root, "--json", str(destination)]) == 0
+    assert main(["--dataset", root, "--json", str(destination), *NO_FLOOR]) == 0
 
     summary = json.loads(destination.read_text(encoding="utf-8"))
     assert summary["cases"] == 1
@@ -103,7 +128,7 @@ def test_the_markdown_can_be_written_to_a_file(tmp_path, capsys):
     root = _dataset(tmp_path, CLEAN)
     destination = tmp_path / "evaluation.md"
 
-    assert main(["--dataset", root, "--markdown", str(destination)]) == 0
+    assert main(["--dataset", root, "--markdown", str(destination), *NO_FLOOR]) == 0
     assert "# Evaluation" in destination.read_text(encoding="utf-8")
     assert capsys.readouterr().out == ""
 
@@ -246,3 +271,73 @@ def test_a_summary_that_cannot_be_written_exits_two(tmp_path):
     code = main(["--narration", "--dataset", "evaluation", "--json", str(blocked / "x.json")])
 
     assert code == 2
+
+
+class TestAlignment:
+    """Level 29 — the fifth mode. Two texts, no model, no dataset."""
+
+    def test_the_shipped_prompt_is_aligned_and_exits_zero(self, capsys):
+        assert main(["--alignment"]) == 0
+
+        output = capsys.readouterr().out
+        assert "# Prompt and checks" in output
+        assert "**Aligned**" in output
+
+    def test_a_gap_exits_one(self, monkeypatch, capsys):
+        """The exit code that means "a check grades a rule nobody asked for"."""
+        from code_reviewer.infrastructure.llm.review_agent import ReviewAgent
+
+        # Still demands the two headings nothing grades — otherwise the
+        # declined notes would have outlived their sections, which is exit 2
+        # and a different question.
+        monkeypatch.setattr(
+            ReviewAgent,
+            "SYSTEM_TEMPLATE",
+            "You are a reviewer.\n\n# Architectural Review Summary\n\n## Refactoring Roadmap\n",
+        )
+
+        assert main(["--alignment"]) == 1
+        assert "NOT ALIGNED" in capsys.readouterr().out
+
+    def test_a_declined_section_the_prompt_stopped_demanding_is_a_gap(self, monkeypatch, capsys):
+        """Exit 1, not 2. Self-review 29, S-03: the measurement was taken and
+        the answer is known — a note that outlived its section — so "could not
+        measure" was the wrong thing for the command to say."""
+        import code_reviewer.domain.narration as narration
+
+        monkeypatch.setattr(narration, "UNCHECKED_SECTIONS", {"Vanished": "gone"})
+
+        assert main(["--alignment"]) == 1
+        assert "Vanished" in capsys.readouterr().out
+
+    def test_a_graded_section_the_prompt_never_demands_is_a_gap(self, monkeypatch, capsys):
+        """Self-review 29, S-01, at the command. Before it, this reported
+        **Aligned** while every review would have failed forever."""
+        import code_reviewer.domain.narration as narration
+
+        monkeypatch.setattr(narration, "REQUIRED_SECTIONS", (*narration.REQUIRED_SECTIONS, "Threat Model"))
+
+        assert main(["--alignment"]) == 1
+        assert "Threat Model" in capsys.readouterr().out
+
+    def test_a_constant_contradicting_another_cannot_be_measured(self, monkeypatch, capsys):
+        """Exit 2 is kept for the case it was always right for: the code
+        disagreeing with itself rather than with the prompt."""
+        import code_reviewer.domain.narration as narration
+
+        monkeypatch.setattr(narration, "UNCHECKED_SECTIONS", {"Code Quality": "a reason"})
+
+        assert main(["--alignment"]) == 2
+        assert "could not run" in capsys.readouterr().err
+
+    def test_it_reads_no_dataset(self, tmp_path):
+        """The other four modes need `--dataset`; this one measures the code
+        that ships. Pointing it at an empty directory changes nothing."""
+        assert main(["--alignment", "--dataset", str(tmp_path)]) == 0
+
+    def test_the_report_can_be_written_to_a_file(self, tmp_path, capsys):
+        destination = tmp_path / "alignment.md"
+
+        assert main(["--alignment", "--markdown", str(destination)]) == 0
+        assert "Prompt and checks" in destination.read_text(encoding="utf-8")
+        assert capsys.readouterr().out == ""
